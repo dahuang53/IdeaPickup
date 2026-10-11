@@ -4,9 +4,9 @@
 
 ## 获取 0.2.0rc1 候选
 
-当前材料仅作私有准备，尚未发布；下列地址是待审查和授权的发布目标，当前不可作为可下载入口。
+`0.2.0rc1` 提供版本化源码与双架构 Docker 后端候选；固件仍处于待真机验收阶段。
 
-源码目标为 [IdeaPickup 仓库](https://github.com/dahuang53/IdeaPickup)；[0.2.0rc1 Release 目标](https://github.com/dahuang53/IdeaPickup/releases/tag/0.2.0rc1) 拟提供源码归档和 SHA256SUMS。此版本不提供稳定固件附件，硬件实测范围以支持表为准。
+源码见 [IdeaPickup 仓库](https://github.com/dahuang53/IdeaPickup)；[0.2.0rc1 Release](https://github.com/dahuang53/IdeaPickup/releases/tag/0.2.0rc1) 提供源码归档和 SHA256SUMS。此版本不提供稳定固件附件，硬件实测范围以支持表为准。
 
 Docker 镜像包含 `linux/arm64`、`linux/amd64`，部署时使用固定索引身份：
 
@@ -14,7 +14,7 @@ Docker 镜像包含 `linux/arm64`、`linux/amd64`，部署时使用固定索引�
 ghcr.io/dahuang53/ideapickup-relay:0.2.0rc1@sha256:ff801391c3c2200a3575204afead8579f02fadcc112aa7d68850955a6fc35f6d
 ```
 
-发布并实际核验后，将此值填入部署 env 的 `VOICE_MEMO_IMAGE`；无需改变数据卷或其他持久标识。安装和普通更新入口见[部署说明](DEPLOYMENT.md)。同一 Release 拟提供镜像内 Debian 包的[完整对应源码归档](https://github.com/dahuang53/IdeaPickup/releases/download/0.2.0rc1/ideapickup-relay-0.2.0rc1-corresponding-source.tar.gz)与校验值；精确包和来源索引见[第三方声明](../THIRD_PARTY_NOTICES.md)。
+将此值填入部署 env 的 `VOICE_MEMO_IMAGE`；无需改变数据卷或其他持久标识。安装和普通更新入口见[部署说明](DEPLOYMENT.md)。同一 Release 提供镜像内 Debian 包的[完整对应源码归档](https://github.com/dahuang53/IdeaPickup/releases/download/0.2.0rc1/ideapickup-relay-0.2.0rc1-corresponding-source.tar.gz)与校验值；精确包和来源索引见[第三方声明](../THIRD_PARTY_NOTICES.md)。
 
 ## 准备源码候选
 

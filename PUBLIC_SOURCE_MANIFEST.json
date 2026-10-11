@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "tree_sha256": "f5a924b2db8e5604e51cf394faa85a0d18f3079868f97e7b29a0403b716c231d",
+  "tree_sha256": "f08f67a916a501e371fa6260a9e1b290ab3c0c0dcbcf435ac728affc5b78127d",
   "files": [
     {
       "path": ".dockerignore",
@@ -346,8 +346,8 @@
     },
     {
       "path": "docs/PUBLIC_RELEASE.md",
-      "sha256": "4ebc26ed2ad436232e34c59fcb41eadf9b972826645df442bd06078d073ef8fd",
-      "size": 4027,
+      "sha256": "c29b93a3d947a0bc78ae3dfd5739e9355e3405c94cfbf5980131eb652310cc81",
+      "size": 3952,
       "executable": false
     },
     {
