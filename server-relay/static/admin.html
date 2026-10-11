@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light"><title>拾想 IdeaPickup · 语音收件箱</title>
+  <link rel="stylesheet" href="assets/admin.css"><script src="assets/probe-report.js" defer></script><script src="assets/admin.js" defer></script>
+</head>
+<body>
+<section id="gate" class="gate" aria-labelledby="gate-title">
+  <div class="gate-story"><a class="wordmark" href="./">IdeaPickup<span>拾想 · 语音收件箱</span></a>
+    <div><p class="eyebrow">YOUR VOICE. YOUR SPACE.</p><h1>让想法<br>有处安放。</h1><p class="story-copy">随手记下的声音，成为收件箱里的文字。<br>服务由你管理，录音留在自己的设备。</p></div>
+    <div class="signal" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <p class="quiet">设备录音 → 千问转写 → 思源收集箱</p>
+  </div>
+  <div class="gate-form"><p class="eyebrow">CONTROL ROOM</p><h2 id="gate-title">正在连接服务</h2><p id="gate-help" class="muted">请稍候。</p>
+    <form id="auth-form" hidden>
+      <label id="bootstrap-label" hidden>一次性初始化码<input id="bootstrap-code" type="password" autocomplete="off" maxlength="128"></label>
+      <label>管理员口令<input id="password" type="password" autocomplete="current-password" minlength="12" maxlength="128" required></label>
+      <button id="auth-submit" class="primary" type="submit">登录</button>
+    </form>
+    <button id="gate-retry" type="button" hidden>重新连接</button>
+    <p class="fine">API Key 在登录后的配置页填写。<br>管理员口令与设备配对码分别使用。</p>
+  </div>
+</section>
+<div id="workspace" class="workspace layout-wrapper" hidden>
+  <aside class="rail"><a class="wordmark" href="./">IdeaPickup<span>拾想 · 语音收件箱</span></a>
+    <nav aria-label="管理页面"><button data-page="overview" aria-current="page"><span>01</span>概览</button><button data-page="config"><span>02</span>配置</button><button data-page="devices"><span>03</span>设备</button><button data-page="jobs"><span>04</span>任务</button></nav>
+    <div class="rail-bottom"><p>自托管 · 自己掌握</p><button id="logout" class="text-button">退出登录 ↗</button></div>
+  </aside>
+  <main>
+    <header class="topbar"><p>IDEA PICKUP / <span id="breadcrumb">概览</span></p><button id="refresh" class="subtle">刷新状态 ↻</button></header>
+    <section id="page-overview" class="page" aria-labelledby="overview-title">
+      <div class="page-heading"><div><p class="eyebrow">OVERVIEW</p><h1 id="overview-title">声音，正在成为文字。</h1></div><span id="service-badge" class="badge">检查中</span></div>
+      <div class="overview-grid"><article class="panel journey"><p class="eyebrow">一次记录的旅程</p><ol><li><span class="step-number">1</span><div><h3>在设备上记录</h3><p>有卡时，离线也能录音和回放。</p></div></li><li><span class="step-number">2</span><div><h3>转写成文字</h3><p>联网同步后，交给你的千问服务。</p></div></li><li><span class="step-number">3</span><div><h3>送到思源</h3><p>收到确认后，才标记为已同步。</p></div></li></ol></article>
+      <article class="panel service-panel"><p class="eyebrow">服务状态</p><h2 id="ready-title">等待检查</h2><p id="ready-detail" class="muted">正在读取服务状态。</p><dl><dt>实例标识</dt><dd id="instance">—</dd><dt>配置状态</dt><dd id="config-summary">—</dd><dt>暂存清理</dt><dd id="cleanup-summary">—</dd><dt>服务版本</dt><dd id="version-summary">—</dd><dt>处理进程</dt><dd id="worker-summary">—</dd><dt>音频解码</dt><dd id="decoder-summary">—</dd><dt>暂存可用空间</dt><dd id="storage-summary">—</dd></dl><button class="primary" data-go="config">打开配置 →</button></article></div>
+      <p class="footnote">服务不提供云端音频回放；无卡暂存仅用于转写和失败重试。</p>
+    </section>
+    <section id="page-config" class="page" hidden aria-labelledby="config-title">
+      <div class="page-heading">
+        <div>
+          <p class="eyebrow">CONFIGURATION</p>
+          <h1 id="config-title">连接你的服务。</h1>
+          <p class="muted">保存后立即生效；正在处理的任务继续使用原配置。</p>
+        </div>
+        <span id="revision-badge" class="badge">尚未配置</span>
+      </div>
+
+      <form id="config-form" class="config-form">
+        <fieldset>
+          <legend><span>01</span> 服务地址</legend>
+          <label>设备访问的服务器地址
+            <input name="public_base_url" type="url" readonly maxlength="240" required>
+          </label>
+          <p class="field-help">填写完整 HTTPS 地址，可包含端口和路径。地址来自部署配置，仅供查看。</p>
+        </fieldset>
+
+        <fieldset>
+          <legend><span>02</span> 千问转写</legend>
+          <div class="two-fields">
+            <label>接口地址
+              <input name="qwen_url" type="url" readonly required>
+            </label>
+            <label>模型
+              <select name="qwen_model" disabled>
+                <option value="qwen-audio-3.0-asr-flash" selected>qwen-audio-3.0-asr-flash</option>
+              </select>
+            </label>
+          </div>
+          <label>API Key <span id="qwen-state" class="field-state">未配置</span>
+            <input id="qwen_api_key" name="qwen_api_key" type="password" autocomplete="off" maxlength="4096" placeholder="留空保留已有 Key">
+          </label>
+          <label class="check">
+            <input id="clear_qwen" name="clear_qwen" type="checkbox">清除已有 API Key
+          </label>
+        </fieldset>
+
+        <fieldset>
+          <legend><span>03</span> 思源云端收集箱</legend>
+          <label>接口地址
+            <input name="siyuan_url" type="url" readonly required>
+          </label>
+          <label>云端收集箱 Token <span id="siyuan-state" class="field-state unconfigured">未配置</span>
+            <input id="siyuan_token" name="siyuan_token" type="password" autocomplete="off" maxlength="4096" placeholder="留空保留已有 Token">
+          </label>
+          <label class="check">
+            <input id="clear_siyuan" name="clear_siyuan" type="checkbox">清除已有 Token
+          </label>
+          <p class="field-help">使用思源云端收集箱凭据；本地内核 API Token 不适用于此接口。</p>
+        </fieldset>
+
+        <div class="form-actions">
+          <button type="button" id="validate-config">检查填写内容</button>
+          <button type="submit" class="primary" id="save-config">保存并生效</button>
+        </div>
+      </form>
+
+      <article class="connection-tests">
+        <h3>验证服务连接</h3>
+        <p class="muted" >先保存配置。端到端测试会调用千问并在思源生成测试记录，可能产生服务费用。</p>
+        <div class="form-actions">
+          <button id="probe-qwen">检查千问连接</button>
+          <button id="probe-siyuan">检查思源连接</button>
+          <button id="test-delivery">端到端测试</button>
+        </div>
+        <p id="probe-result" role="status" aria-live="polite"></p>
+      </article>
+    </section>
+
+    <section id="page-devices" class="page" hidden aria-labelledby="devices-title">
+      <div class="page-heading"><div><p class="eyebrow">DEVICES</p><h1 id="devices-title">把设备接进来。</h1><p class="muted">在设备配网页填写服务地址与一次性配对码。</p></div><button class="primary" id="issue-code">生成配对码 ＋</button></div>
+      <div id="pairing-panel" class="pairing-panel" hidden><div><p class="eyebrow">一次性配对码</p><code id="pairing-code"></code><p id="pairing-expiry"></p></div><button id="copy-code">复制配对码</button></div>
+      <div class="panel table-panel"><table><thead><tr><th>设备</th><th>状态</th><th>最近活动</th><th>操作</th></tr></thead><tbody id="devices-body"></tbody></table><p id="devices-empty" class="empty" hidden>还没有配对设备。生成配对码后，在设备上完成连接。</p></div>
+      <div class="pagination"><button id="devices-prev">上一页</button><span id="devices-page"></span><button id="devices-next">下一页</button></div>
+    </section>
+    <section id="page-jobs" class="page" hidden aria-labelledby="jobs-title">
+      <div class="page-heading"><div><p class="eyebrow">DELIVERY</p><h1 id="jobs-title">每一次记录，都有进展。</h1><p class="muted">这里只显示处理状态；录音正文请在思源查看。</p></div></div>
+      <div class="panel table-panel"><table><thead><tr><th>录音 / 设备</th><th>时长 / 来源</th><th>状态</th><th>操作</th></tr></thead><tbody id="jobs-body"></tbody></table><p id="jobs-empty" class="empty" hidden>暂无任务。设备完成配对并上传后，进度会显示在这里。</p></div>
+      <div class="pagination"><button id="jobs-prev">上一页</button><span id="jobs-page"></span><button id="jobs-next">下一页</button></div>
+    </section>
+  </main>
+</div>
+<div id="notice" role="status" aria-live="polite" hidden></div>
+<dialog id="confirm-dialog"><form method="dialog"><p class="eyebrow">请确认</p><h2 id="confirm-title"></h2><p id="confirm-copy"></p><div class="form-actions"><button value="cancel">取消</button><button value="confirm" class="primary">确认执行</button></div></form></dialog>
+
+</body>
+</html>

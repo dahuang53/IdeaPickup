@@ -1,0 +1,19 @@
+{
+  "contract": "voice-memo-config-broker",
+  "rpc_version": 1,
+  "state_format": 2,
+  "request_envelope": [
+    "version",
+    "id",
+    "method",
+    "params"
+  ],
+  "method_definitions": "server-relay/config_broker/protocol.py:METHOD_PARAMS",
+  "config_definitions": "server-relay/config_broker/core.py:DEFAULTS,SECRET_FIELDS",
+  "filesystem_authority": "UID 0; secret directory 0700, manifest/snapshot files 0600; exact ownership/no symlink/hard-link substitution; data is JSON encoded and never shell-sourced",
+  "transport_authority": "Linux Unix socket; fixed relay UID verified with SO_PEERCRED; root broker verified by client; no TCP, module, file path or shell RPC",
+  "save": "save_activate(expected_revision,patch) publishes one manifest with new active revision; interruption leaves entire old/new configuration; no saved-only candidate",
+  "retention": "Only active configuration and genuine pinned in-flight revisions retained. MAX_SNAPSHOTS derives from MAX_PINS; serialized state bounded by MAX_FILE. Idle failures release pins; stopped ledger entries retain pending-release references until idempotent release acknowledges, and routine cleanup/restart compensates failures or lost replies. Reconciliation excludes stopped references rather than restoring their snapshots. GC removes unneeded old secret files. Startup reconciliation automatic from current-version ledger, not an operator history proof.",
+  "public_views": "Secrets omitted, configured booleans only; read_snapshot requires the durable task pin",
+  "test_policy": "Explicit core ownership override only in isolated synthetic fixtures. Production serve never accepts ownership or TLS bypass arguments."
+}

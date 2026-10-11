@@ -1,0 +1,284 @@
+{
+  "contract": "voice-memo-http",
+  "protocol_version": 2,
+  "scope": "Fresh installations and ordinary recovery of tasks created by this version; no old-author data migration",
+  "identity_schema": 2,
+  "runtime_schema": 2,
+  "sources": {
+    "wav_limit": "server-relay/app.py:MAX_WAV_BYTES",
+    "wav_format": "server-relay/app.py:validate_wav",
+    "stream_format_and_limits": "server-relay/stream_service.py:FORMAT,MAX_CHUNK,RETENTION_MS",
+    "identity": "server-relay/relay/identity.py",
+    "routes": "server-relay/relay/web.py"
+  },
+  "authentication": {
+    "administrator": "Secure HttpOnly SameSite=Strict cookie; same Origin and CSRF token on writes",
+    "device": "Independent 32-byte random token encoded as 64 lowercase hexadecimal characters, bound to device_id",
+    "enrollment": "Client persists random canonical UUID enrollment_id and candidate_token before first HTTP request; activation/status/finalization authenticate that token. Only hashes stored; token never echoed."
+  },
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/v1/info",
+      "auth": "none",
+      "response": "service,server_instance_uuid,protocol_version,capabilities,limits,audio_formats"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/device-info",
+      "auth": "device",
+      "headers": [
+        "X-Device-ID",
+        "Authorization"
+      ],
+      "response": "device_id,server_instance_uuid,protocol_version; no numbering-history or retirement evidence"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/enrollments",
+      "auth": "one-time pairing code on first creation; candidate credential on exact replay",
+      "required_json": [
+        "device_id",
+        "pairing_code",
+        "enrollment_id",
+        "candidate_token"
+      ],
+      "response": "201 enrollment state; exact same id/token replay returns the current state without consuming another code or creating another enrollment"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/enrollments/{transaction}",
+      "auth": "candidate",
+      "response": "enrollment state"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/enrollments/{transaction}/activate",
+      "auth": "candidate",
+      "required_json": [],
+      "response": "200 idempotent activation; replaces the device credential"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/enrollments/{transaction}/finalize",
+      "auth": "candidate",
+      "required_json": [],
+      "response": "200 idempotent finalization"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/memos",
+      "auth": "device",
+      "headers": [
+        "X-Device-ID",
+        "X-Recording-ID",
+        "X-Audio-SHA256",
+        "Content-Length",
+        "Content-Type: audio/wav"
+      ],
+      "response": "202 only after full body length/hash/WAV validation and durable task binding; existing completed/in-flight record conflicts use 409, then query"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/memos/{device}/{recording}",
+      "auth": "matching device",
+      "response": "server_instance_uuid,device_id,recording_id,audio_sha256,audio_bytes,duration_ms,status,model,transcript_sha256,duplicate; no audio or transcript"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/memos/{device}/{recording}/retry",
+      "auth": "matching device; WAV source only",
+      "required_json": [],
+      "response": "202 explicit delivery retry using existing retained text/current provider configuration; ASR failure requires original WAV reupload; active/terminal/uncertain tasks cannot retry. Same existing retry_job semantics, no automatic uncertain redelivery."
+    },
+    {
+      "method": "POST",
+      "path": "/v1/streams",
+      "auth": "device",
+      "headers": [
+        "X-Device-ID",
+        "X-Recording-ID"
+      ],
+      "json_source": "stream_service.FORMAT",
+      "response": "201 new session / 200 existing; durable task configuration before ACK"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/streams/{device}/{recording}",
+      "auth": "matching device",
+      "response": "current stream status and reliable ACK prefix; status queries do not renew idle audio retention"
+    },
+    {
+      "method": "PUT",
+      "path": "/v1/streams/{device}/{recording}/chunks/{sequence}",
+      "auth": "matching device",
+      "headers": [
+        "X-Chunk-SHA256",
+        "Content-Type: application/octet-stream"
+      ],
+      "response": "201 new durable chunk / 200 same sequence+hash replay; next_seq and received_samples do not advance twice; differing audio uses 409"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/streams/{device}/{recording}/finish",
+      "auth": "matching device",
+      "required_json": [
+        "chunks",
+        "samples",
+        "interrupted",
+        "reason"
+      ],
+      "response": "202 queued or pending; repeated same intent remains 202 while processing / 200 terminal; changed intent uses 409"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/streams/{device}/{recording}/retry",
+      "auth": "matching device",
+      "response": "Explicit retry using current configuration; no automatic retry of uncertain delivery (including an oversized response after a delivery POST); expired audio 410"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/api/session",
+      "auth": "optional admin",
+      "response": "initialized,authenticated,csrf only when authenticated"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/api/session/initialize",
+      "auth": "local-host one-time ticket plus same Origin",
+      "required_json": [
+        "code",
+        "password"
+      ],
+      "response": "initialized"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/api/session/login",
+      "auth": "password plus same Origin",
+      "required_json": [
+        "password"
+      ],
+      "response": "authenticated,csrf and Secure cookie"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/api/session/logout",
+      "auth": "administrator write",
+      "required_json": [],
+      "response": "authenticated=false"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/api/config",
+      "auth": "administrator",
+      "response": "redacted current configuration,active_revision,public_url from deployment; no editable provider URL/model or stored secrets"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/api/config",
+      "auth": "administrator write",
+      "required_json": [
+        "expected_revision",
+        "patch"
+      ],
+      "response": "One atomic save-and-activate; whole old or new config after interruption. Lost reply: GET current state and retry with its revision. Never separate activation."
+    },
+    {
+      "method": "POST",
+      "path": "/admin/api/config/validate",
+      "auth": "administrator write",
+      "required_json": [
+        "patch"
+      ],
+      "response": "format validation only; no supplier auth or side effects"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/api/config/probe",
+      "auth": "administrator write",
+      "required_json": [
+        "service",
+        "end_to_end"
+      ],
+      "response": "Optional TLS probe; end_to_end=true explicitly requests synthetic provider call/test entry, never used implicitly"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/api/status",
+      "auth": "administrator",
+      "response": "readiness,worker,cleanup,free space,version and instance metadata; no content"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/api/devices/pairing-code",
+      "auth": "administrator write",
+      "optional_json": [
+        "ttl_seconds"
+      ],
+      "response": "one-use pairing_code and expires_at"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/api/devices",
+      "auth": "administrator",
+      "response": "paginated paired/pairing/revoked devices"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/api/devices/{device}/revoke",
+      "auth": "administrator write",
+      "required_json": [],
+      "response": "revoked; pending candidates invalidated"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/api/jobs",
+      "auth": "administrator",
+      "response": "paginated states and executable actions; no audio or transcript"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/api/jobs/{device}/{recording}/retry",
+      "auth": "administrator write",
+      "optional_json": [
+        "expected_revision"
+      ],
+      "response": "202 deliberate attempt using current config; active/terminal/uncertain jobs cannot retry; WAV ASR failure requires original file reupload"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/api/jobs/{device}/{recording}/reconcile",
+      "auth": "administrator write",
+      "required_json": [
+        "present"
+      ],
+      "response": "Only one uncertain result: present=true marks confirmed completion and cleans temporary content; false permits later explicit retry, never immediately redelivers"
+    }
+  ],
+  "configuration_patch": {
+    "allowed_fields": [
+      "qwen_api_key",
+      "siyuan_token"
+    ],
+    "keep": "omit field",
+    "replace": {
+      "op": "replace",
+      "value": "nonempty secret"
+    },
+    "clear": {
+      "op": "clear"
+    },
+    "revision": "active_revision or null on first save; stale revision 409"
+  },
+  "task_configuration": "In-flight attempts retain original durable snapshot/target. Failed/terminal/uncertain attempts release secrets after processing stops, with durable release compensation until broker acknowledgement; queries do not pin them again. Deliberate retry is a new attempt using current config, advertised in UI, without historical rebind confirmations.",
+  "retention": "No audio download/playback. Success/rejection clean audio; failed/interrupted idle audio expires within 24 hours; process restart cleans expired data before new acceptance. Sent clears temporary transcript/content.",
+  "removed": [
+    "one-step legacy enrollment",
+    "shared upload credential",
+    "migration grants/permissions",
+    "old row identity supplement",
+    "historical task import/rebinding",
+    "split save/activate/discard"
+  ]
+}

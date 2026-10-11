@@ -1,0 +1,8 @@
+本地提示：还没连上电脑喵
+PCM：16000 Hz / signed 16-bit little endian / mono
+生成：macOS say -v Tingting -r 200，afconvert 转为16kHz单声道PCM，Python wave导出帧。
+构建只嵌入已生成的PCM，不要求系统语音组件。
+SHA256 367fbdbaa3b98b5d66aadb806c5678bb80c8a8723cc6b1cbdbc544d6effddba3
+
+项目所有者已于2026-10-09确认上述精确提示音已有分发授权。
+LicenseRef-Owner-Confirmed-Redistribution；保持现有授权，不改许可为Apache-2.0或CC0。

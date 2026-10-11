@@ -1,0 +1,10 @@
+name: Source candidate checks
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  checks:
+    uses: ./.github/workflows/ci.yml
+# Checks only: no OSS/hardware qualification input, archive export, tag,
+# image push, stable firmware claim or publication. Export/release stays R10/R11.

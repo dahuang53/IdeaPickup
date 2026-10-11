@@ -1,0 +1,40 @@
+{
+  "contract": "voice-memo-two-board-candidate-v1",
+  "schema": 1,
+  "scope": "New installation and compatible app-only update. No old device history, registry, readonly qualification, migration grant or user proof fields.",
+  "sources": {
+    "board_layout_bounds": "scripts/firmware_bundle.py:PROFILES,ARTIFACTS,FLASH_SIZE,SCHEMAS,partition_rows",
+    "build_receipt": "scripts/build_receipt.py and scripts/build_vocat16.sh / build_spotpear.sh",
+    "bundle": "scripts/package_firmware.py:package and scripts/firmware_bundle.py:load_bundle",
+    "installation": "scripts/device_registry.py:Installer",
+    "software_ROM": "main/app.c:CMD_BOOTLOADER; main/memo_usb_mic.c:memo_usb_enter_bootloader; scripts/device_registry.py:request_software_rom",
+    "ROM_return": "scripts/device_rom_return.py:controlled_return",
+    "current_configuration": "docs/contracts/firmware-config-v1.json",
+    "persistent_tasks": "docs/contracts/firmware-tasks-v1.json"
+  },
+  "fields": {
+    "manifest_version": 1,
+    "board": [
+      "vocat16",
+      "spotpear"
+    ],
+    "chip": "esp32s3",
+    "flash_size": 16777216,
+    "flash_mode": "Fixed board profile: qio / dio",
+    "console": "Existing fixed board profile: composite CDC / USB Serial-JTAG, no architecture change",
+    "app_identity": "Validated ESP appended image digest, embedded version and project from actual app bytes. Distinct from whole-file SHA.",
+    "schemas": "Current first-public layouts only; constants route to SCHEMAS and corresponding persistence contracts, not a legacy reader-floor proof.",
+    "build": "Exact current source_commit, inputs_sha256, effective sdkconfig_sha256, compile_recipe_sha256 and pinned idf_commit; before/after build inputs unchanged. Dirty source is represented by actual input hash, not falsely labeled as committed.",
+    "files": "Exactly bootloader, partition_table, otadata, app, model; each basename/offset/size/SHA256 from actual files. Bounds and aligned erase span are fixed by routed source.",
+    "validation": "CANDIDATE_NOT_DEVICE_ACCEPTED; not public-release authorization"
+  },
+  "installation": {
+    "first_install": "Full private original flash backup then fixed five-artifact write; preserve default NVS, protected factory/PHY sectors, memo_meta and SD. Only normal addressed sectors are erased by esptool.",
+    "app_only": "Verify bootloader, partition table and model exact dependencies before write; back up exact aligned app write span; write only app. No implicit reset or erase of business state.",
+    "integrity": "Normalize/freeze bundle artifact bytes in the private run before device work. Validate candidate byte hashes, app format/identity, complete board partition layout and offset/size bounds. ROM chip, capacity and security preflight precede backup/programming. No force, whole-chip erase, eFuse programming or SD access.",
+    "failures": "Restore only original addressed sectors, verify restored bytes and protected regions; remain in ROM. Unknown restoration never becomes successful recovery. A failed reset after successful write remains flash-verified/boot-unconfirmed.",
+    "privacy": "No MAC, ports, personal URL, sdkconfig/ELF or history in bundle. Device logs/backups/private result use private/install-runs.",
+    "bootstrap_boundary": "ROM cannot prove board pins/model. Operator selects confirmed supported board. Software download must actually be reachable on installed firmware; no assumption about inaccessible enclosure buttons. Real installation/return/normal-update retention remain R12."
+  },
+  "build_source_identity": "source_commit is own Git HEAD or source-sha256 of archive build sources/tooling, defined by scripts/source_identity.py; never inherited ancestor Git. Actual inputs_sha256/compile recipe/artifact hashes remain authoritative even with uncommitted edits."
+}

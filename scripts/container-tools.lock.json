@@ -1,0 +1,15 @@
+{
+  "syft": {
+    "version": "1.54.0",
+    "commit": "cc326e45a6213360266dda4b30cc68095946d676",
+    "platform": "darwin_arm64",
+    "url": "https://github.com/anchore/syft/releases/download/v1.54.0/syft_1.54.0_darwin_arm64.tar.gz",
+    "archive_sha256": "7e0bdad94c569fc6d5785c9a657bbae3d4c4e140ccb5eace3d0b5b6bc2b6dbcf",
+    "binary_sha256": "835607cdfbdbfc59335b0beadeefc47aa6aab7d3b403c11cfa65627d92a27f61",
+    "license": "Apache-2.0",
+    "license_sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+    "checksums_url": "https://github.com/anchore/syft/releases/download/v1.54.0/syft_1.54.0_checksums.txt",
+    "checksums_sha256": "e423344e663d7d14db62e51ddd31e4a5012818ed69e78358391dc487483f839c",
+    "verification": "Pinned official HTTPS release hashes; release signature verification is not performed by this wrapper"
+  }
+}

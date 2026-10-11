@@ -1,0 +1,18 @@
+menu "Meow Inbox"
+    choice MEMO_BOARD
+        prompt "Confirmed target board"
+        default MEMO_BOARD_UNCONFIRMED
+        config MEMO_BOARD_UNCONFIRMED
+            bool "Unconfirmed (build only; hardware startup disabled)"
+        config MEMO_BOARD_V1_0
+            bool "esp_vocat_1_0"
+        config MEMO_BOARD_V1_2
+            bool "esp_vocat_1_2"
+        config MEMO_BOARD_SPOTPEAR_1_28
+            bool "Spotpear ESP32-S3 1.28 BOX"
+    endchoice
+    config MEMO_VOCAT16
+        bool "16 MB QIO ESP-VoCat V1.2 unit"
+        depends on MEMO_BOARD_V1_2
+        default n
+endmenu

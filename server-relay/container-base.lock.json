@@ -1,0 +1,8 @@
+{
+  "image": "python:3.11.16-slim-bookworm",
+  "digest": "sha256:a36c24f9cbdf4fd0f52d67f0823eeac19c2028c637cecc392d97f980d4fec56b",
+  "platforms": {
+    "amd64": "sha256:4b4c524dc3dce996864e030c7bd9c6b0e517597189fee48f48e05b499442444b",
+    "arm64": "sha256:bbc491ed39611eede47b1058ad4afb9ea957fb3bf4a7f1b442c6a5628ab93bdc"
+  }
+}

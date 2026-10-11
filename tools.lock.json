@@ -1,0 +1,21 @@
+{
+  "esp_idf": {
+    "version": "v5.5.1",
+    "commit": "fcae32885b0296b32044cb99ecbdc50d98dddb83",
+    "repo": "https://github.com/espressif/esp-idf.git"
+  },
+  "python": "3.12.14",
+  "cmake": "3.30.9",
+  "ninja": "1.11.1.4",
+  "esptool_backup": "5.1.0",
+  "esptool_idf": "4.12.0",
+  "idf_components_lock": "dependencies.lock",
+  "host_python_lock": "requirements-host.lock.txt",
+  "idf_python_lock": "requirements-idf.lock.txt",
+  "uv": "0.12.5",
+  "firmware_python_install": "uv venv; hash-locked setuptools 84.0.0 build seed; uv pip sync --require-hashes --no-build-isolation",
+  "idf_python_features": [
+    "core"
+  ],
+  "idf_python_constraints": "Complete project hash lock; IDF core dependency checks remain enabled with --no-constraints"
+}

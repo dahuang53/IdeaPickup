@@ -1,0 +1,415 @@
+@charset "UTF-8";
+/* Extracted from docs/design/admin-approved/index.html; frozen source stays unchanged. */
+/* Concept A: Minimal & Crisp */
+    :root {
+      --bg: #ffffff;
+      --rail-bg: #fdfdfd;
+      --text-main: #1e293b;
+      --text-muted: #64748b;
+      --accent: #4f46e5;
+      --accent-hover: #4338ca;
+      --border: #e2e8f0;
+      --danger: #ef4444;
+      --success: #10b981;
+      --accent-light: #eef2ff;
+      --font-ui: "Inter", system-ui, -apple-system, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: var(--font-ui);
+      background: var(--bg);
+      color: var(--text-main);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+      font-size: 15px;
+      line-height: 1.5;
+    }
+    .layout-wrapper {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+      width: 100%;
+    }
+
+    /* Layout */
+    .rail {
+      width: 260px;
+      background: var(--rail-bg);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      padding: 2rem 1.5rem;
+    }
+    main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+
+    /* Rail Nav */
+    .wordmark {
+      font-size: 1.25rem;
+      font-weight: 800;
+      text-decoration: none;
+      color: var(--text-main);
+      letter-spacing: -0.02em;
+      margin-bottom: 3rem;
+      display: block;
+    }
+    .wordmark span {
+      display: block;
+      font-size: 0.875rem;
+      font-weight: 400;
+      color: var(--text-muted);
+      margin-top: 0.25rem;
+    }
+    nav {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      flex: 1;
+    }
+    nav button {
+      background: transparent;
+      border: none;
+      text-align: left;
+      padding: 0.75rem 1rem;
+      font-size: 0.95rem;
+      color: var(--text-muted);
+      cursor: pointer;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      transition: background 0.2s, color 0.2s;
+    }
+    nav button span {
+      font-size: 0.75rem;
+      font-weight: 600;
+      opacity: 0.5;
+    }
+    nav button:hover {
+      background: rgba(0,0,0,0.05);
+      color: var(--text-main);
+    }
+    nav button[aria-current="page"] {
+      background: var(--text-main);
+      color: #fff;
+    }
+    .rail-bottom {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      border-top: 1px solid var(--border);
+      padding-top: 1rem;
+    }
+    .rail-bottom button {
+      background: none;
+      border: none;
+      color: var(--text-main);
+      font-weight: 500;
+      cursor: pointer;
+      padding: 0;
+      margin-top: 0.5rem;
+    }
+
+    /* Topbar */
+    .topbar {
+      padding: 1.5rem 3rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.85rem;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      text-transform: uppercase;
+    }
+
+    /* Page Content */
+    .page {
+      padding: 3rem;
+      max-width: 800px;
+    }
+    .page-heading {
+      margin-bottom: 3rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+    .eyebrow {
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--accent);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin: 0 0 0.5rem 0;
+    }
+    h1 {
+      font-size: 2.5rem;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      margin: 0 0 0.5rem 0;
+    }
+    .muted {
+      color: var(--text-muted);
+      margin: 0;
+    }
+    .badge {
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 0.25rem 0.5rem;
+      background: #f3f4f6;
+      border-radius: 4px;
+      color: var(--text-main);
+    }
+
+    /* Forms */
+    .config-form {
+      display: flex;
+      flex-direction: column;
+      gap: 2.5rem;
+    }
+    fieldset {
+      border: none;
+      padding: 0;
+      margin: 0;
+    }
+    legend {
+      font-size: 1.25rem;
+      font-weight: 700;
+      margin-bottom: 1.5rem;
+      padding: 0;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    legend span {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      font-weight: 400;
+    }
+
+    label {
+      display: block;
+      font-size: 0.9rem;
+      font-weight: 500;
+      margin-bottom: 1rem;
+    }
+    input[type="url"],
+    input[type="password"],
+    input[type="text"],
+    select {
+      width: 100%;
+      padding: 0.75rem 0;
+      font-size: 1rem;
+      font-family: inherit;
+      border: none;
+      border-bottom: 2px solid var(--border);
+      background: transparent;
+      transition: border-color 0.2s;
+      outline: none;
+      margin-top: 0.5rem;
+    }
+    input[readonly], select[disabled] {
+      color: var(--text-muted);
+      border-bottom-style: dashed;
+    }
+    input:focus:not([readonly]) {
+      border-bottom-color: var(--text-main);
+    }
+    .field-help {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-top: 0.5rem;
+    }
+    .two-fields {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+    }
+    label.check {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-weight: 400;
+      cursor: pointer;
+      margin-top: 1rem;
+    }
+    label.check input {
+      width: auto;
+      margin: 0;
+    }
+    .field-state {
+      float: right;
+      font-size: 0.8rem;
+      color: var(--success);
+      font-weight: 600;
+    }
+
+    /* Actions */
+    .form-actions {
+      display: flex;
+      gap: 1rem;
+      margin-top: 1rem;
+      padding-top: 2rem;
+      border-top: 1px solid var(--border);
+    }
+    button {
+      font-family: inherit;
+      font-size: 0.95rem;
+      font-weight: 600;
+      padding: 0.75rem 1.5rem;
+      border-radius: 4px;
+      cursor: pointer;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text-main);
+      transition: all 0.2s;
+    }
+    button:hover {
+      background: var(--rail-bg);
+    }
+    button.primary {
+      background: var(--text-main);
+      color: #fff;
+      border-color: var(--text-main);
+    }
+    button.primary:hover {
+      background: var(--accent);
+      border-color: var(--accent);
+    }
+
+    .connection-tests {
+      margin-top: 4rem;
+      padding: 2rem;
+      background: var(--rail-bg);
+      border-radius: 8px;
+    }
+    .connection-tests h3 {
+      margin: 0 0 0.5rem 0;
+    }
+
+    /* Notification */
+    #notice {
+      position: fixed;
+      bottom: 2rem;
+      right: 2rem;
+      background: var(--text-main);
+      color: #fff;
+      padding: 1rem 1.5rem;
+      border-radius: 6px;
+      font-weight: 500;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      transform: translateY(100%);
+      opacity: 0;
+      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    #notice.show {
+      transform: translateY(0);
+      opacity: 1;
+    }
+
+    [hidden] { display: none !important; }
+
+
+    /* Dialog */
+    dialog {
+      border: 1px solid var(--text-main);
+      background: var(--bg);
+      color: var(--text-main);
+      padding: 2rem;
+      border-radius: 8px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+      max-width: 400px;
+      width: 100%;
+    }
+    dialog::backdrop {
+      background: rgba(0,0,0,0.4);
+    }
+    dialog p.eyebrow {
+      margin-bottom: 0.5rem;
+    }
+    dialog h2 {
+      margin: 0 0 1rem 0;
+      font-size: 1.5rem;
+    }
+
+
+    @media (max-width: 768px) {
+      /* Remove body flex-direction column here because it's already column */
+      .layout-wrapper { flex-direction: column; }
+      .rail { width: 100%; border-right: none; border-bottom: 1px solid var(--border); padding: 1rem; }
+      nav { flex-direction: row; flex-wrap: wrap; }
+      nav button { padding: 0.5rem; }
+      .two-fields { grid-template-columns: 1fr; }
+      .page { padding: 1.5rem; }
+    }
+
+/* Adapt the approved shell to real views; preserve their existing information structure. */
+.workspace { min-height: 0; }
+main { min-width: 0; min-height: 0; }
+.rail { flex-shrink: 0; }
+.topbar .subtle { border: none; background: none; font-weight: 600; color: inherit; padding: 0; }
+button:disabled { opacity: .5; cursor: wait; }
+#notice.error { background: var(--danger); }
+.field-state.unconfigured { color: var(--text-muted); }
+.connection-tests > .muted { margin-bottom: 1.5rem; }
+.connection-tests .form-actions { border: none; padding: 0; margin: 0; }
+#probe-result { white-space: pre-line; line-height: 1.8; overflow-wrap: anywhere; }
+#probe-result:empty { display: none; }
+.probe-failed { color: var(--danger); }
+#confirm-copy { color: var(--text-muted); margin-bottom: 2rem; line-height: 1.6; }
+#confirm-dialog .form-actions { margin-top: 0; border-top: none; padding-top: 0; justify-content: flex-end; }
+.gate { flex: 1; overflow-y: auto; display: grid; grid-template-columns: 1fr 1fr; }
+.gate-story, .gate-form { padding: 3rem; }
+.gate-story { background: var(--rail-bg); border-right: 1px solid var(--border); display: flex; flex-direction: column; justify-content: space-between; }
+.gate-form { align-self: center; width: 100%; max-width: 500px; }
+.gate-form h2 { margin-top: .5rem; }
+.story-copy, .quiet, .fine { color: var(--text-muted); }
+.signal { display: flex; gap: .5rem; align-items: center; height: 3rem; }
+.signal i { display: block; width: 3px; height: 35%; background: var(--accent); }
+.signal i:nth-child(2n) { height: 70%; }
+.signal i:nth-child(3n) { height: 100%; }
+.fine, .quiet { font-size: .85rem; }
+.panel { border: 1px solid var(--border); border-radius: 8px; padding: 2rem; }
+.overview-grid { display: grid; gap: 2rem; }
+.journey ol { list-style: none; margin: 0; padding: 0; }
+.journey li { display: flex; gap: 1rem; margin-top: 1.5rem; }
+.journey h3, .journey p { margin: 0; }
+.journey p { color: var(--text-muted); }
+.step-number { color: var(--accent); font-weight: 700; }
+.service-panel dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .75rem 1rem; margin: 2rem 0; font-size: .9rem; }
+.service-panel dt { color: var(--text-muted); }
+.service-panel dd { margin: 0; overflow-wrap: anywhere; }
+.footnote { color: var(--text-muted); font-size: .85rem; margin-top: 2rem; }
+.badge.good { color: var(--success); background: var(--rail-bg); }
+.badge.attention { color: var(--danger); background: var(--rail-bg); }
+.table-panel { padding: 0; overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+th, td { padding: 1rem; text-align: left; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+th { color: var(--text-muted); font-size: .8rem; font-weight: 600; background: var(--rail-bg); }
+td button { padding: .5rem .75rem; font-size: .85rem; margin: .25rem; }
+.secondary-line { display: block; color: var(--text-muted); font-size: .8rem; margin-top: .25rem; }
+.empty { padding: 2rem; color: var(--text-muted); text-align: center; }
+.pairing-panel { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 2rem; margin-bottom: 2rem; background: var(--accent-light); border-radius: 8px; }
+.pairing-panel code { font-size: 1.5rem; letter-spacing: .1em; overflow-wrap: anywhere; }
+.pairing-panel p { color: var(--text-muted); }
+.pagination { display: flex; align-items: center; justify-content: flex-end; gap: 1rem; margin-top: 1rem; font-size: .85rem; }
+.pagination button { padding: .5rem .75rem; }
+@media (max-width: 768px) {
+  .gate { display: block; }
+  .gate-story, .gate-form { padding: 1.5rem; }
+  .gate-story { border-right: none; border-bottom: 1px solid var(--border); gap: 1rem; }
+  .gate-story h1 { font-size: 2rem; }
+  .gate-story .signal, .gate-story > .quiet { display: none; }
+  .panel, .pairing-panel { padding: 1.5rem; }
+  .table-panel { padding: 0; }
+  .pairing-panel { flex-wrap: wrap; }
+}

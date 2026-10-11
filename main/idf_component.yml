@@ -1,0 +1,12 @@
+dependencies:
+  idf: '==5.5.1'
+  espressif/esp_codec_dev: '==1.5.2'
+  espressif/esp_audio_codec: '==2.4.0'
+  espressif/esp_lvgl_port: '==2.9.0'
+  espressif/esp_lcd_st77916: '==2.0.2'
+  espressif/esp_lcd_gc9a01: '==2.0.4'
+  espressif/esp_lcd_touch_cst816s: '==1.1.2'
+  lvgl/lvgl: '==9.3.0'
+  espressif/esp-sr: "==2.3.1"
+  espressif2022/image_player: '==1.1.1'
+  espressif/tinyusb: '==0.19.0~3'

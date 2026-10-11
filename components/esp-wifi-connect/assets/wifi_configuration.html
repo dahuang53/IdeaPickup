@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>设备联网设置</title>
+  <style>
+    :root{color-scheme:dark;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;background:#071012;color:#dceae3}
+    body{margin:0;min-height:100vh;display:grid;place-items:center;background:radial-gradient(circle at 50% 0,#173033,#071012 58%)}
+    main{width:min(88vw,420px);padding:30px 24px;border:1px solid #294347;border-radius:22px;background:#101d20;box-shadow:0 20px 60px #0008}
+    h1{margin:0 0 8px;color:#b5e2cc;font-size:27px}p{margin:0 0 24px;color:#a0b6b0;line-height:1.55}
+    label{display:block;margin:16px 0 7px;font-size:14px;color:#b9cbc5}
+    input,select{width:100%;box-sizing:border-box;padding:13px 14px;border:1px solid #355156;border-radius:11px;background:#071012;color:#fff;font-size:17px;outline:none}
+    input:focus,select:focus{border-color:#b5e2cc;box-shadow:0 0 0 3px #b5e2cc20}
+    .row{display:flex;gap:9px}.row select{min-width:0;flex:1}.row button{margin-top:0;min-height:44px;width:auto;padding:0 14px;background:#243a3c;color:#dceae3}
+    button{width:100%;margin-top:22px;padding:14px;border:0;border-radius:12px;background:#b5e2cc;color:#101d20;font-size:17px;font-weight:700}
+    button:disabled{opacity:.55}.hint{margin:7px 0 0;font-size:12px;color:#78908a}.feedback{min-height:22px;margin:14px 0 -8px;color:#f08472;line-height:1.5}h2{font-size:19px;margin:30px 0 12px}.check{display:flex;align-items:center;gap:10px}.check input{width:20px;height:20px;margin:0}#exit{background:#243a3c;color:#dceae3}main{box-sizing:border-box;margin:24px 0}input:disabled{opacity:.6}
+  </style>
+</head>
+<body>
+  <main>
+    <h1>设备联网设置</h1>
+    <p>选择 2.4 GHz Wi-Fi。服务设置单独保存；有卡录音和回放可离线使用。</p>
+    <form id="wifi-form">
+      <label for="networks">扫描到的 Wi-Fi</label>
+      <div class="row"><select id="networks"><option value="">正在扫描…</option></select><button type="button" id="scan">刷新</button></div>
+      <div class="hint" id="scan-status" role="status">正在扫描附近网络…</div>
+      <label for="ssid">Wi-Fi 名称</label>
+      <input id="ssid" maxlength="32" required autocomplete="off" placeholder="选择后自动填入，也可手动输入">
+      <label for="password">Wi-Fi 密码</label>
+      <input id="password" type="password" maxlength="64" autocomplete="current-password">
+      <div class="feedback" id="wifi-feedback" role="status" aria-live="polite"></div>
+      <button id="wifi-save" type="submit">连接并保存 Wi-Fi</button>
+    </form>
+    <form id="service-form">
+      <h2>录音服务</h2>
+      <label class="check"><input id="local-only" type="checkbox">仅本地使用</label>
+      <div class="hint">停止联网同步，有卡录音和回放不受影响。无卡录音需要服务。</div>
+      <label for="server-url">服务器地址</label>
+      <input id="server-url" maxlength="240" type="url" inputmode="url" autocomplete="url" spellcheck="false" placeholder="https://你的服务器/路径">
+      <div class="hint">使用 HTTPS；可带端口和路径。IP 地址需要有效证书。</div>
+      <label for="pairing">配对码</label>
+      <input id="pairing" maxlength="16" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false">
+      <div class="hint">在服务器管理页生成；同一服务已配对或正在配对时可留空。</div>
+      <div class="feedback" id="service-feedback" role="status" aria-live="polite"></div>
+      <button id="service-save" type="submit">保存服务设置</button>
+      <p class="hint" id="service-status" role="status" aria-live="polite">正在读取设置…</p>
+    </form>
+    <button id="exit" type="button">完成并关闭热点</button>
+    <div class="feedback" id="exit-feedback" role="status"></div>
+  </main>
+  <script>
+    const $=id=>document.getElementById(id);
+    let csrf='',pending=false,loaded=false,edited=false,polling=false,timer,revision=0;
+    function buttons(){for(const id of ['wifi-save','service-save','exit'])$(id).disabled=pending||!loaded}
+    function localFields(){for(const id of ['server-url','pairing'])$(id).disabled=$('local-only').checked}
+    for(const id of ['server-url','pairing','local-only'])$(id).addEventListener('input',()=>{edited=true;localFields()});
+    async function json(url,options={}){
+      let response;try{response=await fetch(url,{cache:'no-store',...options})}catch(_){throw new Error('网络响应未确认，请保持连接设备热点后重试')}
+      let value;try{value=await response.json()}catch(_){throw new Error('设备响应未确认，请刷新或重试')}
+      if(!response.ok||!value.success&&url!='/scan')throw new Error(value.error||'设备暂不可用，请稍后重试');
+      return value;
+    }
+    async function status(){
+      if(polling)return;clearTimeout(timer);polling=true;const observed=revision;
+      try{
+        const state=await json('/service');if(observed!==revision||pending)return;csrf=state.csrf;loaded=!!csrf;
+        if(!edited&&!pending){$('server-url').value=state.server_url||'';$('local-only').checked=state.local_only;localFields()}
+        $('service-status').textContent=state.message;
+      }catch(_){if(observed!==revision||pending)return;loaded=false;$('service-status').textContent='设置读取失败，将自动重试；请保持连接设备热点'}
+      finally{polling=false;buttons();timer=setTimeout(status,2500)}
+    }
+    async function scan(){
+      $('scan').disabled=true;$('scan-status').textContent='正在扫描附近网络…';
+      try{
+        const result=await json('/scan'),seen=new Set(),list=$('networks');list.replaceChildren();
+        const prompt=document.createElement('option');prompt.value='';prompt.textContent='请选择网络';list.append(prompt);
+        for(const ap of result.aps||[]){if(!ap.ssid||seen.has(ap.ssid))continue;seen.add(ap.ssid);const option=document.createElement('option');option.value=ap.ssid;option.textContent=`${ap.ssid} (${ap.rssi} dBm)`;list.append(option)}
+        $('scan-status').textContent=seen.size?`找到 ${seen.size} 个网络，也可以手动输入`:'没有找到网络，可以手动输入';
+      }catch(_){$('scan-status').textContent='扫描暂不可用，可以手动输入'}
+      finally{$('scan').disabled=false}
+    }
+    $('scan').addEventListener('click',scan);
+    $('networks').addEventListener('change',event=>{if(event.target.value)$('ssid').value=event.target.value});
+    async function save(url,body,feedback){
+      if(pending||!loaded)return false;pending=true;revision++;buttons();feedback.textContent='正在保存，请稍候…';
+      try{
+        const result=await json(url,{method:'POST',headers:{'Content-Type':'application/json','X-Memo-CSRF':csrf},body:JSON.stringify(body)});
+        feedback.textContent=result.message||'Wi-Fi 已连接并保存';return true;
+      }catch(reason){feedback.textContent=reason.message||'连接或保存未确认，请重试';return false}
+      finally{pending=false;revision++;buttons()}
+    }
+    $('wifi-form').addEventListener('submit',async event=>{
+      event.preventDefault();
+      if(new TextEncoder().encode($('ssid').value).length>32){$('wifi-feedback').textContent='Wi-Fi 名称不能超过32字节';return}
+      if(await save('/submit',{ssid:$('ssid').value,password:$('password').value},$('wifi-feedback')))$('password').value='';
+    });
+    $('service-form').addEventListener('submit',async event=>{
+      event.preventDefault();const local=$('local-only').checked,url=$('server-url').value.trim(),code=$('pairing').value.trim().toUpperCase();
+      if(!local&&!/^https:\/\//i.test(url)){$('service-feedback').textContent='请填写 HTTPS 服务地址';return}
+      if(await save('/service',{server_url:url,pairing_code:code,local_only:local},$('service-feedback'))){$('pairing').value='';edited=false;await status()}
+    });
+    $('exit').addEventListener('click',async()=>{
+      if(await save('/exit',{},$('exit-feedback')))$('exit-feedback').textContent='热点即将关闭，设备会按已保存设置联网；有卡录音仍可离线使用';
+    });
+    buttons();localFields();scan();status();
+  </script>
+</body>
+</html>

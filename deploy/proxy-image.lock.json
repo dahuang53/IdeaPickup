@@ -1,0 +1,8 @@
+{
+  "image": "nginx:1.30.5-trixie",
+  "digest": "sha256:b972f831f200b19ef0767938224f9711e74cd783718738cd7405d5cabf75c442",
+  "platforms": {
+    "amd64": "sha256:3d2f995522ddb52c3a4eb8008b8fa26f184f7146851df1da831f88885ac40aae",
+    "arm64": "sha256:444d474369737d45215e4c3019f87e3f657b6a9c09e6ec1e9b97a5f161223bac"
+  }
+}

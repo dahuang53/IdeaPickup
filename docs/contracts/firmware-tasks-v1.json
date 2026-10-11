@@ -1,0 +1,44 @@
+{
+  "contract": "voice-memo-firmware-recording-tasks",
+  "schema": 1,
+  "scope": "First public installation and normal restart/compatible updates; no old-state import, card inventory or migration",
+  "sources": {
+    "ids_codec": "main/memo_record_ids.c",
+    "ids_adapter": "main/memo_record_ids_nvs.c",
+    "exclusive_files": "main/memo_store.c:memo_store_begin_reserved,memo_store_begin_after",
+    "SD_metadata": "main/memo_sync_cache.c",
+    "SD_behavior": "main/memo_sd_sync.cpp",
+    "SD_scheduling_and_HTTP": "main/network_sync.cpp",
+    "cardless_metadata": "main/memo_cardless_record.c",
+    "cardless_capture_and_recovery": "main/memo_cardless.cpp",
+    "HTTP": "docs/contracts/device-api-v2.json"
+  },
+  "numbering": {
+    "namespace": "memo_ids1 / floor in default NVS; one device highwater for both modes",
+    "format": "Explicit first-public magic/schema/floor/CRC bytes; exact layout is only in the routed codec, no native padding or old counter mirror",
+    "allocation": "Durably reserve a low-31-bit ID after max(device highwater,current visible/filename floor), before exposing a recording. SD keeps memo_%010u.wav; cardless keeps its existing high bit and low-31-bit display number. Gaps after aborted/uncertain allocation are intentional; no wrap or lower allocation on card replacement/deletion/restart. The filename floor also includes canonical current sidecar slots, even orphaned by WAV deletion/part discard, so a local-only allocator-failure fallback cannot reuse their eligibility.",
+    "fault": "Only genuine missing creates fresh zero. Corrupt/unknown values are never erased or treated as fresh. Unknown write outcome returns no ID, retains attempted highwater in RAM, and reloads before another reservation. After restart any actually persisted reservation remains consumed. If device allocation is unavailable, SD may still create an exclusive card-local filename, but creates no automatic cloud intent; manual synchronization requires a successful device floor observation. No failed ID is silently claimed as globally allocated."
+  },
+  "SD_task": {
+    "paths": "sync_r1_%010u.job.0 and .1 next to WAV, first-public sidecars only; old cache files never authorize state",
+    "creation": "For each successfully reserved SD ID, persist a small unbound pending intent after exclusive .part creation and before capture. WAV remains an offline recording if intent persistence fails. Only these actual new-record intents become automatic work; arbitrary/imported WAVs are not scanned into uploads. Normal recovery of their recording.active/part can finish the WAV and reuse its intent.",
+    "target": "Current normalized base URL SHA-256, server instance UUID and device ID; no stored token, old service profile or historical lookup. An unconfigured new recording can initially lack a target; a configured but unfinished pairing keeps its known URL/device/instance portion. Full target is bound on first HTTP attempt.",
+    "audio": "SHA-256 and byte length of the entire strict WAV, including its 44-byte header, before any cached/remote status is reused. Bind and fsync/read back exact task identity before GET/POST; bad/missing cache is never proof of sent. Manual synchronization can reconstruct missing/corrupt cache only from the actual current file and matching R02 response.",
+    "durability": "Explicit byte layout/version/CRC/generation in two slots, fsync/close and exact decoded readback. Highest valid generation wins; I/O errors remain errors. No FAT overwrite-rename assumption or native struct serialization; failed inactive writes leave the previous durable slot.",
+    "recovery": "Actual pending sidecar scan with a disposable round-robin RAM hint discovers every current-version pending file after restart, including several offline recordings. It does not use latest-only RAM eligibility or old cursor/manual NVS hints. Persisted manual intent survives scheduling/restart until attempted. Inspect/status-only requests preserve outstanding automatic/manual intent across 404/failure responses and durable reconstruction; inspection never promotes an unregistered local WAV into upload work. Authoritative terminal completion/rejection/uncertainty may close an intent.",
+    "identity_changes": "Rehash on current-file receipt/save and immediately before upload/retry. A changed or unreadable file/medium stops that attempt and cannot reuse old sent. A fully identified mismatch stops its automatic intent; no card registration or history proof. Different current target is not automatically resumed; an ordinary explicit manual sync may bind the same verified local audio to the current service, retaining only that current binding.",
+    "results": "Only matching server instance/device/recording/hash/length permits status application. A valid cached sent may be shown offline after checking current full file+target. Authentication/timeout does not replace a verified cached success. Lost upload/retry response remains pending and reconciles by GET, not a blind second delivery. Remote received/processing is separate from sent.",
+    "retry": "Explicit ASR retry reuploads the same original WAV; explicit delivery retry invokes the device adapter of existing retry_job using retained text and current provider config. Active/terminal/uncertain work cannot be blindly retried. Uncertain remains the existing per-task admin reconciliation, not a new user proof flow."
+  },
+  "cardless_task": {
+    "namespace": "records1 in memo_meta; shared numbering lives solely in memo_ids1, no durable counter mirror",
+    "format": "First-public explicit bytes/flags/error/current target/checksum; sole layout source is memo_cardless_record.c. Unknown/corrupt/old native struct formats rejected without erase/import. An internal may_have_remote_audio bit starts false and is durably confirmed before the first audio PUT; it is not a user field.",
+    "start": "Persist record target and active marker with commit/readback before capture. Existing real Opus parameters, finite PCM/packet buffering and one unique unconfirmed transport slot remain. A second begin cannot overwrite it.",
+    "transport": "Before any create/ACK/finish/query/retry, match stored task target to current configured target; never send an old task via a different target/current token. Replies must match the task device/recording and valid stream state. Chunk hash and sequence/received samples still decide buffer release; lost ACK replays identical sequence+chunk without releasing unique bytes.",
+    "restart": "Only the persisted last active marker is automatically recovered. GET a finalized task preserves its full duration and interruption truth after a lost finish ACK. A receiving task can finish only its confirmed server prefix as interrupted; PSRAM tail is not claimed recovered. Recovery power guard remains. A false possibility bit proves no audio PUT was allowed. At cold boot PSRAM is gone, so a corresponding active marker can be failed/cleared locally without contacting its former target, including a failed begin whose marker ACK/readback was lost. A true bit still follows the existing remote confirmation path; unknown possibility writes retain real unconfirmed RAM audio and do not issue PUT.",
+    "metadata_errors": "State writes and active marker creation/removal require commit and fresh-handle readback. Failed/unknown writes latch the existing metadata error and do not free the unique slot or report a new begin successful; restart reads actual durable state. No old records evicted on capacity/write failure.",
+    "queries": "Selected status errors use presentation notices; authentication/timeout does not replace known sent. Expired/missing audio removes unavailable retry as defined by existing query policy. Source/current-service mismatch sends no old HTTP task."
+  },
+  "compatible_updates": "Preserve current namespaces, sidecars, byte formats and normal task data. An incompatible public format requires a separately scoped schema conversion; no old-author migration/qualification mechanism.",
+  "validation_boundary": "Native C/C++ logic + real R02 ASGI and synthetic audio/providers in R04; ESP NVS, radio/TLS, physical card/power, real touch/listening are R12 and not inferred from host results."
+}

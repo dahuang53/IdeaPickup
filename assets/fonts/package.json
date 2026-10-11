@@ -1,0 +1,9 @@
+{
+  "name": "voicememo-font-build",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Locked optional tooling for the checked-in LVGL Chinese font",
+  "devDependencies": {
+    "lv_font_conv": "1.5.3"
+  }
+}

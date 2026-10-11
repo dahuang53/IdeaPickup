@@ -1,0 +1,573 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>VoiceMemo 配置 - A-Soft Refined</title>
+  <style>
+    /* Concept A: Minimal & Crisp */
+    :root {
+      --bg: #ffffff;
+      --rail-bg: #fdfdfd;
+      --text-main: #1e293b;
+      --text-muted: #64748b;
+      --accent: #4f46e5;
+      --accent-hover: #4338ca;
+      --border: #e2e8f0;
+      --danger: #ef4444;
+      --success: #10b981;
+      --accent-light: #eef2ff;
+      --font-ui: "Inter", system-ui, -apple-system, sans-serif;
+    }
+    
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: var(--font-ui);
+      background: var(--bg);
+      color: var(--text-main);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+      font-size: 15px;
+      line-height: 1.5;
+    }
+    .layout-wrapper {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+      width: 100%;
+    }
+    
+    /* Layout */
+    .rail {
+      width: 260px;
+      background: var(--rail-bg);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      padding: 2rem 1.5rem;
+    }
+    main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+    
+    /* Rail Nav */
+    .wordmark {
+      font-size: 1.25rem;
+      font-weight: 800;
+      text-decoration: none;
+      color: var(--text-main);
+      letter-spacing: -0.02em;
+      margin-bottom: 3rem;
+      display: block;
+    }
+    .wordmark span {
+      display: block;
+      font-size: 0.875rem;
+      font-weight: 400;
+      color: var(--text-muted);
+      margin-top: 0.25rem;
+    }
+    nav {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      flex: 1;
+    }
+    nav button {
+      background: transparent;
+      border: none;
+      text-align: left;
+      padding: 0.75rem 1rem;
+      font-size: 0.95rem;
+      color: var(--text-muted);
+      cursor: pointer;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      transition: background 0.2s, color 0.2s;
+    }
+    nav button span {
+      font-size: 0.75rem;
+      font-weight: 600;
+      opacity: 0.5;
+    }
+    nav button:hover {
+      background: rgba(0,0,0,0.05);
+      color: var(--text-main);
+    }
+    nav button[aria-current="page"] {
+      background: var(--text-main);
+      color: #fff;
+    }
+    .rail-bottom {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      border-top: 1px solid var(--border);
+      padding-top: 1rem;
+    }
+    .rail-bottom button {
+      background: none;
+      border: none;
+      color: var(--text-main);
+      font-weight: 500;
+      cursor: pointer;
+      padding: 0;
+      margin-top: 0.5rem;
+    }
+    
+    /* Topbar */
+    .topbar {
+      padding: 1.5rem 3rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.85rem;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      text-transform: uppercase;
+    }
+    
+    /* Page Content */
+    .page {
+      padding: 3rem;
+      max-width: 800px;
+    }
+    .page-heading {
+      margin-bottom: 3rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+    .eyebrow {
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--accent);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin: 0 0 0.5rem 0;
+    }
+    h1 {
+      font-size: 2.5rem;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      margin: 0 0 0.5rem 0;
+    }
+    .muted {
+      color: var(--text-muted);
+      margin: 0;
+    }
+    .badge {
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 0.25rem 0.5rem;
+      background: #f3f4f6;
+      border-radius: 4px;
+      color: var(--text-main);
+    }
+    
+    /* Forms */
+    .config-form {
+      display: flex;
+      flex-direction: column;
+      gap: 2.5rem;
+    }
+    fieldset {
+      border: none;
+      padding: 0;
+      margin: 0;
+    }
+    legend {
+      font-size: 1.25rem;
+      font-weight: 700;
+      margin-bottom: 1.5rem;
+      padding: 0;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    legend span {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      font-weight: 400;
+    }
+    
+    label {
+      display: block;
+      font-size: 0.9rem;
+      font-weight: 500;
+      margin-bottom: 1rem;
+    }
+    input[type="url"],
+    input[type="password"],
+    input[type="text"],
+    select {
+      width: 100%;
+      padding: 0.75rem 0;
+      font-size: 1rem;
+      font-family: inherit;
+      border: none;
+      border-bottom: 2px solid var(--border);
+      background: transparent;
+      transition: border-color 0.2s;
+      outline: none;
+      margin-top: 0.5rem;
+    }
+    input[readonly], select[disabled] {
+      color: var(--text-muted);
+      border-bottom-style: dashed;
+    }
+    input:focus:not([readonly]) {
+      border-bottom-color: var(--text-main);
+    }
+    .field-help {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-top: 0.5rem;
+    }
+    .two-fields {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+    }
+    label.check {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-weight: 400;
+      cursor: pointer;
+      margin-top: 1rem;
+    }
+    label.check input {
+      width: auto;
+      margin: 0;
+    }
+    .field-state {
+      float: right;
+      font-size: 0.8rem;
+      color: var(--success);
+      font-weight: 600;
+    }
+    
+    /* Actions */
+    .form-actions {
+      display: flex;
+      gap: 1rem;
+      margin-top: 1rem;
+      padding-top: 2rem;
+      border-top: 1px solid var(--border);
+    }
+    button {
+      font-family: inherit;
+      font-size: 0.95rem;
+      font-weight: 600;
+      padding: 0.75rem 1.5rem;
+      border-radius: 4px;
+      cursor: pointer;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text-main);
+      transition: all 0.2s;
+    }
+    button:hover {
+      background: var(--rail-bg);
+    }
+    button.primary {
+      background: var(--text-main);
+      color: #fff;
+      border-color: var(--text-main);
+    }
+    button.primary:hover {
+      background: var(--accent);
+      border-color: var(--accent);
+    }
+    
+    .connection-tests {
+      margin-top: 4rem;
+      padding: 2rem;
+      background: var(--rail-bg);
+      border-radius: 8px;
+    }
+    .connection-tests h3 {
+      margin: 0 0 0.5rem 0;
+    }
+    
+    /* Notification */
+    #notice {
+      position: fixed;
+      bottom: 2rem;
+      right: 2rem;
+      background: var(--text-main);
+      color: #fff;
+      padding: 1rem 1.5rem;
+      border-radius: 6px;
+      font-weight: 500;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      transform: translateY(100%);
+      opacity: 0;
+      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    #notice.show {
+      transform: translateY(0);
+      opacity: 1;
+    }
+    
+    [hidden] { display: none !important; }
+    
+    .dummy-page {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 60vh;
+      color: var(--text-muted);
+      text-align: center;
+    }
+
+    /* Dialog */
+    dialog {
+      border: 1px solid var(--text-main);
+      background: var(--bg);
+      color: var(--text-main);
+      padding: 2rem;
+      border-radius: 8px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+      max-width: 400px;
+      width: 100%;
+    }
+    dialog::backdrop {
+      background: rgba(0,0,0,0.4);
+    }
+    dialog p.eyebrow {
+      margin-bottom: 0.5rem;
+    }
+    dialog h2 {
+      margin: 0 0 1rem 0;
+      font-size: 1.5rem;
+    }
+    
+    .demo-banner {
+      background: var(--accent-light);
+      color: var(--accent-hover);
+      text-align: center;
+      padding: 0.5rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+    }
+
+    @media (max-width: 768px) {
+      /* Remove body flex-direction column here because it's already column */
+      .layout-wrapper { flex-direction: column; }
+      .rail { width: 100%; border-right: none; border-bottom: 1px solid var(--border); padding: 1rem; }
+      nav { flex-direction: row; flex-wrap: wrap; }
+      nav button { padding: 0.5rem; }
+      .two-fields { grid-template-columns: 1fr; }
+      .page { padding: 1.5rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="demo-banner">设计预览 · 不连接真实服务</div>
+  <div class="layout-wrapper">
+  <aside class="rail">
+    <a class="wordmark" href="#">VoiceMemo<span>语音收件箱</span></a>
+    <nav aria-label="管理页面">
+      <button data-page="overview"><span>01</span> 概览</button>
+      <button data-page="config" aria-current="page"><span>02</span> 配置</button>
+      <button data-page="devices"><span>03</span> 设备</button>
+      <button data-page="jobs"><span>04</span> 任务</button>
+    </nav>
+    <div class="rail-bottom">
+      <p>自托管 · 自己掌握</p>
+      <button id="logout-btn">退出登录 ↗</button>
+    </div>
+  </aside>
+  <main>
+    <header class="topbar">
+      <p>VOICE MEMO / <span id="breadcrumb">配置</span></p>
+      <button id="refresh-btn" class="subtle" style="border:none;background:none;font-weight:600;color:inherit;padding:0;cursor:pointer;">刷新状态 ↻</button>
+    </header>
+    
+    <section id="page-config" class="page" aria-labelledby="config-title">
+      <div class="page-heading">
+        <div>
+          <p class="eyebrow">CONFIGURATION</p>
+          <h1 id="config-title">连接你的服务。</h1>
+          <p class="muted">保存后立即生效；正在处理的任务继续使用原配置。</p>
+        </div>
+        <span id="revision-badge" class="badge">示例版本 · abc1234</span>
+      </div>
+      
+      <form id="config-form" class="config-form">
+        <fieldset>
+          <legend><span>01</span> 服务地址</legend>
+          <label>设备访问的服务器地址
+            <input name="public_base_url" type="url" readonly value="https://memo.example.com (示例)">
+          </label>
+          <p class="field-help">填写完整 HTTPS 地址，可包含端口和路径。地址来自部署配置，仅供查看。</p>
+        </fieldset>
+        
+        <fieldset>
+          <legend><span>02</span> 千问转写</legend>
+          <div class="two-fields">
+            <label>接口地址
+              <input name="qwen_url" type="url" readonly value="https://dashscope.aliyuncs.com/... (示例)">
+            </label>
+            <label>模型
+              <select name="qwen_model" disabled>
+                <option value="qwen-audio-3.0-asr-flash" selected>qwen-audio-3.0-asr-flash</option>
+              </select>
+            </label>
+          </div>
+          <label>API Key <span id="qwen-state" class="field-state">已配置 · 留空保留</span>
+            <input id="qwen_api_key" name="qwen_api_key" type="password" autocomplete="off" placeholder="留空保留已有 Key">
+          </label>
+          <label class="check">
+            <input id="clear_qwen" name="clear_qwen" type="checkbox">清除已有 API Key
+          </label>
+        </fieldset>
+        
+        <fieldset>
+          <legend><span>03</span> 思源云端收集箱</legend>
+          <label>接口地址
+            <input name="siyuan_url" type="url" readonly value="https://api.b3logfile.com/siyuan/ (示例)">
+          </label>
+          <label>云端收集箱 Token <span id="siyuan-state" class="field-state" style="color:var(--text-muted)">未配置</span>
+            <input id="siyuan_token" name="siyuan_token" type="password" autocomplete="off" placeholder="留空保留已有 Token">
+          </label>
+          <label class="check">
+            <input id="clear_siyuan" name="clear_siyuan" type="checkbox">清除已有 Token
+          </label>
+          <p class="field-help">使用思源云端收集箱凭据；本地内核 API Token 不适用于此接口。</p>
+        </fieldset>
+        
+        <div class="form-actions">
+          <button type="button" id="validate-config">检查填写内容</button>
+          <button type="button" class="primary" id="save-config">保存并生效</button>
+        </div>
+      </form>
+      
+      <article class="connection-tests">
+        <h3>验证服务连接</h3>
+        <p class="muted" style="margin-bottom:1.5rem">先保存配置。端到端测试会调用千问并在思源生成测试记录，可能产生服务费用。</p>
+        <div class="form-actions" style="border:none; padding:0; margin:0;">
+          <button id="probe-qwen">检查千问连接</button>
+          <button id="probe-siyuan">检查思源连接</button>
+          <button id="test-delivery">端到端测试</button>
+        </div>
+      </article>
+    </section>
+
+    <section id="page-dummy" class="page dummy-page" hidden>
+      <h2>仅预览配置页</h2>
+      <p>本次视觉原型仅包含“配置”页面的设计，其他页面暂未接入。</p>
+      <button onclick="document.querySelector('[data-page=\'config\']').click()" style="margin-top:1rem">返回配置页</button>
+    </section>
+  </main>
+  </div>
+  
+  <div id="notice" role="status" aria-live="polite">操作成功（演示）</div>
+
+  <dialog id="confirm-dialog">
+    <form method="dialog">
+      <p class="eyebrow">请确认 (演示)</p>
+      <h2>执行端到端测试？</h2>
+      <p style="color:var(--text-muted); margin-bottom:2rem; line-height:1.6;">
+        正式功能将使用固定合成静音调用千问，并在当前思源收集箱创建一条测试记录，可能产生服务费用。<br><br>
+        <strong>注：当前为设计演示界面，确认后不会发送真实网络请求。</strong>
+      </p>
+      <div class="form-actions" style="margin-top:0; border-top:none; padding-top:0; justify-content:flex-end;">
+        <button value="cancel">取消</button>
+        <button value="confirm" class="primary">确认执行</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script>
+    const pages = document.querySelectorAll('[data-page]');
+    const configPage = document.getElementById('page-config');
+    const dummyPage = document.getElementById('page-dummy');
+    const breadcrumb = document.getElementById('breadcrumb');
+    
+    pages.forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        pages.forEach(b => b.removeAttribute('aria-current'));
+        btn.setAttribute('aria-current', 'page');
+        const pageName = btn.dataset.page;
+        breadcrumb.textContent = btn.textContent.replace(/[0-9]+/, '').trim();
+        if (pageName === 'config') {
+          configPage.hidden = false;
+          dummyPage.hidden = true;
+        } else {
+          configPage.hidden = true;
+          dummyPage.hidden = false;
+        }
+      });
+    });
+
+    const notice = document.getElementById('notice');
+    function showNotice(msg, isError = false) {
+      notice.textContent = msg;
+      notice.style.background = isError ? 'var(--danger)' : 'var(--text-main)';
+      notice.classList.add('show');
+      setTimeout(() => {
+        notice.classList.remove('show');
+      }, 3000);
+    }
+
+    document.getElementById('save-config').addEventListener('click', () => {
+      const qwenVal = document.getElementById('qwen_api_key').value;
+      const qwenClear = document.getElementById('clear_qwen').checked;
+      const siyuanVal = document.getElementById('siyuan_token').value;
+      const siyuanClear = document.getElementById('clear_siyuan').checked;
+      
+      if ((qwenVal && qwenClear) || (siyuanVal && siyuanClear)) {
+        showNotice('演示错误：替换和清除同一凭据不能同时选择。', true);
+        return;
+      }
+      showNotice('演示：配置已保存并生效。');
+    });
+    
+    document.getElementById('validate-config').addEventListener('click', () => {
+      showNotice('演示：填写内容格式正确。');
+    });
+    
+    document.getElementById('probe-qwen').addEventListener('click', () => {
+      showNotice('演示：千问连接正常。');
+    });
+    
+    document.getElementById('probe-siyuan').addEventListener('click', () => {
+      showNotice('演示：思源连接正常。');
+    });
+    
+    const dialog = document.getElementById('confirm-dialog');
+    document.getElementById('test-delivery').addEventListener('click', () => {
+      dialog.returnValue = 'cancel';
+      dialog.showModal();
+    });
+    dialog.addEventListener('close', () => {
+      if (dialog.returnValue === 'confirm') {
+        showNotice('演示：端到端测试成功通过。');
+      }
+    });
+
+    document.getElementById('refresh-btn').addEventListener('click', () => {
+      showNotice('演示：刷新状态成功。');
+    });
+    
+    document.getElementById('logout-btn').addEventListener('click', () => {
+      showNotice('演示：已退出登录。');
+    });
+  </script>
+</body>
+</html>

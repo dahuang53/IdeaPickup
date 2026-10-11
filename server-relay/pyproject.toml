@@ -1,0 +1,15 @@
+[project]
+name = "meow-voice-memo-relay"
+version = "0.2.0rc1"
+requires-python = "==3.11.16"
+dependencies = [
+    "fastapi==0.142.2",
+    "uvicorn==0.54.0",
+    "argon2-cffi==25.1.0",
+]
+
+[dependency-groups]
+test = ["httpx2==2.13.1"]
+
+[tool.uv]
+package = false

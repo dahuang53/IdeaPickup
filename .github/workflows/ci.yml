@@ -1,0 +1,77 @@
+name: Host, firmware and container checks
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  workflow_call:
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+jobs:
+  host:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+        with:
+          version: "0.12.5"
+          enable-cache: false
+      - name: Install pinned host Opus runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends libopus0=1.4-1build1
+      # SDK bodies are also used by the native regression harness, not hardware.
+      - run: ./scripts/bootstrap.sh
+      - run: ./scripts/setup_relay.sh
+      - run: ./scripts/test_all.sh
+  firmware:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        board: [vocat16, spotpear]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+        with:
+          version: "0.12.5"
+          enable-cache: false
+      - run: ./scripts/bootstrap.sh
+      - name: Normal firmware, descriptor/UI regression and bundle
+        env:
+          BOARD: ${{ matrix.board }}
+        run: |
+          "./scripts/build_${BOARD}.sh"
+          if [[ "$BOARD" == vocat16 ]]; then
+            descriptor="$(.venv/bin/python -c 'from pathlib import Path; paths=list(Path("build-vocat16/esp-idf/espressif__tinyusb").rglob("usb_descriptors.c.obj")); assert len(paths)==1, "expected exactly one TinyUSB descriptor object"; print(paths[0])')"
+            .venv/bin/python tests/check_usb_descriptors.py "$descriptor" --sdkconfig build-vocat16/config/sdkconfig.h
+          fi
+          MEMO_UI_OUTPUT=private/ci-ui ./scripts/test_ui.sh
+          .venv/bin/python scripts/package_firmware.py --target "$BOARD" --output "private/ci-bundle/$BOARD"
+  container:
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {runner: ubuntu-24.04, platform: linux/amd64}
+          - {runner: ubuntu-24.04-arm, platform: linux/arm64}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Image, Compose and isolated broker subset
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: ./scripts/test_container_ci.sh --platform "$PLATFORM"
+# No production secrets, pull_request_target, serial, deployment or publication.

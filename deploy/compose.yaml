@@ -1,0 +1,181 @@
+{
+  "name": "${VOICE_MEMO_PROJECT:-voice-memo}",
+  "services": {
+    "volume-init": {
+      "image": "${VOICE_MEMO_IMAGE:?Set relay image digest}",
+      "user": "0:10001",
+      "entrypoint": [
+        "python",
+        "/opt/voice-memo/deploy/init-volumes.py"
+      ],
+      "command": [],
+      "network_mode": "none",
+      "read_only": true,
+      "cap_drop": [
+        "ALL"
+      ],
+      "cap_add": [
+        "CHOWN"
+      ],
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "restart": "no",
+      "volumes": [
+        "data:/var/lib/voice-memo",
+        "work:/var/lib/voice-memo-work",
+        "secrets:/var/lib/voice-memo-secrets",
+        "broker-socket:/run/voice-memo"
+      ]
+    },
+    "config-broker": {
+      "image": "${VOICE_MEMO_IMAGE:?Set relay image digest}",
+      "user": "0:10001",
+      "entrypoint": [
+        "python",
+        "-m",
+        "config_broker"
+      ],
+      "command": [
+        "--relay-uid",
+        "10001",
+        "--socket-gid",
+        "10001"
+      ],
+      "network_mode": "none",
+      "read_only": true,
+      "cap_drop": [
+        "ALL"
+      ],
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "pids_limit": 32,
+      "restart": "unless-stopped",
+      "depends_on": {
+        "volume-init": {
+          "condition": "service_completed_successfully"
+        }
+      },
+      "volumes": [
+        "secrets:/var/lib/voice-memo-secrets",
+        "broker-socket:/run/voice-memo"
+      ],
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "python",
+          "/opt/voice-memo/deploy/healthcheck.py",
+          "broker"
+        ],
+        "interval": "15s",
+        "timeout": "5s",
+        "retries": 3,
+        "start_period": "10s"
+      },
+      "logging": {
+        "driver": "local",
+        "options": {
+          "max-size": "10m",
+          "max-file": "3"
+        }
+      }
+    },
+    "relay": {
+      "image": "${VOICE_MEMO_IMAGE:?Set relay image digest}",
+      "user": "10001:10001",
+      "command": [
+        "serve",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8765",
+        "--workers",
+        "1"
+      ],
+      "read_only": true,
+      "cap_drop": [
+        "ALL"
+      ],
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "pids_limit": 256,
+      "restart": "unless-stopped",
+      "stop_grace_period": "2m",
+      "environment": {
+        "VOICE_MEMO_PUBLIC_URL": "${VOICE_MEMO_PUBLIC_URL:?Set the public HTTPS base URL}",
+        "VOICE_MEMO_DB": "/var/lib/voice-memo/relay.db",
+        "VOICE_MEMO_WORK_DIR": "/var/lib/voice-memo-work",
+        "VOICE_MEMO_STREAM_DIR": "/var/lib/voice-memo/streams",
+        "VOICE_MEMO_BROKER_SOCKET": "/run/voice-memo/config.sock",
+        "VOICE_MEMO_FORWARDED_ALLOW_IPS": "${VOICE_MEMO_GATEWAY:-172.30.86.1},${VOICE_MEMO_PROXY_IP:-172.30.86.3}",
+        "VOICE_MEMO_CONTROL_SOCKET": "/var/lib/voice-memo/control/control.sock"
+      },
+      "ports": [
+        "127.0.0.1:${VOICE_MEMO_PORT:-8765}:8765"
+      ],
+      "volumes": [
+        "data:/var/lib/voice-memo",
+        "work:/var/lib/voice-memo-work",
+        "broker-socket:/run/voice-memo:ro"
+      ],
+      "networks": {
+        "relay-network": {
+          "ipv4_address": "${VOICE_MEMO_RELAY_IP:-172.30.86.2}"
+        }
+      },
+      "depends_on": {
+        "config-broker": {
+          "condition": "service_healthy"
+        }
+      },
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "python",
+          "/opt/voice-memo/deploy/healthcheck.py",
+          "relay"
+        ],
+        "interval": "15s",
+        "timeout": "5s",
+        "retries": 3,
+        "start_period": "20s"
+      },
+      "logging": {
+        "driver": "local",
+        "options": {
+          "max-size": "10m",
+          "max-file": "3"
+        }
+      }
+    }
+  },
+  "networks": {
+    "relay-network": {
+      "driver": "bridge",
+      "ipam": {
+        "config": [
+          {
+            "subnet": "${VOICE_MEMO_SUBNET:-172.30.86.0/24}",
+            "gateway": "${VOICE_MEMO_GATEWAY:-172.30.86.1}"
+          }
+        ]
+      }
+    }
+  },
+  "volumes": {
+    "data": {
+      "name": "${VOICE_MEMO_PROJECT:-voice-memo}_data"
+    },
+    "work": {
+      "name": "${VOICE_MEMO_PROJECT:-voice-memo}_work"
+    },
+    "secrets": {
+      "name": "${VOICE_MEMO_PROJECT:-voice-memo}_secrets"
+    },
+    "broker-socket": {
+      "name": "${VOICE_MEMO_PROJECT:-voice-memo}_broker-socket"
+    }
+  }
+}

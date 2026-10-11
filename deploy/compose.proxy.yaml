@@ -1,0 +1,67 @@
+{
+  "services": {
+    "proxy": {
+      "image": "nginx:1.30.5-trixie@sha256:b972f831f200b19ef0767938224f9711e74cd783718738cd7405d5cabf75c442",
+      "user": "0:0",
+      "entrypoint": [
+        "nginx"
+      ],
+      "command": [
+        "-g",
+        "daemon off;",
+        "-c",
+        "/etc/nginx/voice-memo.conf"
+      ],
+      "read_only": true,
+      "cap_drop": [
+        "ALL"
+      ],
+      "cap_add": [
+        "SETUID",
+        "SETGID",
+        "CHOWN"
+      ],
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "pids_limit": 32,
+      "restart": "unless-stopped",
+      "ports": [
+        "${VOICE_MEMO_HTTPS_BIND:-127.0.0.1}:${VOICE_MEMO_HTTPS_PORT:-8443}:8443"
+      ],
+      "volumes": [
+        "./nginx-container.conf:/etc/nginx/voice-memo.conf:ro",
+        {
+          "type": "bind",
+          "source": "${VOICE_MEMO_TLS_DIR:?Set the dedicated TLS directory}",
+          "target": "/etc/voice-memo-tls",
+          "read_only": true,
+          "bind": {
+            "create_host_path": false
+          }
+        }
+      ],
+      "tmpfs": [
+        "/var/cache/nginx:rw,noexec,nosuid,size=16m,mode=0700",
+        "/var/run:rw,noexec,nosuid,size=1m,mode=0755"
+      ],
+      "networks": {
+        "relay-network": {
+          "ipv4_address": "${VOICE_MEMO_PROXY_IP:-172.30.86.3}"
+        }
+      },
+      "depends_on": {
+        "relay": {
+          "condition": "service_healthy"
+        }
+      },
+      "logging": {
+        "driver": "local",
+        "options": {
+          "max-size": "10m",
+          "max-file": "3"
+        }
+      }
+    }
+  }
+}

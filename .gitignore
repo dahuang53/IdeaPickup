@@ -1,0 +1,25 @@
+build/
+build-spotpear/
+build-vocat16/
+build-host/
+managed_components/
+.tools/
+.venv/
+.venv-relay/
+private/
+sdkconfig
+sdkconfig.old
+sdkconfig.spotpear
+sdkconfig.spotpear.old
+sdkconfig.vocat16
+sdkconfig.vocat16.old
+__pycache__/
+.DS_Store
+
+node_modules/
+cloud-relay/.wrangler/
+
+# Keep development firmware bundles locally; explicitly retain the validated release.
+# Previously tracked releases remain tracked.
+/artifacts/*/
+!/artifacts/vocat16-sync-bounded-20260917/

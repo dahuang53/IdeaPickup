@@ -1,0 +1,1665 @@
+{
+  "version": 1,
+  "tree_sha256": "41ed6710549ee3b06d57272e0501153e40b253f67c122a75a4f31e03846a18ed",
+  "files": [
+    {
+      "path": ".dockerignore",
+      "sha256": "f258292ac8d8fe918304ecfea1b212ce786183ed64f3d25c960c2b7bf11a3ac5",
+      "size": 1631,
+      "executable": false
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "sha256": "07ddad19ca569bdbdca447073af36b7a4bf961d96043d4027f609c18a3312dd8",
+      "size": 2817,
+      "executable": false
+    },
+    {
+      "path": ".github/workflows/release-candidate.yml",
+      "sha256": "bdbade3cc6860c5651bc855c0e9f3883ef1241a40ac9718f6cec990a4d56c4b6",
+      "size": 293,
+      "executable": false
+    },
+    {
+      "path": ".gitignore",
+      "sha256": "a9c4be6055d6dbe67ada61a7a410cc3c9be5bb47a50ed783c55c0b97c38a8c08",
+      "size": 464,
+      "executable": false
+    },
+    {
+      "path": "CHANGELOG.md",
+      "sha256": "64f2feec0ef77a5fc1edbd44f6c8b0b20fa0c2f452ebb7319ff40a7996365537",
+      "size": 468,
+      "executable": false
+    },
+    {
+      "path": "CMakeLists.txt",
+      "sha256": "c8f25c2190cbe6086c66386de5a9c74dbcff403818b46e87ecf3572df7d81922",
+      "size": 554,
+      "executable": false
+    },
+    {
+      "path": "CONTRIBUTING.md",
+      "sha256": "93899c034ca397bb59636d091a257a95f0cbec0569cac0485ee41d09edb7a50f",
+      "size": 2255,
+      "executable": false
+    },
+    {
+      "path": "LICENSE",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "size": 11358,
+      "executable": false
+    },
+    {
+      "path": "README.md",
+      "sha256": "71d64dd89ac322d49c895c76805f94204897e7209099f5440ea9d921b469f8f8",
+      "size": 3774,
+      "executable": false
+    },
+    {
+      "path": "SECURITY.md",
+      "sha256": "6bb4c75d424ee9c90b93046f7fef729d2978e943ee15677c124f6a40ed4c5382",
+      "size": 1628,
+      "executable": false
+    },
+    {
+      "path": "THIRD_PARTY_NOTICES.md",
+      "sha256": "9788d4717ece0319594f87226cba0a058ec88f9a252e4639d8144a6c3dba73f9",
+      "size": 4912,
+      "executable": false
+    },
+    {
+      "path": "assets/fonts/OFL.txt",
+      "sha256": "6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2",
+      "size": 4301,
+      "executable": false
+    },
+    {
+      "path": "assets/fonts/README.md",
+      "sha256": "3a470bcf20cc565982a3e2a9313f76138584e2cd5c5c999651bb6ddcfb8cea3c",
+      "size": 1307,
+      "executable": false
+    },
+    {
+      "path": "assets/fonts/package-lock.json",
+      "sha256": "2e786b9da498a3844330ce98d18e08b9ffc3be579df7ab1f783abd3889cbcc7e",
+      "size": 3246,
+      "executable": false
+    },
+    {
+      "path": "assets/fonts/package.json",
+      "sha256": "4233ec3f6cfe34e1825db21e184361a9400a40a5e8f81d4bdc903a52137f27c2",
+      "size": 215,
+      "executable": false
+    },
+    {
+      "path": "components/esp-wifi-connect/CMakeLists.txt",
+      "sha256": "d4d140d0c64103c7fcd69d7edd65c7c34fa5c9d008deb59916613dc007741316",
+      "size": 1167,
+      "executable": false
+    },
+    {
+      "path": "components/esp-wifi-connect/LICENSE",
+      "sha256": "35a84cad890590c2aa8421fa48db5d2fb7e5fc938f8f31ca00dc349eb5a3d5b7",
+      "size": 1065,
+      "executable": false
+    },
+    {
+      "path": "components/esp-wifi-connect/UPSTREAM_COMMIT",
+      "sha256": "05e3c4b5cd224e18f5f1334db3d428f0c5ed2567f50a94c8480a05db41c1ce39",
+      "size": 41,
+      "executable": false
+    },
+    {
+      "path": "components/esp-wifi-connect/VOICE_MEMO_PATCHES.md",
+      "sha256": "22afdf23fcf69949dbba46a55806f7274834bffec3c019b3413d56798c46079f",
+      "size": 1502,
+      "executable": false
+    },
+    {
+      "path": "components/esp-wifi-connect/assets/wifi_configuration.html",
+      "sha256": "a959e04cdc9d62ab43284212d2042ffa78e0324569688c2389ab2e3de721e67e",
+      "size": 8334,
+      "executable": false
+    },
+    {
+      "path": "components/esp-wifi-connect/assets/wifi_configuration_done.html",
+      "sha256": "6b07db7d325b287a7effff45a5473897124cfc86c6f8c4669cbbdfd1065e6cb8",
+      "size": 4497,
+      "executable": false
+    },
+    {
+      "path": "components/esp-wifi-connect/dns_server.cc",
+      "sha256": "8e6f03dc39f7386a149e227c756a53e3f715454b1d024c7ce38b75cdf00045d1",
+      "size": 3028,
+      "executable": false
+    },
+    {
+      "path": "components/esp-wifi-connect/idf_component.yml",
+      "sha256": "1d9b2bc3bf1b6d18a8a29906558f1e596ad07300e081c29d76551e1f164c5df6",
+      "size": 313,
+      "executable": false
+    },
+    {
+      "path": "components/esp-wifi-connect/include/dns_server.h",
+      "sha256": "68c8ad351a8d0f3993e4793dd28472e8ab0f8b74212450c03ec9190dbab821f9",
+      "size": 494,
+      "executable": false
+    },
+    {
+      "path": "components/esp-wifi-connect/include/memo_service_portal.h",
+      "sha256": "ac9117f92a252b037beb0918cccdedcf33dc00757b4d2feb0c5ed2d86b935904",
+      "size": 1947,
+      "executable": false
+    },
+    {
+      "path": "components/esp-wifi-connect/include/ssid_manager.h",
+      "sha256": "f278884c320c179c55939848b5a1f9bb26953d48a495498709b42ecf3ca617e4",
+      "size": 1324,
+      "executable": false
+    },
+    {
+      "path": "components/esp-wifi-connect/include/wifi_configuration_ap.h",
+      "sha256": "2d2f7ed466f33542931af116678af0a548e4a4d60c8d47e08e56f938b4999608",
+      "size": 3387,
+      "executable": false
+    },
+    {
+      "path": "components/esp-wifi-connect/include/wifi_manager.h",
+      "sha256": "362f883b11022a1a2a6ee4a798954ea2fff63e4b1fc5422610c9604478742b7d",
+      "size": 4615,
+      "executable": false
+    },
+    {
+      "path": "components/esp-wifi-connect/include/wifi_station.h",
+      "sha256": "24a629ae74456415587dd6442165d3dc5c4a5f45cd3b4e2d91d628217d4d906f",
+      "size": 3981,
+      "executable": false
+    },
+    {
+      "path": "components/esp-wifi-connect/ssid_manager.cc",
+      "sha256": "1ea32280ef410dfeaef96e993fc3176d93ec38fde5922b1f9e1ecb6245379406",
+      "size": 7162,
+      "executable": false
+    },
+    {
+      "path": "components/esp-wifi-connect/wifi_configuration_ap.cc",
+      "sha256": "e1cfdc7f5a6c4f63e0bddae655f409674f8b336e1370cdc00aa34297df4091d6",
+      "size": 43971,
+      "executable": false
+    },
+    {
+      "path": "components/esp-wifi-connect/wifi_manager.cc",
+      "sha256": "a4aeff51b7cb915f50c89042ba08786dc40632049d0e9021b9f1e6483077e7e2",
+      "size": 8860,
+      "executable": false
+    },
+    {
+      "path": "components/esp-wifi-connect/wifi_station.cc",
+      "sha256": "690967b7b90cfa9e7f7232d35a1f99a599bfadecceede0ab9ebba632c0d08ba9",
+      "size": 17760,
+      "executable": false
+    },
+    {
+      "path": "components/usb_device_uac/CMakeLists.txt",
+      "sha256": "a49d16a7d0735aeffcfba252789903c294c736d8cd7d8cea9ebf3bdb51796a30",
+      "size": 1416,
+      "executable": false
+    },
+    {
+      "path": "components/usb_device_uac/Kconfig",
+      "sha256": "b693b2862500cd8a5cec2f160dbfe9fdcfaf1a56adc4771f55af859131ec420d",
+      "size": 1171,
+      "executable": false
+    },
+    {
+      "path": "components/usb_device_uac/Kconfig.uac",
+      "sha256": "2ae32e09612d04996918f4f3d12af914a0d0dc85e61529703455923ff8a8f924",
+      "size": 3664,
+      "executable": false
+    },
+    {
+      "path": "components/usb_device_uac/idf_component.yml",
+      "sha256": "e4cd58adcffc832c82e0f4e0ea4db4590f7d9fff3426adaf6a91574081092fd5",
+      "size": 174,
+      "executable": false
+    },
+    {
+      "path": "components/usb_device_uac/include/usb_device_uac.h",
+      "sha256": "3589e4cc78a90cb112ac1254c83d5343e4b27fc83586e7144bb6595a603a88cb",
+      "size": 2514,
+      "executable": false
+    },
+    {
+      "path": "components/usb_device_uac/license.txt",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "size": 11358,
+      "executable": false
+    },
+    {
+      "path": "components/usb_device_uac/tusb_uac/tusb_config_uac.h",
+      "sha256": "47bc7c2520358f2f37ff40cbd8ad4fbde1fdb52e2314dd0739f81d2772a401a2",
+      "size": 4126,
+      "executable": false
+    },
+    {
+      "path": "components/usb_device_uac/tusb_uac/uac_config.h",
+      "sha256": "01f04925a5d76a57209148f2e69b11d4a873f9b8e996ae8254dfd40e3d1f09fa",
+      "size": 3597,
+      "executable": false
+    },
+    {
+      "path": "components/usb_device_uac/tusb_uac/uac_descriptors.h",
+      "sha256": "b86b552cac0434d51766d8f08ee590a6ae95098034a2120480ef3187a95f5633",
+      "size": 18798,
+      "executable": false
+    },
+    {
+      "path": "components/usb_device_uac/usb_device_uac.c",
+      "sha256": "21997bf62b16407b8dc240c6ab939c38bcbfe0d74423d73662394743f264b7fc",
+      "size": 27483,
+      "executable": false
+    },
+    {
+      "path": "dependencies.lock",
+      "sha256": "e39b944d7215424e126c1255c217875d7efbb1b7d6aabb10e84b362713de2c9f",
+      "size": 5528,
+      "executable": false
+    },
+    {
+      "path": "deploy/.env.example",
+      "sha256": "a0ce32958c6dd503483336f4511bd318afa42b51b3041e1de3d2a813ec4f15bb",
+      "size": 932,
+      "executable": false
+    },
+    {
+      "path": "deploy/compose.proxy.yaml",
+      "sha256": "ce1d2b3a7d00458fc46e9bf2dfa13e25be753cf6aa53e0c6f59a93ad4b2e5701",
+      "size": 1593,
+      "executable": false
+    },
+    {
+      "path": "deploy/compose.yaml",
+      "sha256": "a4ad48628aaa09c4bd1c878df18d50b8039b13c9802017803ae23f684047c4dc",
+      "size": 4463,
+      "executable": false
+    },
+    {
+      "path": "deploy/healthcheck.py",
+      "sha256": "1e2a173198049844e9528a14585403d9d26954b890b83156aed0fb07c4457cf8",
+      "size": 1124,
+      "executable": false
+    },
+    {
+      "path": "deploy/init-volumes.py",
+      "sha256": "be27e083107f0a9ac44faba61a192f37b800b5db777cd8b201b4fcbc81ab3d01",
+      "size": 1520,
+      "executable": false
+    },
+    {
+      "path": "deploy/manage.py",
+      "sha256": "fa540953eae9facfc23c163e25826efe846227aa329d78064926689c7dafb4e5",
+      "size": 17167,
+      "executable": false
+    },
+    {
+      "path": "deploy/nginx-container.conf",
+      "sha256": "2dd270dad2305ea88dbda598aa0b5a2777febc2a0515609ff18f873eb3bb551a",
+      "size": 1290,
+      "executable": false
+    },
+    {
+      "path": "deploy/nginx-existing.conf.example",
+      "sha256": "a9f16e5de9d66a25c89f7750de6d138f12bb4684ddbac871da1ce76dd6d6c843",
+      "size": 890,
+      "executable": false
+    },
+    {
+      "path": "deploy/proxy-image.lock.json",
+      "sha256": "2726e32e82f65297af42fc9c0d30eb71872fc57cfc828e3a3d9384200c664abf",
+      "size": 321,
+      "executable": false
+    },
+    {
+      "path": "deploy/storage-check.py",
+      "sha256": "6a6a7679e76c93b2c92c46b920927d73d0e4d2a38d4fcaf6dd45dc951fc8760a",
+      "size": 1598,
+      "executable": false
+    },
+    {
+      "path": "docs/DEPLOYMENT.md",
+      "sha256": "e5ea8b10c9182ef3b97a9d0076b1b69f1ac205b32ab9ed93f158bff277ed131b",
+      "size": 8761,
+      "executable": false
+    },
+    {
+      "path": "docs/DEVICE_INSTALL.md",
+      "sha256": "a2bc87172f4a7cd562a7861934e909f6e1915de6646b068b44cb418488c9a5b3",
+      "size": 6141,
+      "executable": false
+    },
+    {
+      "path": "docs/FIRMWARE_STORAGE.md",
+      "sha256": "4710eb67aaceb16d2871010c99b4811b4755eecff5be049f0a7e2b867b124a1e",
+      "size": 1720,
+      "executable": false
+    },
+    {
+      "path": "docs/PUBLIC_RELEASE.md",
+      "sha256": "4ebc26ed2ad436232e34c59fcb41eadf9b972826645df442bd06078d073ef8fd",
+      "size": 4027,
+      "executable": false
+    },
+    {
+      "path": "docs/SUPPORT.md",
+      "sha256": "ac488e54d2dbdfbe32528171fb8c4a4a59480308313ec4e5d253a35b5148f7df",
+      "size": 1829,
+      "executable": false
+    },
+    {
+      "path": "docs/TESTING.md",
+      "sha256": "63ba7fa31f5cc4dc4dca43e3b07f9f59165ff775cf75d9572d5700ffce9f55be",
+      "size": 7126,
+      "executable": false
+    },
+    {
+      "path": "docs/contracts/config-broker-v1.json",
+      "sha256": "ddd4636e5e39fdf17e7ba36e1fbe387a5468317bd57d874c65bc7a75796400b3",
+      "size": 1688,
+      "executable": false
+    },
+    {
+      "path": "docs/contracts/device-api-v2.json",
+      "sha256": "fe8cae56b6a934f54ea29468a678613f33655e6fcc5c239bc2d4bb693982870c",
+      "size": 10157,
+      "executable": false
+    },
+    {
+      "path": "docs/contracts/firmware-config-v1.json",
+      "sha256": "e0b654ba846fae03a57f66ab41b11f331689f14f9502c26780cf3410ab9b8f5e",
+      "size": 9127,
+      "executable": false
+    },
+    {
+      "path": "docs/contracts/firmware-release-v1.json",
+      "sha256": "9b535f22b99d263c1f6a96fbd7624a7c16e90c11c7bf5b948480a3e757bc6cf2",
+      "size": 3828,
+      "executable": false
+    },
+    {
+      "path": "docs/contracts/firmware-tasks-v1.json",
+      "sha256": "d49b27a55bc53efd5059c9582452bee547b8af9b187c06ad6d65a43c74347cba",
+      "size": 8266,
+      "executable": false
+    },
+    {
+      "path": "docs/design/admin-approved/index.html",
+      "sha256": "653015005fc84adb0bdd5163942885be81849d2ab32f54502b56e72093328414",
+      "size": 17076,
+      "executable": false
+    },
+    {
+      "path": "licenses/Apache-2.0.txt",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "size": 11358,
+      "executable": false
+    },
+    {
+      "path": "licenses/Python-3.11-LICENSE.txt",
+      "sha256": "3b2f81fe21d181c499c59a256c8e1968455d6689d269aa85373bfb6af41da3bf",
+      "size": 13936,
+      "executable": false
+    },
+    {
+      "path": "licenses/container-source-index.json",
+      "sha256": "7b7f4a5ae4dc852a7becb006bbf0640ef949b8c0099b32d1ada8922479fefd26",
+      "size": 197028,
+      "executable": false
+    },
+    {
+      "path": "licenses/distlib-LICENSE.txt",
+      "sha256": "808e10c8a6ab8deb149ff9b3fb19f447a808094606d712a9ca57fead3552599d",
+      "size": 14531,
+      "executable": false
+    },
+    {
+      "path": "licenses/xiaozhi-MIT.txt",
+      "sha256": "0a5a839033bfe18fe75d32b50d9d028912cf876f69ef59c2791aeb2971335d05",
+      "size": 1140,
+      "executable": false
+    },
+    {
+      "path": "main/CMakeLists.txt",
+      "sha256": "ce7bec883b57b72f34395de5963e8ff76b13ed0b0a792ab180ff279801857022",
+      "size": 1882,
+      "executable": false
+    },
+    {
+      "path": "main/Kconfig.projbuild",
+      "sha256": "418e3a118d63023d0855dd216e2cf25843cb31fb4860eb9d4b78df6eac50a92b",
+      "size": 586,
+      "executable": false
+    },
+    {
+      "path": "main/app.c",
+      "sha256": "d044890e1c414e3723fe8a9953b6facfa37fdeedbeb9ab54fa1b6a9c2827da38",
+      "size": 56041,
+      "executable": false
+    },
+    {
+      "path": "main/app.h",
+      "sha256": "f913dcb1bd240f4eac23dad9a5347005c64c619ac6403db9b34652587c3fb52f",
+      "size": 2213,
+      "executable": false
+    },
+    {
+      "path": "main/assets/cat/LICENSE",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "size": 11358,
+      "executable": false
+    },
+    {
+      "path": "main/assets/cat/README.md",
+      "sha256": "2b5d499c675022b0fa00e74c1e5e7c50f975d65d050182becff78dc0d656781d",
+      "size": 850,
+      "executable": false
+    },
+    {
+      "path": "main/assets/cat/emotion_blink1_284_126.aaf",
+      "sha256": "aafdb404605114479346b98aba24880350905e4dfc2b7aa05a77bf11a2cfc843",
+      "size": 242816,
+      "executable": false
+    },
+    {
+      "path": "main/assets/cat/emotion_blink_cardless_284_126.aaf",
+      "sha256": "e921695402b8162dcf27ffb2faca432000204cf9956fa88951d57449fe48da6e",
+      "size": 58345,
+      "executable": false
+    },
+    {
+      "path": "main/assets/cat/emotion_blink_fast_284_126.aaf",
+      "sha256": "65a9164db49f3cfbec1426031843cc2584be43c184772581e510590b79bada00",
+      "size": 73617,
+      "executable": false
+    },
+    {
+      "path": "main/assets/cat/emotion_blink_slow_284_126.aaf",
+      "sha256": "7ea7b322ee1dc859dbbc90e40eeb90dbfde036c5acbf6d794d90b7bcc546713a",
+      "size": 59177,
+      "executable": false
+    },
+    {
+      "path": "main/assets/cat/emotion_happy_284_126.aaf",
+      "sha256": "e7f38a2970a1b6ecfddb5b847b07a57503dfed05f6ed36c0311b2d750c5d487a",
+      "size": 113209,
+      "executable": false
+    },
+    {
+      "path": "main/assets/cat/emotion_sad_284_126.aaf",
+      "sha256": "4352279e0e925b60a4f7ca4bb5935516f69b438112115e1231aa727e28c19488",
+      "size": 321981,
+      "executable": false
+    },
+    {
+      "path": "main/assets/cat/emotion_sleep_284_126.aaf",
+      "sha256": "920424e4fc1e265fb033482121997f979581747eb622dfff7ffcb933bf262cfd",
+      "size": 252643,
+      "executable": false
+    },
+    {
+      "path": "main/assets/usb_no_host.pcm",
+      "sha256": "367fbdbaa3b98b5d66aadb806c5678bb80c8a8723cc6b1cbdbc544d6effddba3",
+      "size": 49750,
+      "executable": false
+    },
+    {
+      "path": "main/assets/usb_no_host.txt",
+      "sha256": "2b3bc09f33920ddf7508269b10a856e8c480ce052add8688d49bf25e0b608897",
+      "size": 506,
+      "executable": false
+    },
+    {
+      "path": "main/board.c",
+      "sha256": "4fee1eba8c835a5005c603eb8c3ded3aabec2d1b47d7327293ca388ac35724f0",
+      "size": 31734,
+      "executable": false
+    },
+    {
+      "path": "main/board.h",
+      "sha256": "54d05bbd0ba9701af2d9f5d94c7ab77f4e4ce4756df5bd23623d7fab976bf197",
+      "size": 3847,
+      "executable": false
+    },
+    {
+      "path": "main/board_lcd_init.h",
+      "sha256": "ffba4b177a0cb600fc790d9ca3150a51b12b15bb9e2aa149e02fbfe580018021",
+      "size": 7337,
+      "executable": false
+    },
+    {
+      "path": "main/board_spotpear.c",
+      "sha256": "dbbc2b100488944fe36b52237e4b5534658c14005755aa9d6915f1a0616047d6",
+      "size": 32498,
+      "executable": false
+    },
+    {
+      "path": "main/cat_anim.c",
+      "sha256": "1c30768fcd8bd7ae4952912a51c92a4c9384c97c58bdd7081f42a0690f6641ff",
+      "size": 13813,
+      "executable": false
+    },
+    {
+      "path": "main/cat_anim.h",
+      "sha256": "f85cedae06f0d767f436dbecc101e09045cbcce2f9266d93270215aa395e9fdf",
+      "size": 751,
+      "executable": false
+    },
+    {
+      "path": "main/idf_component.yml",
+      "sha256": "1f29fc5438d562eead6f2332e02396350871ca89dc23a9ce7c0acbfac31dde3a",
+      "size": 393,
+      "executable": false
+    },
+    {
+      "path": "main/memo_cardless.cpp",
+      "sha256": "fe28a0a8d31f009d6dad3ed38ee854d5249f34d2163029b76b37d5aa806a5519",
+      "size": 55805,
+      "executable": false
+    },
+    {
+      "path": "main/memo_cardless.h",
+      "sha256": "11f67316ac9b0a4cf00e363f38a4d5c9d3a3de817c91a2531d8b3b83a7f53e7d",
+      "size": 4651,
+      "executable": false
+    },
+    {
+      "path": "main/memo_cardless_buffer.c",
+      "sha256": "a881aa70082e7ca17115c9c24b7843bb063e2fbb03140766c5fc1f326e5a95ea",
+      "size": 2999,
+      "executable": false
+    },
+    {
+      "path": "main/memo_cardless_buffer.h",
+      "sha256": "25d8ab4e795f8d791bb4949bdc57503dfcfd622a97deb398d1b24a2d3e81e5c5",
+      "size": 946,
+      "executable": false
+    },
+    {
+      "path": "main/memo_cardless_record.c",
+      "sha256": "bcec1e81beb24cbda1224a8635fdd4bcb1fcca57addf8eee72f23f42012b29f5",
+      "size": 2349,
+      "executable": false
+    },
+    {
+      "path": "main/memo_cardless_record.h",
+      "sha256": "de6e694a5af1d68fd53b37ea132a9f8a44b079f1d112bb31ab0c0a93d262dd22",
+      "size": 420,
+      "executable": false
+    },
+    {
+      "path": "main/memo_cardless_state.c",
+      "sha256": "b4187afe6b6484629d607e01fb9bfb9753d220b0a178dc7a3acbb66be7d4d52e",
+      "size": 872,
+      "executable": false
+    },
+    {
+      "path": "main/memo_cardless_state.h",
+      "sha256": "ed83844f56d5e1239973abec06ee70576a4224ca4f6233c2a9dc6424d6b803f1",
+      "size": 1006,
+      "executable": false
+    },
+    {
+      "path": "main/memo_font.c",
+      "sha256": "99dcc577ad9ad6d2c328f993f905b5191838f6c637111c3ddfa10ad5e037fa54",
+      "size": 317799,
+      "executable": false
+    },
+    {
+      "path": "main/memo_font20.c",
+      "sha256": "611c68b458e89d380f3fd32384b3ad7420c589a3f2456920ad560f86da7bcacd",
+      "size": 372328,
+      "executable": false
+    },
+    {
+      "path": "main/memo_font22.c",
+      "sha256": "2881f8f44f7406c100153167b5a71e31ca25ab8f688103089844e24175af0df2",
+      "size": 86768,
+      "executable": false
+    },
+    {
+      "path": "main/memo_font24.c",
+      "sha256": "d48e88ff4a68d181cff82b8d281ffbfb17fd78d2629d7a50b05c146ff70e8419",
+      "size": 83022,
+      "executable": false
+    },
+    {
+      "path": "main/memo_gauge_profile.c",
+      "sha256": "2d0e6289da08cc8cfe71853ea3b91a9e8281689dac9369dfe8793b05af42bf2f",
+      "size": 6335,
+      "executable": false
+    },
+    {
+      "path": "main/memo_gauge_profile.h",
+      "sha256": "e0edf2c17ecee4b061c9fd1cc1b494a4cf51e737540993af40a07eb6cd42eee7",
+      "size": 1089,
+      "executable": false
+    },
+    {
+      "path": "main/memo_icons.c",
+      "sha256": "c9e9a4d5cde232b60da8be875e72457fed67d0d60ebddde46cc07e530edc2d0f",
+      "size": 66178,
+      "executable": false
+    },
+    {
+      "path": "main/memo_icons.h",
+      "sha256": "08803ab826dfdfebfbdae46858189e708934a0f13d8df88d97847ab3fb0e33fe",
+      "size": 161,
+      "executable": false
+    },
+    {
+      "path": "main/memo_network_config.c",
+      "sha256": "45b646f53a91fee5a4f14f6fea42f5f6e2e96aeb20eaa47531dd76ab1a8e2799",
+      "size": 25638,
+      "executable": false
+    },
+    {
+      "path": "main/memo_network_config.h",
+      "sha256": "ed3f276ac992374cb22b493f0a1c2c4d9fcc7cd334e90bb9c279e907bba42157",
+      "size": 3812,
+      "executable": false
+    },
+    {
+      "path": "main/memo_network_config_nvs.c",
+      "sha256": "824cf6b4a831327d877e8784d9b9ac9ae7e36bb5eddf22f014147497797876ab",
+      "size": 2160,
+      "executable": false
+    },
+    {
+      "path": "main/memo_network_config_nvs.h",
+      "sha256": "b97610ee2e27f4ff1e8a793707c5ad06277b5bb42030dd994fd93740e77fa0c3",
+      "size": 491,
+      "executable": false
+    },
+    {
+      "path": "main/memo_record_ids.c",
+      "sha256": "7e8b7f43df5c41e192ad109510eaa8655699b9d62791ad254650b0fd14b5b1df",
+      "size": 2173,
+      "executable": false
+    },
+    {
+      "path": "main/memo_record_ids.h",
+      "sha256": "3ff9a371a9e062272d4dac9cdbf65141781bd409fa13be84ab13883262a2b36f",
+      "size": 1145,
+      "executable": false
+    },
+    {
+      "path": "main/memo_record_ids_nvs.c",
+      "sha256": "b17fe2eee7d0b8a21c09c77190d8249f6c7e9623095c96c1a38f26d3b8c6d2d9",
+      "size": 2332,
+      "executable": false
+    },
+    {
+      "path": "main/memo_sd_sync.cpp",
+      "sha256": "97eb0428b78e15b7c8557c53aa66cd6b61c1045048cae046459c3a4ba12f8d7b",
+      "size": 9131,
+      "executable": false
+    },
+    {
+      "path": "main/memo_sd_sync.h",
+      "sha256": "2fc264b8d7f2036228e242bf5b1a3ea0494c961b1f8b9b35de65d7416bcc96f0",
+      "size": 1105,
+      "executable": false
+    },
+    {
+      "path": "main/memo_service_pairing.cpp",
+      "sha256": "b3a5080cd8d13a4f2039e3d68677d5c0f8e91f04d7c3383dbc935f621514f3fd",
+      "size": 5252,
+      "executable": false
+    },
+    {
+      "path": "main/memo_service_pairing.h",
+      "sha256": "9e5f58ff286922404d996af51055ff8f39e8b90ee49ba56f1a2b4f2178689d10",
+      "size": 1014,
+      "executable": false
+    },
+    {
+      "path": "main/memo_service_portal.cpp",
+      "sha256": "412dec4acef4c42fcae30e6f8717bbaa6a600b9bcaf9f2df33725ebdbc8ff593",
+      "size": 3382,
+      "executable": false
+    },
+    {
+      "path": "main/memo_store.c",
+      "sha256": "c276d98f46a9d432b26a6d21b3eca2d3125af1ac1893f8ecd71495def0e392d6",
+      "size": 26502,
+      "executable": false
+    },
+    {
+      "path": "main/memo_store.h",
+      "sha256": "6946d351567a62d9122fb809fc5e62181238a904de136933b96bc4c9eb43b3bb",
+      "size": 4764,
+      "executable": false
+    },
+    {
+      "path": "main/memo_sync_cache.c",
+      "sha256": "cc18071630e1f3b31d7a248de1163ffd6c436992640652d025a89e0afba5823c",
+      "size": 5361,
+      "executable": false
+    },
+    {
+      "path": "main/memo_sync_cache.h",
+      "sha256": "7d0d8aa4d6902f7c4ed6446537975f9c8921599fa8ccb75bda9b939b5701f226",
+      "size": 1478,
+      "executable": false
+    },
+    {
+      "path": "main/memo_usb_bus_watch.h",
+      "sha256": "fd675c10edec58cff86b389f54f5d42428985362683b66d1a05e518f009e713f",
+      "size": 1048,
+      "executable": false
+    },
+    {
+      "path": "main/memo_usb_gate.h",
+      "sha256": "1af6572c36e800e0aa7bd2175f9afd8f2fd24873fb2013e8687c5bc015a4b2cf",
+      "size": 340,
+      "executable": false
+    },
+    {
+      "path": "main/memo_usb_mic.c",
+      "sha256": "7fa750a2e7fe3f354adaacf2cfadca88174f85d0a94ea03f5638650b72ae6dc0",
+      "size": 14008,
+      "executable": false
+    },
+    {
+      "path": "main/memo_usb_mic.h",
+      "sha256": "7927b7e133266f246684c15e7877827bf074c4708f279713738e36e6ce8ef51a",
+      "size": 1011,
+      "executable": false
+    },
+    {
+      "path": "main/memo_usb_mic_stub.c",
+      "sha256": "843b43de75f3978741da41feb22bfb2eb6081d522dfdd9230644521a9c3e25ef",
+      "size": 558,
+      "executable": false
+    },
+    {
+      "path": "main/memo_usb_pcm.c",
+      "sha256": "4953f5f19b4533196fb1472b3aa30f354f6e50a9460612dbf4fe632d58d6607a",
+      "size": 1025,
+      "executable": false
+    },
+    {
+      "path": "main/memo_usb_pcm.h",
+      "sha256": "b2844d8a6c13c5f8c2bfa0f3bf20c7b8329293e221dd6ea1363d35df30f64c0a",
+      "size": 499,
+      "executable": false
+    },
+    {
+      "path": "main/memo_usb_stdio.h",
+      "sha256": "2f16b7824c9b74650d310e43795c6a730f8e5bcd2c094a734a3b968500bb1b69",
+      "size": 785,
+      "executable": false
+    },
+    {
+      "path": "main/network_sync.cpp",
+      "sha256": "fd0cde30849a26562cb76ed0db23444caa006fff8f2dcbc30e8877327dbc6b84",
+      "size": 44065,
+      "executable": false
+    },
+    {
+      "path": "main/network_sync.h",
+      "sha256": "532e9da2c3d1c5aa910aef2c3ce5db386dfbcba7faf4aa0a816dcd705512848d",
+      "size": 3314,
+      "executable": false
+    },
+    {
+      "path": "main/network_sync_state.c",
+      "sha256": "74fef5c3e0df543b1d5ea8a7fbdfa0dc42384b0c468568bb94fa33b74fe280ef",
+      "size": 3364,
+      "executable": false
+    },
+    {
+      "path": "main/network_sync_state.h",
+      "sha256": "43d936f25e8a92ebe17fab21f1fcbcb8bd858b41dce42a74f863aa9cb965e8b3",
+      "size": 2092,
+      "executable": false
+    },
+    {
+      "path": "main/power_policy.c",
+      "sha256": "a6d3148e1b88cc47e4c312cc7fbe5adfe228b996f03726dffd17ba8e80bbe9c5",
+      "size": 13044,
+      "executable": false
+    },
+    {
+      "path": "main/power_policy.h",
+      "sha256": "0be55f3274908c60e6b3971ca68a678fc9f7c5f5cf267f336c8ac4ff4eaeffb0",
+      "size": 683,
+      "executable": false
+    },
+    {
+      "path": "main/power_source.c",
+      "sha256": "662f15b00c3532852ab7cf9e17ecaff902729b81eec5d36d53553dccb6c49fd2",
+      "size": 3649,
+      "executable": false
+    },
+    {
+      "path": "main/power_source.h",
+      "sha256": "2e02205378f9e971125b9b1ab28de9d4fa67b3a73974ff6b69839c48b4353a39",
+      "size": 1045,
+      "executable": false
+    },
+    {
+      "path": "main/power_state.c",
+      "sha256": "805e8b3b44c38f14dafa88ee981a62492ba7eb31ac4d874c6378fc6e2b44f808",
+      "size": 3221,
+      "executable": false
+    },
+    {
+      "path": "main/power_state.h",
+      "sha256": "ff57d5436f180b7e1a86b4968e7d2af22cf541b936755ded150ab58b0cdd6116",
+      "size": 1569,
+      "executable": false
+    },
+    {
+      "path": "main/state.c",
+      "sha256": "343faf924bee496671161e113bccb28696f77f69af7bffadbb00214bb48092cf",
+      "size": 1280,
+      "executable": false
+    },
+    {
+      "path": "main/ui.c",
+      "sha256": "9dbbc8e83bea67ba618cd79e8376ded1dacfcddcb837bcd751fd046616e8e2c6",
+      "size": 70167,
+      "executable": false
+    },
+    {
+      "path": "main/ui_layout.h",
+      "sha256": "5567af71d4ca7993c0749ff176ac1b97a2cf3cb98a3b3d9d59b06016b224ede0",
+      "size": 1335,
+      "executable": false
+    },
+    {
+      "path": "main/usb/tusb_config.h",
+      "sha256": "593e0368ba86fec9e7aff0253e7c4afcc85939c668fe91492d5b71c55d681cc8",
+      "size": 3604,
+      "executable": false
+    },
+    {
+      "path": "main/usb/usb_descriptors.c",
+      "sha256": "692fa53cf09b6c5aa1c60199c7618f0ceac45c9563b564c760f08208d86a7457",
+      "size": 2855,
+      "executable": false
+    },
+    {
+      "path": "main/voice.c",
+      "sha256": "b1e969b5d888c050f32dbe14079367164f0643b7c3d3771412eb235ecb03cdf0",
+      "size": 11787,
+      "executable": false
+    },
+    {
+      "path": "main/voice.h",
+      "sha256": "1ac0b5f6018a102aa14ee65bbdb884dc7ef625810e8274784a6d3f56e5f09053",
+      "size": 584,
+      "executable": false
+    },
+    {
+      "path": "main/voice_gate.c",
+      "sha256": "47498de4083d4d7fda2fe6bbb9b941ff61248394c69e6c9c4fada0defda313bf",
+      "size": 2749,
+      "executable": false
+    },
+    {
+      "path": "main/voice_gate.h",
+      "sha256": "07a78666b667c61f4b59e4fb36f280b46e5b22b9219f7b64037c3dadd7312b95",
+      "size": 1362,
+      "executable": false
+    },
+    {
+      "path": "partitions.csv",
+      "sha256": "878241156a5f4cb28b4a32c2f35b2b3b396c5c0ffaf047c2e9f178fc8cd4250a",
+      "size": 413,
+      "executable": false
+    },
+    {
+      "path": "partitions.vocat16.csv",
+      "sha256": "7f2f6d5c1b0c749feb3134ac27a07973b229e8de2dc21374e6b89a28be5991c5",
+      "size": 461,
+      "executable": false
+    },
+    {
+      "path": "requirements-host.lock.txt",
+      "sha256": "d8a2af10cbacf97dcda029894599d5233d27115911475c376555a5a21de98d60",
+      "size": 42810,
+      "executable": false
+    },
+    {
+      "path": "requirements-idf.lock.txt",
+      "sha256": "fdf1dd3fb6f16c13d005d61cf77e469a17eb2fad8c640082a5bdb634b69e36cd",
+      "size": 65426,
+      "executable": false
+    },
+    {
+      "path": "scripts/audit_container_image.py",
+      "sha256": "8cc74a7a8d600ac84e5101e62b8463b59eb52284955fac8c8b54859e0db84cc9",
+      "size": 33050,
+      "executable": false
+    },
+    {
+      "path": "scripts/bootstrap.sh",
+      "sha256": "590281023c9d336c187186ba3f984df87059092cba87cdaa1f7f79f9e3d80ee1",
+      "size": 3638,
+      "executable": true
+    },
+    {
+      "path": "scripts/build.sh",
+      "sha256": "ab7c3cc51aef2be13a7bc76fa5805dab94ba2aac17fe0b243c9cb28b8a34ce41",
+      "size": 183,
+      "executable": true
+    },
+    {
+      "path": "scripts/build_receipt.py",
+      "sha256": "5f2ca861fa7dc01d703afb8a605b7811af61d9af4b15ee0a53da06f75764b593",
+      "size": 1041,
+      "executable": false
+    },
+    {
+      "path": "scripts/build_spotpear.sh",
+      "sha256": "4884baa8ede04bc20fbb06b72c8dfba1235386e7c60d96f3082cde713e23c360",
+      "size": 398,
+      "executable": true
+    },
+    {
+      "path": "scripts/build_vocat16.sh",
+      "sha256": "433a8d2c96f50001b082a9f537fa13459114dfd88c91c3f3e92e458969d8ef7c",
+      "size": 391,
+      "executable": true
+    },
+    {
+      "path": "scripts/check_usb_audio.py",
+      "sha256": "61e11ca9fe52b78d028ecaa09f32b95dd951a5ecfd3852c29d953857306fb6dc",
+      "size": 10513,
+      "executable": true
+    },
+    {
+      "path": "scripts/container-tools.lock.json",
+      "sha256": "301760cdd7e59d6167b31a2af9653d1b5b081880f42808089b439be16fa86868",
+      "size": 861,
+      "executable": false
+    },
+    {
+      "path": "scripts/container_sbom.py",
+      "sha256": "c10ee76a402cdcdcca5a88a3de6fd9a07b569b85d0321afbc80f86f8e32a7709",
+      "size": 19168,
+      "executable": false
+    },
+    {
+      "path": "scripts/device.py",
+      "sha256": "80d69a1574fe206abeac26bbb23ef883d4a150e60e03d78aa2cdae01b55406a7",
+      "size": 8756,
+      "executable": true
+    },
+    {
+      "path": "scripts/device_registry.py",
+      "sha256": "00d93c8a8c4d30b9adb9ab3368ac83828c22e5658c98eef56569ac8e3f59632c",
+      "size": 7887,
+      "executable": false
+    },
+    {
+      "path": "scripts/device_rom_return.py",
+      "sha256": "d1f1922c5504e87fe996c61ad2c01395571904faac8c82240e0b8206e50e3f09",
+      "size": 1949,
+      "executable": false
+    },
+    {
+      "path": "scripts/env.sh",
+      "sha256": "272fe7ffc23cd048d97f12fab22bd0d6f8e70e0f97e44765de7b9d3e0ce39d60",
+      "size": 2421,
+      "executable": true
+    },
+    {
+      "path": "scripts/esptool-protected.cfg",
+      "sha256": "a0ce48545db8c452972a0303e87aa6a76745ef32df44de9ab7ce65e21566845e",
+      "size": 10,
+      "executable": false
+    },
+    {
+      "path": "scripts/export_public_source.py",
+      "sha256": "509302894ffb19d231bf5178aebed60b96ffcc4d64f6fa0090c2b7433092b716",
+      "size": 19946,
+      "executable": false
+    },
+    {
+      "path": "scripts/firmware_bundle.py",
+      "sha256": "0afa4e05757275554b35e36df1d57f8b7450035fd1a81ac318b431ab99e9eb18",
+      "size": 6264,
+      "executable": false
+    },
+    {
+      "path": "scripts/flash.sh",
+      "sha256": "dc828fd08113661340b04e3b1cec7aa2d2d3c25e1b15da8d1b911bc5d6eb2677",
+      "size": 227,
+      "executable": true
+    },
+    {
+      "path": "scripts/flash_spotpear.sh",
+      "sha256": "c98e9f46635bad6309d8257cfc6158ca839db42159de37a39985f921527b93f6",
+      "size": 349,
+      "executable": true
+    },
+    {
+      "path": "scripts/flash_vocat16.sh",
+      "sha256": "e4e43be829f9aa97d6db58fac38ff57d00786e3aa388eb6c305f1687d9940f26",
+      "size": 348,
+      "executable": true
+    },
+    {
+      "path": "scripts/generate_cardless_blink.py",
+      "sha256": "472364726535c9078ad753f1f29431668c3a99b7b2bb071edac624ef134a5e0f",
+      "size": 1396,
+      "executable": false
+    },
+    {
+      "path": "scripts/generate_font.sh",
+      "sha256": "826ac0da8b160ec75a26437911a95f46f0136e95a914ee7e3fe0f276ade6f4a6",
+      "size": 2224,
+      "executable": true
+    },
+    {
+      "path": "scripts/generate_ui_icons.py",
+      "sha256": "f75dd189dc744c307cdca583e5d42c0f8a1b9cd81e7c62f3e9b572ae723cf17d",
+      "size": 1153,
+      "executable": false
+    },
+    {
+      "path": "scripts/package_firmware.py",
+      "sha256": "d6190df364ce928ac35348914d0b5591333d6f7a0f1db65cc36d3491b12557c4",
+      "size": 1909,
+      "executable": false
+    },
+    {
+      "path": "scripts/relay_deploy.sh",
+      "sha256": "7a1cc85636b12f78e8618f5d700c7642d8f8ee6692945fdb22de364f9c73b1ec",
+      "size": 161,
+      "executable": true
+    },
+    {
+      "path": "scripts/server_deploy.sh",
+      "sha256": "6600bec22aa48ef34527a1f237cc46b93048703e50b464119ea98ca9d8e7010c",
+      "size": 365,
+      "executable": true
+    },
+    {
+      "path": "scripts/server_maint.sh",
+      "sha256": "1b79574058817f0de00c41c193540757e957e23353e66929e372776776509da5",
+      "size": 1376,
+      "executable": true
+    },
+    {
+      "path": "scripts/setup_relay.sh",
+      "sha256": "b7b618a3e7e1b43a9f917262532ef47c4fcf93918847e9d6d2cfc70b739d4ed2",
+      "size": 1305,
+      "executable": true
+    },
+    {
+      "path": "scripts/source_identity.py",
+      "sha256": "5b9bbd595a121f773ad672e2261ffd170d0260d66337289119920ffa9db59b89",
+      "size": 1893,
+      "executable": false
+    },
+    {
+      "path": "scripts/test_all.sh",
+      "sha256": "dc6d7c19fc02c3a0bdf680df66bdb39fd3b8ee5f46408cd7ad82d3bbcc74e800",
+      "size": 736,
+      "executable": true
+    },
+    {
+      "path": "scripts/test_container_acceptance.py",
+      "sha256": "cedffcddbdc98a58271edec3d527b7bd95ab40f16c38719da3ac99357db4b290",
+      "size": 28794,
+      "executable": false
+    },
+    {
+      "path": "scripts/test_container_ci.sh",
+      "sha256": "c29968480a864643e8e6848a4122b38fca35941ff0af4097298eaf1f9345f763",
+      "size": 2237,
+      "executable": true
+    },
+    {
+      "path": "scripts/test_firmware_install.sh",
+      "sha256": "9e15435eb964de5dee012ae13d4606f5e30402d6be9c60d032e1865b07576d31",
+      "size": 185,
+      "executable": true
+    },
+    {
+      "path": "scripts/test_relay.sh",
+      "sha256": "b0d2b17871442dc921d0e3af534789b23e4f2899eae766788a020bfc9fb946be",
+      "size": 697,
+      "executable": true
+    },
+    {
+      "path": "scripts/test_service_config.sh",
+      "sha256": "f53392813d824dd7fbfc4ee1fce982d021cd5ae2faf32168ea3fa8a423093274",
+      "size": 902,
+      "executable": true
+    },
+    {
+      "path": "scripts/test_sync_pipeline.sh",
+      "sha256": "d45ced690972e48987449ffe61399c2a0894967a97040cce6242d101c6534e27",
+      "size": 787,
+      "executable": true
+    },
+    {
+      "path": "scripts/test_ui.sh",
+      "sha256": "9717f32d4d6873ec5e9e2b3163a9a7a2027e006b49f366d9e4116ee7d856fa1a",
+      "size": 3508,
+      "executable": true
+    },
+    {
+      "path": "sdkconfig.defaults",
+      "sha256": "575613c37d7b14bbbd73a6a3e54cbaca2c35524e7b0001dd4c6fa5c0e68c8ba3",
+      "size": 1727,
+      "executable": false
+    },
+    {
+      "path": "sdkconfig.spotpear.defaults",
+      "sha256": "2dbda1eda51d5e81c18d73dac4ee3ac30d20541a1f626dd1618b8d6c65a7dc6b",
+      "size": 1637,
+      "executable": false
+    },
+    {
+      "path": "sdkconfig.vocat16.defaults",
+      "sha256": "72e66a74a6bfcc5a5e94a30ae3df497520a9d1e9fdb57aa85f3149dab1825ba1",
+      "size": 1817,
+      "executable": false
+    },
+    {
+      "path": "server-relay/.python-version",
+      "sha256": "03520ee77719f14d31fd23cdbe29ea0e6dc6e7f181f8d8f99ef053500c192223",
+      "size": 8,
+      "executable": false
+    },
+    {
+      "path": "server-relay/Dockerfile",
+      "sha256": "e6b2f4c2b462fe26767e82b150c5cc964c37851e5b63a31b22225094c08d7851",
+      "size": 1921,
+      "executable": false
+    },
+    {
+      "path": "server-relay/README.md",
+      "sha256": "5e68bd285e45b1b8eda659eeaba89ef76379979a301dcccaa0e3875747a253d6",
+      "size": 4745,
+      "executable": false
+    },
+    {
+      "path": "server-relay/app.py",
+      "sha256": "cf4abf6eee0a96742300552ef4707c9a937eb13404551713999ee0bac37b5ddd",
+      "size": 28271,
+      "executable": false
+    },
+    {
+      "path": "server-relay/bin/relay-admin",
+      "sha256": "e9cdac230b75f54449c129daaf798bad115772f058545bac8c178abb14d3f8ec",
+      "size": 44,
+      "executable": true
+    },
+    {
+      "path": "server-relay/config_broker/README.md",
+      "sha256": "61f4a25feaa805e8afaa7a89b6a19185b43f4d28aabd1207be1be3029f8d1cbd",
+      "size": 1451,
+      "executable": false
+    },
+    {
+      "path": "server-relay/config_broker/__init__.py",
+      "sha256": "d36c38f52b7fcdc783c95acd759a5f31722460d9cefb4c5ef85ae6f9570d6544",
+      "size": 214,
+      "executable": false
+    },
+    {
+      "path": "server-relay/config_broker/__main__.py",
+      "sha256": "3426a85442b716f88c2cf9132f4a1b0b4b90d768920c2f9d809695c5b28e93ed",
+      "size": 50,
+      "executable": false
+    },
+    {
+      "path": "server-relay/config_broker/client.py",
+      "sha256": "35f19d2d0545d97a1f8cbe4dfd2d906ad1aeff5d4aea8fe125931f9deaf2f987",
+      "size": 3856,
+      "executable": false
+    },
+    {
+      "path": "server-relay/config_broker/core.py",
+      "sha256": "5f9fdb6b4fe5005c4745de20fd4340bdf78a380906053292f06241c2b73fed0e",
+      "size": 20050,
+      "executable": false
+    },
+    {
+      "path": "server-relay/config_broker/protocol.py",
+      "sha256": "c47c8eda4fc59a8c5ac80c5456c86b0e53628bcc37f3a704505676d5a6c422f4",
+      "size": 2048,
+      "executable": false
+    },
+    {
+      "path": "server-relay/config_broker/server.py",
+      "sha256": "970a3484b9cc5fef8719d77e0efd787ba15c4e921f2bb1d2d75c028c1c12e630",
+      "size": 6273,
+      "executable": false
+    },
+    {
+      "path": "server-relay/container-base.lock.json",
+      "sha256": "e90cd71c7ca6584b3a7da807980bcc8fe2bb5de3f071d39fb6cd3f3b0e24f6ed",
+      "size": 330,
+      "executable": false
+    },
+    {
+      "path": "server-relay/ops/meow_relay_maint.py",
+      "sha256": "775d8958a431aa2d21ce6211d177c467c078f5cf6a9ad36a445ce430c34cc9df",
+      "size": 10466,
+      "executable": false
+    },
+    {
+      "path": "server-relay/pyproject.toml",
+      "sha256": "ac8558d618b9a56ea683abb44ae91cecf554a67acdb5d19c331fb4218adff6e7",
+      "size": 259,
+      "executable": false
+    },
+    {
+      "path": "server-relay/relay/__init__.py",
+      "sha256": "f72c2ac7ab68c817e637da60e00f044532f96e183fbf3e0bbdc2691748363b8a",
+      "size": 72,
+      "executable": false
+    },
+    {
+      "path": "server-relay/relay/__main__.py",
+      "sha256": "cbc5d83b94c095c0c45a312c78af4ada5b38d0973063b02eb857bf6001feffc1",
+      "size": 4121,
+      "executable": false
+    },
+    {
+      "path": "server-relay/relay/admin.py",
+      "sha256": "2540e36aa248a120b9495b3af39f0ce28b48d1336143231d32b6458800971187",
+      "size": 9015,
+      "executable": false
+    },
+    {
+      "path": "server-relay/relay/auth.py",
+      "sha256": "e17502ab2fbec960d747c498495ce3ab91c7c2eb1dcc31b490c04b14bfa05b2e",
+      "size": 228,
+      "executable": false
+    },
+    {
+      "path": "server-relay/relay/control.py",
+      "sha256": "8135ebd1a3fa2fa1c033baedecc6af2dc2e56506ad28e7dad2e5daef7fdd71a0",
+      "size": 6807,
+      "executable": false
+    },
+    {
+      "path": "server-relay/relay/identity.py",
+      "sha256": "be9ef3d1d496272a30b344730cc91983dbf7872f45cf6eb9c0b1d56b077deae7",
+      "size": 22083,
+      "executable": false
+    },
+    {
+      "path": "server-relay/relay/jobs.py",
+      "sha256": "a853ef6a7fe602fa372f2a7bdc45d82b20b96d22fc1d1b463aaa996f84d92e40",
+      "size": 1545,
+      "executable": false
+    },
+    {
+      "path": "server-relay/relay/providers.py",
+      "sha256": "b63b51e05c0028490cef831f4a418c7aa23cb73aa26b37f4ac58995fe61ad153",
+      "size": 10384,
+      "executable": false
+    },
+    {
+      "path": "server-relay/relay/runtime.py",
+      "sha256": "fb7c8300610c7636e70dcddc2a87bcd3df6df2899a565e9bac61a114f5f2b71a",
+      "size": 46801,
+      "executable": false
+    },
+    {
+      "path": "server-relay/relay/web.py",
+      "sha256": "68d22f320cc96351e0b5efba16c75c155dfa7b760ce1a87e217ba0fb599c5ca4",
+      "size": 19137,
+      "executable": false
+    },
+    {
+      "path": "server-relay/requirements.lock.txt",
+      "sha256": "738475ccb6fcce82cc006c79bd28814020bde4d6c1ea8edfaa3c993a02648071",
+      "size": 8504,
+      "executable": false
+    },
+    {
+      "path": "server-relay/static/admin.css",
+      "sha256": "edaf009f27be5db7b78402a8ed1f4f19a7d90fd26bcaa18ab9db5bb643995fed",
+      "size": 11915,
+      "executable": false
+    },
+    {
+      "path": "server-relay/static/admin.html",
+      "sha256": "3e33285a5b7581fcbd087004462cd1a97de3898eecc234236dd1024fab0cb55d",
+      "size": 9613,
+      "executable": false
+    },
+    {
+      "path": "server-relay/static/admin.js",
+      "sha256": "30e2e4076db3862df42e5271c3f8d2677ee4be8891aaf15565481c48e596da44",
+      "size": 17283,
+      "executable": false
+    },
+    {
+      "path": "server-relay/static/probe-report.js",
+      "sha256": "f2a09c5135b44f7c0f58078a8804684de858f384f4acd37c810ca389b1c21028",
+      "size": 2434,
+      "executable": false
+    },
+    {
+      "path": "server-relay/stream_service.py",
+      "sha256": "5325d2c1cfcb318890ccec4f75fcfd5d2e70efb519386c046c9b6ba3615ca077",
+      "size": 39659,
+      "executable": false
+    },
+    {
+      "path": "server-relay/test_admin.py",
+      "sha256": "24e33541d1bf73af36b11a5a5996666e08a0d4d4428d3c01aaf8ce6c90c9bace",
+      "size": 6187,
+      "executable": false
+    },
+    {
+      "path": "server-relay/test_app.py",
+      "sha256": "a213687f679e461885759621c1999f8312b4aa64db948305cf6ea0342a00369f",
+      "size": 12114,
+      "executable": false
+    },
+    {
+      "path": "server-relay/test_config_broker.py",
+      "sha256": "a9630973e819b258728b8d00a66c3c5313bd768d223ac0c83bdf3311dcbe121e",
+      "size": 6009,
+      "executable": false
+    },
+    {
+      "path": "server-relay/test_contracts_cli.py",
+      "sha256": "8d44eb4633cd3db512bfac31705a4c9ccad757dd01eec60c24f650687cbb0c70",
+      "size": 5993,
+      "executable": false
+    },
+    {
+      "path": "server-relay/test_deployment.py",
+      "sha256": "ed0a856ffa4d18a8c7f70154d6ebad119873e2bb842b0341300ceb0c2a58d28e",
+      "size": 10554,
+      "executable": false
+    },
+    {
+      "path": "server-relay/test_maintenance_access.py",
+      "sha256": "4f40898a12589e94a65515f1b611cdf329e0775efbd1c4956d363e163d40681d",
+      "size": 5352,
+      "executable": false
+    },
+    {
+      "path": "server-relay/test_provider_capture.py",
+      "sha256": "2e2bff7420632f900ebbedfe40ae1e71872ec797900bbf0ea5f1dd94a3eedc26",
+      "size": 14156,
+      "executable": false
+    },
+    {
+      "path": "server-relay/test_runtime_http.py",
+      "sha256": "7f41c98bd84b882a88e9f0dd6c0f4e0babf3e9c6b7bd90b11a226578216a53fa",
+      "size": 40622,
+      "executable": false
+    },
+    {
+      "path": "server-relay/test_stream_service.py",
+      "sha256": "fe63c953cee6c83a1b69b571dd6b101a2be1d7852efc9f00f4cae2578c60a5e8",
+      "size": 24566,
+      "executable": false
+    },
+    {
+      "path": "server-relay/test_support.py",
+      "sha256": "d910902fd43df23ddc396422c3c21e2907fbb3787263c465fea7ba764fd1e66e",
+      "size": 2497,
+      "executable": false
+    },
+    {
+      "path": "server-relay/uv.lock",
+      "sha256": "78b5acd54586bc43bfc9f9b7093a24d2a87ea96642bb52470401c836289b2ee3",
+      "size": 33505,
+      "executable": false
+    },
+    {
+      "path": "tests/check_cat_animation.py",
+      "sha256": "010d4cfda2c1ac7548539d28aa48d868335b264f3234b1e61b432d17198d2b14",
+      "size": 1625,
+      "executable": false
+    },
+    {
+      "path": "tests/check_usb_descriptors.py",
+      "sha256": "6377af8a683d8fd1975098f359039efb4b677c5491d7ce107296ca84faa00423",
+      "size": 3056,
+      "executable": false
+    },
+    {
+      "path": "tests/check_wavs.py",
+      "sha256": "1b216e3930abf94e976a2b62be71a32ae4282847d3b5113b9b58c21ff1f925f8",
+      "size": 4317,
+      "executable": true
+    },
+    {
+      "path": "tests/container_fixture.py",
+      "sha256": "ac90a99660b12c9a241d8b54a95e1db999620e74dff8697c950244de24466107",
+      "size": 19859,
+      "executable": false
+    },
+    {
+      "path": "tests/deployment_http_client.py",
+      "sha256": "ffca598490541b3ce0d39c840049b9c5c6cb095939bb3cbfda6676924fccb0d6",
+      "size": 2265,
+      "executable": false
+    },
+    {
+      "path": "tests/relay_admin_fixture.py",
+      "sha256": "3c21682627d3ea108c454b8d5d7fc4580509bc83cd1ae0cb89eceb1da0aa89a0",
+      "size": 4467,
+      "executable": false
+    },
+    {
+      "path": "tests/run_host_tests.sh",
+      "sha256": "ff8442a990e23e02e9a11ea8493cb74598b7cdf5b8d4df5a37af692731a30798",
+      "size": 4419,
+      "executable": true
+    },
+    {
+      "path": "tests/service_portal_fixture.py",
+      "sha256": "ebf4d4adcd2528f646271942179dc7aa14e97b3908e8cd0aaa4c399e8e97dac8",
+      "size": 10204,
+      "executable": false
+    },
+    {
+      "path": "tests/test_admin_browser.cjs",
+      "sha256": "877429b353fa28d04e01eb9f933bcda59129e36fb99dcb3ce97d4a3a39a018fd",
+      "size": 25712,
+      "executable": false
+    },
+    {
+      "path": "tests/test_admin_probe.cjs",
+      "sha256": "8b09e6e7c32ca3aa2f081bf544ef5b320580e280eddbb108e9c25ea0460d05cd",
+      "size": 1754,
+      "executable": false
+    },
+    {
+      "path": "tests/test_cardless_buffer.c",
+      "sha256": "1e1bb43d95f68dc516975a17e33e67e9d581b407b007807f68ba49d5a39c0521",
+      "size": 5198,
+      "executable": false
+    },
+    {
+      "path": "tests/test_cardless_runtime.py",
+      "sha256": "ef66164b806fe465a331c24a1d6bb59c4c51b6c41ca9245244a4e2e7c621c9c9",
+      "size": 28057,
+      "executable": false
+    },
+    {
+      "path": "tests/test_cardless_state.c",
+      "sha256": "61e217f65b00ceb92449fdc0a5dc4dfa35dc4b7b391be27ecd0d0984169e5636",
+      "size": 3259,
+      "executable": false
+    },
+    {
+      "path": "tests/test_device.py",
+      "sha256": "1944a6f65a281c317765e5e2fb3f787efc0957d59176ebb42c2f74d88366a415",
+      "size": 6690,
+      "executable": false
+    },
+    {
+      "path": "tests/test_firmware_install.py",
+      "sha256": "e8ba9340d06ad77f7eaef2abc587db4093ad52dcf183ba693a016f796d79eaca",
+      "size": 13604,
+      "executable": false
+    },
+    {
+      "path": "tests/test_firmware_pairing.py",
+      "sha256": "c4a911a5f34286f5d7c3e373fea8b015d29858ff2e2b5e880f043cdfa2a1802a",
+      "size": 18861,
+      "executable": false
+    },
+    {
+      "path": "tests/test_gauge_profile.c",
+      "sha256": "c0b9407ecc2c65fd5333517f5747b2d4d9675ad3e504a64ceeac0c50ba5a26e9",
+      "size": 5989,
+      "executable": false
+    },
+    {
+      "path": "tests/test_legacy_maintenance_cli.py",
+      "sha256": "16bcdd5bc4e6eae5f17914b3c452fd530130b4dd6c3c0870e1f4636140368c9a",
+      "size": 3596,
+      "executable": false
+    },
+    {
+      "path": "tests/test_network_config.c",
+      "sha256": "0c27db6b74dca94f74ff2116f09f1b5d90ca0b853a2f4f4f2a16cbbdc6b0c2c2",
+      "size": 8136,
+      "executable": false
+    },
+    {
+      "path": "tests/test_network_sync_state.c",
+      "sha256": "79712ae23fd412a13e62f6e1b8b11532f9ef67d18bd480e4a0701f37817c2698",
+      "size": 4116,
+      "executable": false
+    },
+    {
+      "path": "tests/test_power_source.c",
+      "sha256": "076b0e242faf14910477758b2eef13a5ce2fc10f97b81e8cb8a623fea7075879",
+      "size": 2246,
+      "executable": false
+    },
+    {
+      "path": "tests/test_power_state.c",
+      "sha256": "3c8e68d9b5f44d1cf93f4c652860bfcc13e02e297b6894be43c3a20b522a84ca",
+      "size": 2565,
+      "executable": false
+    },
+    {
+      "path": "tests/test_public_export.py",
+      "sha256": "29313d8344596ed12066c3e07e99006145eba521b6569cd1893497566a79d438",
+      "size": 5467,
+      "executable": false
+    },
+    {
+      "path": "tests/test_record_ids.c",
+      "sha256": "f78a0113c927c43f2833397b5031a140072bbc6b96b5befbfe804451dd93675c",
+      "size": 2878,
+      "executable": false
+    },
+    {
+      "path": "tests/test_record_ids_nvs.py",
+      "sha256": "85fb1e3fa9ea04b1f1a2d70659887dca1e74bf8b302eaee44da5830518ba47e5",
+      "size": 3914,
+      "executable": false
+    },
+    {
+      "path": "tests/test_service_portal.py",
+      "sha256": "00c6808e71be7d7b65dbbefdb2d9c9324850e2730ac5eab671531a16e52ee3b6",
+      "size": 4123,
+      "executable": false
+    },
+    {
+      "path": "tests/test_service_portal_browser.cjs",
+      "sha256": "d366e7449cc83251a934a22f94954253373e871092eb9f77be2a51e628677b61",
+      "size": 8460,
+      "executable": false
+    },
+    {
+      "path": "tests/test_service_runtime.py",
+      "sha256": "a9d33ba4413f608079f610d93482e478efa944e6bf7181431d20892fd3397555",
+      "size": 16761,
+      "executable": false
+    },
+    {
+      "path": "tests/test_state.c",
+      "sha256": "1ff87ee64d6fe02f1dc30cbb7afb9bda54235ff88b7ef3be3f4d4bd6364f576a",
+      "size": 2444,
+      "executable": false
+    },
+    {
+      "path": "tests/test_store.c",
+      "sha256": "09133ef4cb06878fb2be562edebb4bceb8b50575cc36b1c4991a9cfcecec5cb1",
+      "size": 22480,
+      "executable": false
+    },
+    {
+      "path": "tests/test_sync_cache.c",
+      "sha256": "145835c8e10767d9fe92ef553c89fcaef6791902493a1dbff6faaa07a11766c8",
+      "size": 1844,
+      "executable": false
+    },
+    {
+      "path": "tests/test_sync_pipeline.py",
+      "sha256": "bd361b177ac9475faf8f5245e6759c9effce5e5a78ab8833ce86ed0fffcc8609",
+      "size": 25166,
+      "executable": false
+    },
+    {
+      "path": "tests/test_usb_audio_check.py",
+      "sha256": "dc7323d5c646da5e0d92b8f30c42f437a4f74819a0a71877073aaa34a8788e8e",
+      "size": 6073,
+      "executable": false
+    },
+    {
+      "path": "tests/test_usb_pcm.c",
+      "sha256": "e5252df2bd7d9d04afb259d2c1fe9d104d6df49f2f13bd3732170bffee8d135d",
+      "size": 2660,
+      "executable": false
+    },
+    {
+      "path": "tests/test_usb_stdio_vfs.py",
+      "sha256": "defeadd07a98bb2e6efc1a5038f9e37e6c24d359e6dd9c451db2578b07a24525",
+      "size": 12415,
+      "executable": false
+    },
+    {
+      "path": "tests/test_vocat16_power.c",
+      "sha256": "c3f572c423b7f014850b0e8950ec1a250747bcaf086d570d3ffd2f6f38b79983",
+      "size": 1510,
+      "executable": false
+    },
+    {
+      "path": "tests/test_voice_gate.c",
+      "sha256": "e944085c4a0f779892f274dd31b79233c029687111a575b5f60cb489bc244397",
+      "size": 5853,
+      "executable": false
+    },
+    {
+      "path": "tests/ui_preview.c",
+      "sha256": "2771bbcf2bc6feb7025b373cce74fa1bd6fe353c4d6d8e74135ad67774e26a65",
+      "size": 41904,
+      "executable": false
+    },
+    {
+      "path": "tools.lock.json",
+      "sha256": "782580973d265b974a10d617b680cfca53d3aa10df18f33ccb907608f19ccf9b",
+      "size": 749,
+      "executable": false
+    }
+  ],
+  "source_only": true,
+  "includes_git_history": false,
+  "publication_authorized": false
+}
