@@ -126,7 +126,8 @@ esp_err_t nvs_open(const char *ns,int mode,nvs_handle_t *h){
     assert(nvs_ready); // saved Wi-Fi must never load before NVS initialization
     *h=!strcmp(ns,"wifi")?2:1;
     if(*h==fault_namespace && fault==1 && mode==NVS_READWRITE)return ESP_FAIL;
-    if(mode==NVS_READWRITE)pending[*h]=durable[*h];return ESP_OK;
+    if(mode==NVS_READWRITE){pending[*h]=durable[*h];}
+    return ESP_OK;
 }
 void nvs_close(nvs_handle_t){}
 esp_err_t nvs_get_blob(nvs_handle_t h,const char *key,void *out,size_t *n){
