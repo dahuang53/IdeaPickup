@@ -110,7 +110,11 @@ memo_pair_result_t memo_pairing_run(memo_config_snapshot_t pending,const memo_pa
     ++pair_runs;memo_server_uuid_t instance{};
     assert(memo_config_uuid_parse("11111111-2222-4333-8444-555555555555",&instance));
     if(io->bind(io->context,&pending,&instance)!=MEMO_CONFIG_OK)return MEMO_PAIR_BUSY;
-    if(during_pair)during_pair();out->instance=instance;return pair_result;
+    if(during_pair){
+        during_pair();
+    }
+    out->instance=instance;
+    return pair_result;
 }
 static memo_network_status_t status_value{};
 static memo_sync_queue_t sync_queue{};
