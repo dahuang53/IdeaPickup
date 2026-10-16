@@ -178,14 +178,30 @@ class ProvisioningTests(unittest.TestCase):
         old_limit=int(re.search(r'\.max_open_sockets\s*=\s*(\d+)',defaults)[1])
         client_limit=int(re.search(r'config.max_open_sockets\s*=\s*(\d+)',ap)[1])
         self.assertIn('config.lru_purge_enable = true;',ap)
+        # A fresh host checkout has no generated sdkconfig. Resolve this one
+        # unconditional integer from the pinned SDK and each build's defaults.
+        kconfig=(ROOT/'.tools/esp-idf/components/lwip/Kconfig').read_text()
+        definition=kconfig.split('    config LWIP_MAX_SOCKETS\n',1)[1].split('\n        help',1)[0]
+        defaults=re.findall(r'^\s*default (.+)$',definition,re.M)
+        self.assertEqual(len(defaults),1)
+        self.assertRegex(defaults[0],r'^\d+$')
         totals=[]
         for board in ('vocat16','spotpear'):
-            config=(ROOT/f'sdkconfig.{board}').read_text()
-            totals.append(int(re.search(r'^CONFIG_LWIP_MAX_SOCKETS=(\d+)',config,re.M)[1]))
+            build=(ROOT/f'scripts/build_{board}.sh').read_text()
+            self.assertIn(f'-D SDKCONFIG_DEFAULTS=sdkconfig.{board}.defaults',build)
+            config=(ROOT/f'sdkconfig.{board}.defaults').read_text()
+            overrides=re.findall(r'^CONFIG_LWIP_MAX_SOCKETS=(\d+)$',config,re.M)
+            self.assertLessEqual(len(overrides),1)
+            total=int(overrides[0] if overrides else defaults[0])
+            generated=ROOT/f'sdkconfig.{board}'
+            if generated.exists():
+                self.assertEqual(int(re.search(r'^CONFIG_LWIP_MAX_SOCKETS=(\d+)',generated.read_text(),re.M)[1]),total)
+            totals.append(total)
         self.assertEqual(totals[0],totals[1])
         harness=r'''
 #include <sys/socket.h>
 #include <sys/time.h>
+#include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <cerrno>
 #include <cassert>
