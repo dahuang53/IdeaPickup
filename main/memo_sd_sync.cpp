@@ -5,6 +5,7 @@
 #include <cmath>
 #include <dirent.h>
 #include <inttypes.h>
+#include <cerrno>
 namespace {
 class Reader {
  const memo_sd_sync_io_t *io;
@@ -103,25 +104,36 @@ extern "C" void memo_sd_sync_attempt(const char *wav,const char *cache,uint32_t 
  else {save(MEMO_JOB_FAILED,false,true);error(code==401||code==403?"credentials_invalid":"upload_failed");}
 }
 
-extern "C" uint32_t memo_sd_sync_pending(const char *root,const memo_sync_target_t *target,uint32_t *after,bool *manual){
+extern "C" uint32_t memo_sd_sync_pending(const char *root,const memo_sync_target_t *target,uint32_t *after,bool *manual,bool *complete){
+ if(complete)*complete=false;
  if(!root||!target||!after||!manual)return 0;
  *manual=false;uint32_t first=0,next=0;DIR *dir=opendir(root);if(!dir)return 0;
- struct dirent *item;
- while((item=readdir(dir))){
+ struct dirent *item;bool read_ok=true;
+ for(;;){
+  errno=0;item=readdir(dir);if(!item){if(errno)read_ok=false;break;}
   unsigned long value=0;unsigned number=0;int end=0;
   if(sscanf(item->d_name,"sync_r1_%10lu.job.%u%n",&value,&number,&end)!=2||item->d_name[end]||!value||value>0x7fffffffUL||number>1)continue;
   uint32_t id=(uint32_t)value;char cache[MEMO_PATH_MAX],wav[MEMO_PATH_MAX];
   int a=snprintf(cache,sizeof(cache),"%s/sync_r1_%010" PRIu32 ".job",root,id),b=snprintf(wav,sizeof(wav),"%s/memo_%010" PRIu32 ".wav",root,id);
   if(a<0||b<0||(size_t)a>=sizeof(cache)||(size_t)b>=sizeof(wav))continue;
   memo_sync_entry_t e{};memo_record_t record{};
-  if(memo_sync_entry_read(cache,id,&e)!=MEMO_CACHE_OK||!e.automatic||e.state==MEMO_JOB_SENT||e.state==MEMO_JOB_REJECTED||e.state==MEMO_JOB_UNCERTAIN||!memo_sync_target_matches(&e.target,target,!e.bound)||memo_store_validate(wav,&record))continue;
+  memo_cache_result_t cached=memo_sync_entry_read(cache,id,&e);
+  if(cached==MEMO_CACHE_IO_ERROR){read_ok=false;continue;}
+  if(cached!=MEMO_CACHE_OK||!e.automatic||e.state==MEMO_JOB_SENT||e.state==MEMO_JOB_REJECTED||e.state==MEMO_JOB_UNCERTAIN||!memo_sync_target_matches(&e.target,target,!e.bound))continue;
+  if(memo_store_validate(wav,&record)) {
+   if(errno!=ENOENT && errno!=EINVAL)read_ok=false;
+   continue;
+  }
   if(!first||id<first)first=id;
   if(id>*after&&(!next||id<next))next=id;
  }
- closedir(dir);if(!next)next=first;
+ if(closedir(dir))read_ok=false;
+ if(!read_ok)return 0;
+ if(!next)next=first;
  if(next){char cache[MEMO_PATH_MAX];snprintf(cache,sizeof(cache),"%s/sync_r1_%010" PRIu32 ".job",root,next);memo_sync_entry_t e{};
   if(memo_sync_entry_read(cache,next,&e)!=MEMO_CACHE_OK)return 0;
   *manual=e.manual;*after=next;
  }
+ if(complete)*complete=true;
  return next;
 }

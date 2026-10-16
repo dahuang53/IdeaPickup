@@ -114,7 +114,8 @@ bool SsidManager::SaveToNvs() {
 
 bool SsidManager::AddSsid(const std::string& ssid, const std::string& password, uint8_t channel) {
     if(needs_reload_ && !LoadFromNvs())return false;
-    for (auto& item : ssid_list_) {
+    for (auto it = ssid_list_.begin(); it != ssid_list_.end(); ++it) {
+        auto& item = *it;
         ESP_LOGI(TAG, "compare [%s:%d] [%s:%d]", item.ssid.c_str(), item.ssid.size(), ssid.c_str(),
                  ssid.size());
         if (item.ssid == ssid) {
@@ -123,6 +124,9 @@ bool SsidManager::AddSsid(const std::string& ssid, const std::string& password, 
             if (channel != 0) {
                 item.channel = channel;
             }
+            // The network just selected on the configuration page is the default
+            // on exit/re-entry too; commit order and credentials together once.
+            std::rotate(ssid_list_.begin(), it, it + 1);
             return SaveToNvs();
         }
     }

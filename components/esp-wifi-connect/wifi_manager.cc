@@ -31,6 +31,10 @@ WifiManager::~WifiManager() {
     if (config_mode_active_ && config_ap_) {
         config_ap_->Stop();
     }
+    config_ap_.reset();
+    station_.reset();
+    if (ap_netif_) esp_netif_destroy_default_wifi(ap_netif_);
+    if (sta_netif_) esp_netif_destroy_default_wifi(sta_netif_);
     if (initialized_) {
         esp_wifi_deinit();
     }
@@ -92,6 +96,16 @@ bool WifiManager::Initialize(const WifiManagerConfig& config) {
         return false;
     }
 
+    // ESP-IDF softap_sta: one default interface of each type for driver lifetime.
+    ap_netif_ = esp_netif_create_default_wifi_ap();
+    sta_netif_ = esp_netif_create_default_wifi_sta();
+    if (!ap_netif_ || !sta_netif_) {
+        if (ap_netif_) esp_netif_destroy_default_wifi(ap_netif_);
+        if (sta_netif_) esp_netif_destroy_default_wifi(sta_netif_);
+        ap_netif_ = sta_netif_ = nullptr;
+        esp_wifi_deinit();
+        return false;
+    }
     station_ = std::make_unique<WifiStation>();
     config_ap_ = std::make_unique<WifiConfigurationAp>();
 
@@ -175,7 +189,8 @@ void WifiManager::StopStation() {
 
 bool WifiManager::IsConnected() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    return station_active_ && station_ && station_->IsConnected();
+    return config_mode_active_ && config_ap_ ? config_ap_->IsConnected() :
+        station_active_ && station_ && station_->IsConnected();
 }
 
 std::string WifiManager::GetSsid() const {
@@ -246,9 +261,6 @@ void WifiManager::StartConfigAp() {
 
     config_ap_->SetSsidPrefix(config_.ssid_prefix);
     config_ap_->SetLanguage(config_.language);
-    config_ap_->SetShowOtaConfig(config_.show_ota_config);
-    config_ap_->SetShowSleepConfig(config_.show_sleep_config);
-    config_ap_->SetApPassword(config_.ap_password);
 
     // Web handler calls this when user submits config
     config_ap_->OnExitRequested([this]() {
@@ -280,6 +292,14 @@ void WifiManager::StopConfigAp() {
     lock.lock();
 }
 
+void WifiManager::ProcessConfigConnection() {
+    WifiConfigurationAp* ap = nullptr;
+    { std::lock_guard<std::mutex> lock(mutex_);
+      if (config_mode_active_) ap = config_ap_.get(); }
+    // Object lifetime is the manager lifetime; Stop joins its active operation.
+    if (ap) ap->ProcessConnection();
+}
+
 bool WifiManager::IsConfigMode() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return config_mode_active_;
@@ -297,11 +317,9 @@ std::string WifiManager::GetApWebUrl() const {
     return config_ap_->GetWebServerUrl();
 }
 
-std::string WifiManager::GetApPassword() const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (!config_mode_active_ || !config_ap_) return "";
-    return config_ap_->GetApPassword();
-}
+
+
+
 
 // ==================== Power ====================
 

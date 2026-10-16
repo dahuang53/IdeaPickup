@@ -37,8 +37,8 @@ def software_rom(port,run):
  finally:connection.close()
 
 class Installer:
- def __init__(self,manifest,board,port,mode,run,runner=subprocess.run,returner=reset):
-  self.value,self.contents=load_bundle(manifest,board);self.board=board;self.port=port;self.mode=mode;self.run=Path(run);self.runner=runner;self.returner=returner;self.mac=None
+ def __init__(self,manifest,board,port,mode,run,runner=subprocess.run,returner=None):
+  self.value,self.contents=load_bundle(manifest,board);self.board=board;self.port=port;self.mode=mode;self.run=Path(run);self.runner=runner;self.returner=returner if returner is not None else lambda port,mac:reset(port,mac,board=board);self.mac=None
   require(mode in ['first-install','app-only'],'unsupported install mode')
   self.roles=list(ARTIFACTS) if mode=='first-install' else ['app']
   self.frozen={}
@@ -103,7 +103,7 @@ class Installer:
   (self.run/'result.json').write_text(json.dumps(result,indent=2)+'\n')
   try:result['boot']=self.returner(self.port,self.mac)
   except Exception as error:
-   result['boot']='RETURN_FAILED_REMAIN_IN_ROM';result['return_error']=str(error)
+   result['boot']='RETURN_FAILED_BOOT_NOT_CONFIRMED';result['return_error']=str(error)
    (self.run/'result.json').write_text(json.dumps(result,indent=2)+'\n');raise
   (self.run/'result.json').write_text(json.dumps(result,indent=2)+'\n');return result
 

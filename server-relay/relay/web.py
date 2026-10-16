@@ -67,7 +67,9 @@ def bearer(request):
 def create_app(database: Path, *, public_url: str, broker=None, runtime=None):
     canonical = normalize_base_url(public_url)
     parsed = urlsplit(canonical)
-    origin = "https://" + parsed.netloc
+    origin = parsed.scheme + "://" + parsed.netloc
+    tls = parsed.scheme == "https"
+    cookie = COOKIE if tls else "voicememo-admin-lan"
     prefix = parsed.path
     # HTTP/ASGI path is decoded, while redirects and cookie Path are URI text.
     route_prefix = unquote(prefix)
@@ -95,8 +97,8 @@ def create_app(database: Path, *, public_url: str, broker=None, runtime=None):
         # health probe. The reverse proxy must not expose an alternate HTTP UI.
         path = request.url.path
         is_health = path.removeprefix(route_prefix) in ("/health", "/health/live", "/health/ready")
-        if not is_health and (request.url.scheme != "https" or request.headers.get("host") != parsed.netloc):
-            return JSONResponse({"error": "https_origin_required"}, status_code=400)
+        if not is_health and (request.url.scheme != parsed.scheme or request.headers.get("host") != parsed.netloc):
+            return JSONResponse({"error": "https_origin_required" if tls else "service_origin_required"}, status_code=400)
         response = await next_handler(request)
         response.headers.update({
             "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
@@ -115,7 +117,7 @@ def create_app(database: Path, *, public_url: str, broker=None, runtime=None):
     async def admin(request, *, write=False):
         if write:
             check_origin(request)
-        return await run_in_threadpool(admins.authenticate, request.cookies.get(COOKIE),
+        return await run_in_threadpool(admins.authenticate, request.cookies.get(cookie),
                                       csrf=request.headers.get("x-csrf-token"), require_csrf=write)
 
     def peer(request):
@@ -296,16 +298,16 @@ def create_app(database: Path, *, public_url: str, broker=None, runtime=None):
         value = await body(request, {"password"}, {"password"})
         state = await run_in_threadpool(admins.login, value["password"], peer=peer(request))
         response = JSONResponse({"authenticated": True, "csrf": state["csrf"]})
-        response.set_cookie(COOKIE, state["token"], max_age=state["max_age"], path=public_prefix + "/admin",
-                            secure=True, httponly=True, samesite="strict")
+        response.set_cookie(cookie, state["token"], max_age=state["max_age"], path=public_prefix + "/admin",
+                            secure=tls, httponly=True, samesite="strict")
         return response
 
     @app.post("/admin/api/session/logout")
     async def logout(request: Request):
         await admin(request, write=True)
-        await run_in_threadpool(admins.logout, request.cookies.get(COOKIE))
+        await run_in_threadpool(admins.logout, request.cookies.get(cookie))
         response = JSONResponse({"authenticated": False})
-        response.delete_cookie(COOKIE, path=public_prefix + "/admin", secure=True, httponly=True, samesite="strict")
+        response.delete_cookie(cookie, path=public_prefix + "/admin", secure=tls, httponly=True, samesite="strict")
         return response
 
     @app.get("/admin/api/config")

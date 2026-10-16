@@ -65,7 +65,16 @@ class DeploymentTests(unittest.TestCase):
  def test_compose_and_image_defaults_are_actual_safe_template(self):
   value=json.loads((ROOT/'deploy/compose.yaml').read_text());relay=value['services']['relay'];broker=value['services']['config-broker'];init=value['services']['volume-init']
   self.assertEqual(relay['user'],'10001:10001');self.assertEqual(broker['network_mode'],'none');self.assertEqual(init['network_mode'],'none');self.assertTrue(relay['read_only']);self.assertNotIn('secrets:/var/lib/voice-memo-secrets',relay['volumes']);self.assertIn('data:/var/lib/voice-memo',relay['volumes'])
-  self.assertNotIn('VOICE_MEMO_LEGACY_UPLOAD_TOKEN_SHA256',relay['environment']);self.assertNotIn('VOICE_MEMO_START_DRAINED',relay['environment']);self.assertTrue(relay['ports'][0].startswith('127.0.0.1:'))
+  self.assertNotIn('VOICE_MEMO_LEGACY_UPLOAD_TOKEN_SHA256',relay['environment']);self.assertNotIn('VOICE_MEMO_START_DRAINED',relay['environment']);self.assertEqual(relay['ports'][0],'${VOICE_MEMO_BIND:-127.0.0.1}:${VOICE_MEMO_PORT:-8765}:8765')
+ def test_lan_ip_automatically_binds_only_configured_interface_and_port(self):
+  for source,host,port in [('10.23.45.67','10.23.45.67','8765'),('http://10.0.0.2:80/memo','10.0.0.2','80'),('relay.example','127.0.0.1','8765')]:
+   values={**self.values,'VOICE_MEMO_PUBLIC_URL':source};manage.validate_values(values)
+   with mock.patch.object(manage,'run',return_value='') as run,mock.patch.dict(os.environ,{'VOICE_MEMO_BIND':'0.0.0.0'}):
+    manage.Deployment(values,self.env).compose('config')
+    env=run.call_args.kwargs['env'];self.assertEqual(env['VOICE_MEMO_BIND'],host);self.assertEqual(env.get('VOICE_MEMO_PORT','8765'),port)
+  for patch in [{'VOICE_MEMO_PORT':'bad'},{'VOICE_MEMO_PORT':'9999'},{'VOICE_MEMO_PROXY':'1'},{'VOICE_MEMO_PUBLIC_URL':'http://public.example'}]:
+   with self.subTest(patch=patch),self.assertRaises(manage.DeploymentError):manage.validate_values({**self.values,'VOICE_MEMO_PUBLIC_URL':'10.23.45.67',**patch})
+
  def test_current_schema_checker_reads_stopped_real_runtime_and_rejects_unknown(self):
   from test_support import LocalBroker
   from relay.runtime import Runtime

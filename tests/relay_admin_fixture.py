@@ -4,6 +4,7 @@ Only this test process substitutes provider I/O and broker ownership. No test
 routes, TLS bypasses or fixture switches are added to the production application.
 """
 import argparse
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -26,7 +27,12 @@ from test_support import LocalBroker
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--lan-ip", help="test-only RFC1918 local interface; serve actual production HTTP boundary")
     args = parser.parse_args()
+    host=args.lan_ip or "127.0.0.1"
+    if args.lan_ip:
+        ip=ipaddress.IPv4Address(args.lan_ip)
+        assert any(ip in ipaddress.ip_network(net) for net in ("10.0.0.0/8","172.16.0.0/12","192.168.0.0/16"))
     output = args.output.resolve()
     output.relative_to((ROOT / "private").resolve())
     output.mkdir(mode=0o700, parents=True, exist_ok=False)
@@ -84,9 +90,9 @@ def main():
     broker = LocalBroker(output / "secrets")
     runtime = Runtime(output / "state.db", broker, output / "work", output / "streams", provider_factory=factory)
     with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
+        probe.bind((host, 0))
         port = probe.getsockname()[1]
-    url = f"https://127.0.0.1:{port}/memo"
+    url = f"{'http' if args.lan_ip else 'https'}://{host}:{port}/memo"
     app = create_app(output / "state.db", public_url=url, broker=broker, runtime=runtime)
     code = app.state.admins.issue_bootstrap()
 
@@ -99,8 +105,8 @@ def main():
 
     (output / "fixture.json").write_text(json.dumps({"url": url + "/admin/", "code": code, "password": "synthetic-password-123"}))
     try:
-        uvicorn.run(app, host="127.0.0.1", port=port, ssl_keyfile=str(output / "key.pem"),
-                    ssl_certfile=str(output / "cert.pem"), access_log=False, log_level="warning")
+        uvicorn.run(app, host=host, port=port, ssl_keyfile=None if args.lan_ip else str(output / "key.pem"),
+                    ssl_certfile=None if args.lan_ip else str(output / "cert.pem"), access_log=False, log_level="warning", proxy_headers=False)
     finally:
         runtime.close()
         broker.close()

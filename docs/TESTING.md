@@ -17,7 +17,7 @@
 | [test_relay.sh](../scripts/test_relay.sh) | 实际后端 / HTTP / 账本 / broker / 清理 / 权限 / 供应商本地 TLS 替身；保留原有可选一小时测试边界 |
 | [test_service_config.sh](../scripts/test_service_config.sh) | 当前配置 / 配对及 AP handler，实际生产 C/C++ 与 ASGI，ESP / RF / NVS 为显式平台替身 |
 | [test_sync_pipeline.sh](../scripts/test_sync_pipeline.sh) | 实际编号 / SD / 无卡方法与 HTTP；配置→配对→WAV / Opus→查询 / 显式重试→两端重启，多条离线／换卡／身份／持久化故障场景；后端、broker 重新打开当前持久数据，设备侧重建配置 / sidecar / NVS 替身，不伪装真实拔电 |
-| [test_firmware_install.sh](../scripts/test_firmware_install.sh) | 打包 / 安装边界及 SDK / 生产 stdio 回归；不使用设备 |
+| [test_firmware_install.sh](../scripts/test_firmware_install.sh) | 打包 / 安装边界、SDK / 生产 stdio 与 SD DMA 无内存回归；不使用设备 |
 
 两板普通构建、打包和恢复命令只在[设备安装说明](DEVICE_INSTALL.md)定义。干净源码验证从无 build、sdkconfig、managed_components、venv 的检出开始；依赖缓存可重用，但必须注明 SDK / 工具 / 下载缓存来源及实际下载，不称作全量冷下载。`test_ui.sh` 使用构建得到的锁定 LVGL；设 `MEMO_UI_OUTPUT=private/ci-ui`，避免覆盖历史证据。USB 描述符对象检查命令由 [CI 固件 job](../.github/workflows/ci.yml) 定义，检查编译对象不能证明 CDC / UAC 已枚举。
 
@@ -56,3 +56,25 @@
 `tests/test_public_export.py` 验证源归档隐私、链接／变更拒绝及无Git构建身份，随整体主机入口执行。构建收据的source_commit可能是本仓库Git提交或source-sha256；定义在产物契约／source_identity，不读取外层Git。
 
 镜像检查用 `scripts/audit_container_image.py`，库存用 `scripts/container_sbom.py`；必须指定当前私有归档、实际平台／manifest／config及校验值。Syft固定锁只支持Darwin arm64维护环境，不是运行依赖。系统版权文字、公开测试向量和二进制可能触发启发式命中，必须按具体来源解释，不整体删除结果或据此声称没有风险。材料检查不调用真实供应商或公开推送。
+
+R12 手动配网页回归：`scripts/test_service_config.sh` 执行既有配置／配对／SSID持久化和请求防护，以及生产 AP 生命周期、异步连接、保存失败、保持AP＋STA、退出取消并等待连接结束、重新进入及旧自动弹页代码清理检查。SDK模拟不代替真实DHCP、手机切换应用、普通更新、USB切换和退出后不可达验证。DNS通配解析器已移除，不再以自动弹页作为成功标准。
+
+`scripts/test_ui.sh` 验证360、240和vocat16三种生产布局；包括真实网络错误进入录音控制页时的缺字、宽度和状态区域边界，不能只检查配网页的短提示。配网页保留完整手动URL，热点和地址同色、相邻且行距一致，状态与操作分组。主机渲染不代替真实屏幕／触摸。
+
+`tests/test_service_portal_browser.cjs` 配合原生处理器fixture验证手机／桌面页面：提交与连接／保存／配对状态区分，保持热点时进度更新，页面刷新和临时失联恢复，失败重试、重复提交防护和明确退出。fixture的SDK／NVS替身及模拟配对收据不证明真实手机或服务器配对成功；真机须使用精确候选再验。
+
+`node tests/test_portal_async.cjs` 直接执行生产配网页脚本，使用可控时钟、请求和DOM替身验证保存期间的新编辑、重复提交、旧读取跨保存返回、Wi-Fi目标及持久化终态、扫描互斥、断连恢复和关闭后的迟到响应。此脚本没有浏览器或硬件依赖；由浏览器回归入口先行调用，不替代原生处理器浏览器和真机验收。
+
+当前配网页采用本人选定的 Gemini A 布局与 B 配色（保留选中内描边）。浏览器回归还检查草稿与生效模式分离、抽屉状态回读、真实 SSID 与手动选项隔离，以及轮询/中文组合输入期间的控件身份与光标保持。设计原型仿真器不编入固件；无外部脚本、字体或浏览器持久化凭据。
+
+网络选择控件使用真实扫描结果的信号／锁图标；回归覆盖开放／加密／未知信息、长SSID、手动输入、键盘方向键／Escape、选择不隐式提交及扫描忙碌互斥。320px与390px检查两行右侧按钮边界一致、模式短文案不换行；手机实际样式另外验收。
+
+R12 HTTP容量回归使用锁定SDK的实际accept／LRU函数体，描述符分配和会话队列为明确主机替身。它复现默认7客户端＋3内部socket在并发网络工作下的ENFILE，验证4客户端限制可先触发LRU并留下3个网络socket；不冒称真实ESP并发手机压力通过。源码导出检查仅审过具体示例／无网络测试网址，同一文件的新地址或凭据仍拒绝。
+
+R12 SD探卡回归由`tests/run_host_tests.sh`调用`test_sd_probe.py`，五组直接提取生产函数，并明确使用硬件、RTOS与散列引擎替身：检查无需求无限等待、可见页5秒／真实待办15秒、睡眠与活动互斥、录音入口重新分类、pending恢复标记防覆盖；检查空队列停止扫描、新录音事件和扫描中事件保留、单项缓存／WAV读失败不误当空；检查SD播放暂停继续时同编号同长度异音频拒绝；检查UI退出配置／USB至猫脸不会发布中间存储需求。流式文件遍历及AUDIO所有权执行生产路径，替身散列不验证加密算法质量。
+
+`test_service_runtime.py`执行真实MEDIA/AUDIO/COMMIT互斥与SD读入口，覆盖拒绝、释放及睡眠边界；`test_sync_pipeline.py`另核目录缺失与成功空扫描差异。真机使用`status`中的`SD_PROBE`数值（checks/wakes/view/work/scans）区分实际SD查询、任务通知唤醒和目录扫描；SD启动初始化与读取音频的业务I/O不计入后台探查次数。纯猫脸、USB及配置无需求窗口观察计数，物理插卡、页面可见刷新、录音中模式固定和有卡恢复按原介质批次验证。不把主机替身、串口计数或USB状态切换当作物理拔卡、电流／续航或PCM实听通过。
+
+按需探卡的页面回归由 `scripts/test_ui.sh` 在三种现有布局上执行生产 `ui.c` 和锁定LVGL：首次tap打开操作页后异步有卡→无卡、readiness变化及插回有卡均保持操作页与存储需求；真实录音状态变化仍回猫脸，60秒超时结束需求。原实现会在第一项复现关闭页面，修复不改变探卡周期。主机模拟快照不能替代真实插拔和首次触摸复验。
+
+操作页计时回归另核15秒及55秒仍保持、一次实际LVGL翻页触摸后重新计时、再次55秒仍保持与满60秒关闭并取消存储需求；原两分钟表情待机回归仍执行。60秒真机时长已由本人在合并集中组确认约30秒保持、约60秒返回，并经限定独立结果审查；不称独立秒表测量。主机计时与本人实际观察分别记录。

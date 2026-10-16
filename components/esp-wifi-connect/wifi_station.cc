@@ -81,7 +81,7 @@ void WifiStation::Stop() {
     esp_wifi_stop();
 
     if (station_netif_ != nullptr) {
-        esp_netif_destroy_default_wifi(station_netif_);
+        // Interface lifetime belongs to WifiManager; SDK stop actions own DHCP.
         station_netif_ = nullptr;
     }
 
@@ -123,7 +123,8 @@ void WifiStation::Start() {
     last_scan_used_saved_channels_ = false;
 
     // Create the default WiFi station interface
-    station_netif_ = esp_netif_create_default_wifi_sta();
+    station_netif_ = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    ESP_ERROR_CHECK(station_netif_ ? ESP_OK : ESP_ERR_INVALID_STATE);
     if (!hostname_.empty()) {
         esp_err_t err = esp_netif_set_hostname(station_netif_, hostname_.c_str());
         if (err == ESP_OK) {

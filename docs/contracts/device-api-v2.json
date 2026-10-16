@@ -12,7 +12,7 @@
     "routes": "server-relay/relay/web.py"
   },
   "authentication": {
-    "administrator": "Secure HttpOnly SameSite=Strict cookie; same Origin and CSRF token on writes",
+    "administrator": "HTTPS: __Secure-voicememo-admin Secure HttpOnly SameSite=Strict cookie. Explicit RFC1918 HTTP: separate voicememo-admin-lan HttpOnly SameSite=Strict cookie without Secure. Both scoped to the admin path, same configured Origin and CSRF required on writes. Host and scheme must match configured service; HTTP ignores forwarded proxy headers.",
     "device": "Independent 32-byte random token encoded as 64 lowercase hexadecimal characters, bound to device_id",
     "enrollment": "Client persists random canonical UUID enrollment_id and candidate_token before first HTTP request; activation/status/finalization authenticate that token. Only hashes stored; token never echoed."
   },
@@ -280,5 +280,6 @@
     "old row identity supplement",
     "historical task import/rebinding",
     "split save/activate/discard"
-  ]
+  ],
+  "transport": "Bare LAN IPv4 defaults to HTTP port 8765; bare domain defaults to trusted HTTPS. HTTP only for literal RFC1918 IPv4, never public/domain HTTP. Normalization: relay/identity.py and main/memo_network_config.c, shared tests/service-url-cases.json. Pairing/token/instance/task persistence unchanged."
 }

@@ -75,6 +75,7 @@ HARNESS=r'''
 #include "network_sync.h"
 #include "memo_network_config_nvs.h"
 #include "network_sync_state.h"
+#include "memo_service_pairing.h"
 #include "ssid_manager.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -94,13 +95,26 @@ HARNESS=r'''
 
 static SemaphoreHandle_t http_mutex=(void *)1,status_mutex=(void *)2;
 static void *sync_task_handle=nullptr;
+static std::atomic<bool> sd_scan_requested{true};
 static memo_config_activity_gate_t activity_gate{};
 static std::atomic<bool> file_read_active{false},stream_http_active{false};
 static std::atomic<uint32_t> active_record{0};
 static bool unique_audio=false,other_http_owner=false;
+[[maybe_unused]] static std::atomic<bool> power_suspended{false},pairing_http_active{false};
+static std::function<void()> during_clock,during_pair;
+static memo_pair_result_t pair_result=MEMO_PAIR_OK;
+static unsigned pair_runs=0;
+bool ensure_clock(const char *){if(during_clock)during_clock();return true;}
+int pairing_request(void *,const char *,const char *,const char *,const char *,const char *,char *,size_t){return 0;}
+memo_pair_result_t memo_pairing_run(memo_config_snapshot_t pending,const memo_pairing_io_t *io,memo_pairing_receipt_t *out){
+    ++pair_runs;memo_server_uuid_t instance{};
+    assert(memo_config_uuid_parse("11111111-2222-4333-8444-555555555555",&instance));
+    if(io->bind(io->context,&pending,&instance)!=MEMO_CONFIG_OK)return MEMO_PAIR_BUSY;
+    if(during_pair)during_pair();out->instance=instance;return pair_result;
+}
 static memo_network_status_t status_value{};
 static memo_sync_queue_t sync_queue{};
-bool audio_busy(){return memo_config_activity(&activity_gate)==MEMO_ACTIVITY_AUDIO;}
+bool audio_busy();
 bool memo_cardless_busy(){return unique_audio;}
 int64_t esp_timer_get_time(){static int64_t now=0;return now+=1000;}
 void vTaskDelay(int){}
@@ -167,14 +181,24 @@ public: bool Save(const std::string &,const std::string &);
 };
 struct WifiManagerConfig {std::function<bool()> config_commit_begin;std::function<void()> config_commit_end;};
 class WifiStation {};
+struct esp_netif_t {};
 class WifiManager {
+    esp_netif_t *ap_netif_=nullptr,*sta_netif_=nullptr;
     std::mutex mutex_;bool initialized_=false;WifiManagerConfig config_;
     std::unique_ptr<WifiStation> station_;std::unique_ptr<WifiConfigurationAp> config_ap_;
 public: bool Initialize(const WifiManagerConfig &);
+    static WifiManager &GetInstance(){static WifiManager wifi;return wifi;}
+    bool IsConnected(){return true;}
+    bool IsInitialized(){return initialized_;}
+    void StopStation(){assert(false); /* probe must reject suspend before Wi-Fi I/O */}
 };
 struct wifi_init_config_t {bool nvs_enable=true;};
 #define WIFI_INIT_CONFIG_DEFAULT() wifi_init_config_t{}
 #define ESP_ERR_INVALID_STATE 4
+esp_netif_t *esp_netif_create_default_wifi_ap(){static esp_netif_t n;return &n;}
+esp_netif_t *esp_netif_create_default_wifi_sta(){static esp_netif_t n;return &n;}
+void esp_netif_destroy_default_wifi(esp_netif_t *){}
+void esp_wifi_deinit(){}
 int esp_netif_init(){return ESP_OK;}
 int esp_event_loop_create_default(){return ESP_OK;}
 int esp_wifi_init(wifi_init_config_t *cfg){assert(!cfg->nvs_enable);return ESP_OK;}
@@ -201,6 +225,16 @@ int main(int argc,char **argv){
     assert(durable[2]==wifi_saved);
     memo_config_public_t view{};network_sync_get_service_config(&view);
     assert(view.pairing && !view.configured);
+    if(argc==2 && !strcmp(argv[1],"F4")){
+        assert(portal.Save("old-wifi","updated-synthetic-password"));
+        auto &list=SsidManager::GetInstance().GetSsidList();
+        assert(list.size()==2 && list[0].ssid=="old-wifi" && list[1].ssid=="synthetic-home");
+        assert(durable[2]["ssid"]==std::vector<uint8_t>({'o','l','d','-','w','i','f','i',0}));
+        auto prior=durable[2];fault_namespace=2;fault=2;
+        assert(!portal.Save("synthetic-home","must-not-commit"));fault=0;
+        assert(durable[2]==prior && SsidManager::GetInstance().GetSsidList()[0].ssid=="old-wifi");
+        return 0;
+    }
     if(argc==2 && !strcmp(argv[1],"F1")){
         fault_namespace=1;fault=2;
         assert(network_sync_configure_service("https://failed-write.example","23456789AB",false)==MEMO_CONFIG_STORAGE_ERROR);
@@ -228,6 +262,49 @@ int main(int argc,char **argv){
         fprintf(stderr,"F3 reads before first write=%u, unconfirmed SSID published=%d\n",first_write_reads,copied_pending);
         assert(first_write_reads>0 && !copied_pending);return 0;
     }
+    if(argc==2 && !strcmp(argv[1],"F5")){
+        memo_config_snapshot_t old{};
+        {auto *config=memo_network_config_nvs_lock();assert(memo_config_read_snapshot(config,&old)==MEMO_CONFIG_OK);memo_network_config_nvs_unlock();}
+        assert(network_sync_configure_service("https://one.example:9443/memo","BCDEFGHJKL",false)==MEMO_CONFIG_OK);
+        auto *config=memo_network_config_nvs_lock();memo_config_snapshot_t current{};
+        assert(memo_config_read_snapshot(config,&current)==MEMO_CONFIG_OK);
+        assert(current.generation>old.generation && !strcmp(current.pairing_code,"BCDEFGHJKL"));
+        assert(!strcmp(current.enrollment_id,old.enrollment_id) && !strcmp(current.token,old.token));
+        assert(memo_config_uuid_equal(&current.instance,&old.instance));
+        memo_server_uuid_t instance{};assert(memo_config_uuid_parse("11111111-2222-4333-8444-555555555555",&instance));
+        assert(memo_config_bind_instance(config,old.generation,&instance)==MEMO_CONFIG_CONFLICT);
+        memo_network_config_nvs_unlock();return 0;
+    }
+    if(argc==2 && argv[1][0]=='P'){
+        int scenario=argv[1][1]-'0';
+        auto replace=[&](){
+            // Simulate a portal task during a paused clock/HTTP operation. The
+            // old outer HTTP guard must fail this exact production save.
+            other_http_owner=http_claims>0;
+            bool local=scenario==2 || scenario==4;
+            const char *url=scenario==5?"https://new.example":"https://one.example:9443/memo";
+            assert(network_sync_configure_service(url,"BCDEFGHJKL",local)==MEMO_CONFIG_OK);
+            other_http_owner=false;
+        };
+        if(scenario==1 || scenario==2)during_clock=replace;
+        if(scenario>=3 && scenario<=5)during_pair=replace;
+        if(scenario==4)pair_result=MEMO_PAIR_REJECTED;
+        if(scenario==5 || scenario==6)pair_result=MEMO_PAIR_NETWORK;
+        if(scenario==7)pair_result=MEMO_PAIR_INVALID_RESPONSE;
+        recover_pairing();
+        assert(!pairing_http_active.load() && http_claims==0);
+        memo_config_public_t current{};network_sync_get_service_config(&current);
+        if(scenario==0){assert(current.configured && !current.pairing);}
+        else if(scenario==6){assert(current.pairing && status_value.error[0]);}
+        else if(scenario==7){assert(current.pairing && !current.configured && strstr(status_value.error,"服务接口不兼容"));}
+        else{
+            assert(!current.configured && current.enabled!=(scenario==2 || scenario==4));
+            assert(status_value.error[0]==0); // no stale completion or stale error
+            if(scenario<=2)assert(pair_runs==0);
+            else assert(pair_runs==1);
+        }
+        return 0;
+    }
     auto before=durable[1];unsigned prior_writes=writes;
     other_http_owner=true;
     assert(network_sync_configure_service("https://two.example","23456789AB",false)==MEMO_CONFIG_BUSY);
@@ -244,6 +321,22 @@ int main(int argc,char **argv){
         file_read_active=false;stream_http_active=false;active_record=0;unique_audio=false;
     }
     file_read_active=true;assert(!network_sync_prepare_audio(0));assert(!audio_busy());file_read_active=false;
+    // Production probe gate blocks audio/config/SD I/O, but not idle accounting.
+    assert(network_sync_try_sd_probe());assert(audio_busy());
+    assert(!begin_sd_io(nullptr)&&!file_read_active);
+    assert(!network_sync_prepare_audio(0));assert(!network_sync_try_sd_probe());
+    assert(!portal.Save("during-probe","not-saved"));
+    assert(network_sync_configure_service("https://two.example","23456789AB",false)==MEMO_CONFIG_BUSY);
+    assert(!network_sync_power_busy());assert(!network_sync_power_suspend());
+    network_sync_sd_probe_done();assert(!audio_busy());
+    assert(begin_sd_io(nullptr)&&file_read_active);assert(!network_sync_try_sd_probe());end_sd_io(nullptr);
+    assert(writes==prior_writes && durable[1]==before && durable[2]==wifi_saved);
+    for(int cut=0;cut<3;++cut){
+        file_read_active=cut==0;power_suspended=cut==1;unique_audio=cut==2;
+        assert(!network_sync_try_sd_probe());assert(memo_config_activity(&activity_gate)==MEMO_ACTIVITY_IDLE);
+        file_read_active=false;power_suspended=false;unique_audio=false;
+    }
+    assert(network_sync_prepare_audio(0));assert(!network_sync_try_sd_probe());network_sync_audio_done();
     // No-op retries neither rewrite flash nor cancel an unstarted SD request.
     sync_queue.pending_id=88;
     assert(network_sync_configure_service("https://one.example:9443/memo","23456789AB",false)==MEMO_CONFIG_OK);
@@ -280,6 +373,37 @@ int main(int argc,char **argv){
 '''
 
 class RuntimeTests(unittest.TestCase):
+    def test_lan_transport_does_not_wait_for_internet_clock(self):
+        body=extract((ROOT/'main/network_sync.cpp').read_text(),'bool ensure_clock')
+        harness=r'''#include <cstring>
+#include <ctime>
+#include <cassert>
+static int lock_depth=0;struct HttpGuard {HttpGuard(){++lock_depth;}~HttpGuard(){--lock_depth;}};
+using esp_err_t=int;using esp_sntp_config_t=int;
+static bool sntp_initialized=false;static int init_calls=0,wait_calls=0;static time_t current_time=0;
+#define ESP_OK 0
+#define ESP_ERR_INVALID_STATE 1
+#define ESP_NETIF_SNTP_DEFAULT_CONFIG_MULTIPLE(...) 0
+#define ESP_SNTP_SERVER_LIST(...) 0
+#define pdMS_TO_TICKS(x) (x)
+#define ESP_LOGW(...) ((void)0)
+#define ESP_LOGI(...) ((void)0)
+int esp_netif_sntp_init(int*){assert(lock_depth==1);++init_calls;return 0;}
+int esp_netif_sntp_sync_wait(int){assert(lock_depth==0);++wait_calls;return 0;}
+time_t test_time(time_t *p){return *p=current_time;}
+#define time test_time
+// BODY
+int main(){
+ assert(ensure_clock("http://192.168.1.20:8765"));assert(init_calls==0&&wait_calls==0);
+ assert(!ensure_clock("https://relay.example"));assert(init_calls==1&&wait_calls==1);
+ current_time=1800000000;assert(ensure_clock("https://relay.example"));assert(wait_calls==1);
+}
+'''.replace('// BODY',body)
+        with tempfile.TemporaryDirectory(prefix='clock-',dir=ROOT/'private/host-tests') as directory:
+            file=Path(directory)/'clock.cpp';file.write_text(harness);binary=Path(directory)/'clock'
+            subprocess.run(['c++','-std=c++17','-fsanitize=address,undefined',str(file),'-o',str(binary)],check=True)
+            subprocess.run([str(binary)],check=True)
+
     def test_actual_runtime_and_nvs_and_wifi_faults(self):
         (ROOT/'private/host-tests').mkdir(mode=0o700,exist_ok=True)
         with tempfile.TemporaryDirectory(prefix='service-runtime-',dir=ROOT/'private/host-tests') as directory:
@@ -287,10 +411,14 @@ class RuntimeTests(unittest.TestCase):
             for name,text in HEADERS.items():
                 file=temp/name;file.parent.mkdir(parents=True,exist_ok=True);file.write_text(text)
             source=(ROOT/'main/network_sync.cpp').read_text()
-            markers=['class ConfigGuard','class ConfigCommitGuard','bool current_service','void status_update','void refresh_service_status',
+            markers=['bool audio_busy','class HttpGuard','class ConfigGuard','class ConfigCommitGuard','bool current_service','void status_update','void set_error','void refresh_service_status',
                      'extern "C" void network_sync_get_status','extern "C" void network_sync_get_service_config',
+                     'bool pairing_is_current','memo_config_result_t pairing_bind','void recover_pairing',
                      'extern "C" memo_config_result_t network_sync_configure_service',
-                     'extern "C" bool network_sync_prepare_audio','extern "C" void network_sync_audio_done']
+                     'extern "C" bool network_sync_prepare_audio','extern "C" void network_sync_audio_done',
+                     'extern "C" bool network_sync_try_sd_probe','extern "C" void network_sync_sd_probe_done',
+                     'extern "C" bool network_sync_power_busy','extern "C" bool network_sync_power_suspend',
+                     'bool begin_sd_io','void end_sd_io']
             bodies='\n'.join(extract(source,marker)+(';' if marker.startswith('class ') else '') for marker in markers)
             ap=(ROOT/'components/esp-wifi-connect/wifi_configuration_ap.cc').read_text()
             bodies+='\n'+extract(ap,'bool WifiConfigurationAp::Save')
@@ -308,7 +436,7 @@ class RuntimeTests(unittest.TestCase):
             binary=temp/'runtime'
             subprocess.run(['c++','-std=c++17','-g','-O1','-Wall','-Wextra','-Werror','-fsanitize=address,undefined','-DMEMO_HOST_TEST',*includes,str(file),str(ROOT/'components/esp-wifi-connect/ssid_manager.cc'),*objects,'-o',str(binary)],check=True)
             results={}
-            for scenario in ('','F1','F2','F3'):
+            for scenario in ('','F1','F2','F3','F4','F5',*(f'P{i}' for i in range(8))):
                 results[scenario or 'baseline']=subprocess.run([str(binary),*([scenario] if scenario else [])]).returncode
             self.assertEqual(results,{name:0 for name in results})
 

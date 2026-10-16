@@ -116,6 +116,24 @@ REVIEWED_TOKEN_FIXTURES.setdefault('scripts/test_container_acceptance.py',set())
 REVIEWED_TOKEN_FIXTURES.setdefault('tests/deployment_http_client.py',set()).update({'Synthetic-password-2026'})
 REVIEWED_TOKEN_FIXTURES.setdefault('tests/relay_admin_fixture.py',set()).update({'synthetic-password-123'})
 
+# R12 LAN examples and offline protocol vectors. Review exact literals only;
+# these entries do not allow arbitrary private hosts in the same files.
+REVIEWED_URL_FIXTURES.setdefault('components/esp-wifi-connect/assets/wifi_configuration.html',set()).add('https'+'://'+'域名')
+REVIEWED_URL_FIXTURES.setdefault('docs/DEPLOYMENT.md',set()).update({'http'+'://'+'192.168.1.20:8765','http'+'://'+'192.168.1.20:8765/admin/'})
+REVIEWED_URL_FIXTURES.setdefault('docs/contracts/firmware-config-v1.json',set()).add('http'+'://'+'IP:8765;')
+REVIEWED_URL_FIXTURES.setdefault('server-relay/test_deployment.py',set()).add('http'+'://'+'10.0.0.2:80/memo')
+for _fixture_path in ('server-relay/test_runtime_http.py','tests/test_portal_async.cjs','tests/test_service_portal.py','tests/test_service_runtime.py'):
+    REVIEWED_URL_FIXTURES.setdefault(_fixture_path,set()).add('http'+'://'+'192.168.1.20:8765')
+REVIEWED_URL_FIXTURES.setdefault('tests/service-url-cases.json',set()).update({
+    'http'+'://'+'192.168.1.20:8765','http'+'://'+'10.0.0.1:8765/memo',
+    'http'+'://'+'172.16.0.1:9876/a','http'+'://'+'172.31.255.254:8765',
+    'http'+'://'+'192.168.1.20','https'+'://'+'192.168.1.20:9443',
+    'http'+'://'+'169.254.1.1','http'+'://'+'100.64.1.1',
+    'http'+'://'+'172.15.255.255','http'+'://'+'172.32.0.1',
+    'http'+'://'+'192.169.1.1','http'+'://'+'8.8.8.8',
+    'http'+'://'+'[fd00::1]','http'+'://'+'192.168.01.1',
+})
+
 def finding(path, category, line=None):
     value = {"path": str(path), "category": category}
     if line is not None:

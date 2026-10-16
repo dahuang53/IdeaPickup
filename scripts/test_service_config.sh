@@ -14,5 +14,8 @@ trap 'rm -rf -- "$test_dir"' EXIT
 "$test_dir/config"
 "$relay_python" "$project_dir/tests/test_firmware_pairing.py"
 "$relay_python" "$project_dir/tests/test_service_runtime.py"
+"$relay_python" "$project_dir/tests/test_pairing_request.py"
 
 "$relay_python" "$project_dir/tests/test_service_portal.py"
+"$relay_python" "$project_dir/tests/test_provisioning.py"
+"$relay_python" "$project_dir/tests/test_portal_socket.py"

@@ -1,109 +1,1782 @@
 <!doctype html>
-<html lang="zh-CN">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>设备联网设置</title>
-  <style>
-    :root{color-scheme:dark;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;background:#071012;color:#dceae3}
-    body{margin:0;min-height:100vh;display:grid;place-items:center;background:radial-gradient(circle at 50% 0,#173033,#071012 58%)}
-    main{width:min(88vw,420px);padding:30px 24px;border:1px solid #294347;border-radius:22px;background:#101d20;box-shadow:0 20px 60px #0008}
-    h1{margin:0 0 8px;color:#b5e2cc;font-size:27px}p{margin:0 0 24px;color:#a0b6b0;line-height:1.55}
-    label{display:block;margin:16px 0 7px;font-size:14px;color:#b9cbc5}
-    input,select{width:100%;box-sizing:border-box;padding:13px 14px;border:1px solid #355156;border-radius:11px;background:#071012;color:#fff;font-size:17px;outline:none}
-    input:focus,select:focus{border-color:#b5e2cc;box-shadow:0 0 0 3px #b5e2cc20}
-    .row{display:flex;gap:9px}.row select{min-width:0;flex:1}.row button{margin-top:0;min-height:44px;width:auto;padding:0 14px;background:#243a3c;color:#dceae3}
-    button{width:100%;margin-top:22px;padding:14px;border:0;border-radius:12px;background:#b5e2cc;color:#101d20;font-size:17px;font-weight:700}
-    button:disabled{opacity:.55}.hint{margin:7px 0 0;font-size:12px;color:#78908a}.feedback{min-height:22px;margin:14px 0 -8px;color:#f08472;line-height:1.5}h2{font-size:19px;margin:30px 0 12px}.check{display:flex;align-items:center;gap:10px}.check input{width:20px;height:20px;margin:0}#exit{background:#243a3c;color:#dceae3}main{box-sizing:border-box;margin:24px 0}input:disabled{opacity:.6}
-  </style>
-</head>
-<body>
-  <main>
-    <h1>设备联网设置</h1>
-    <p>选择 2.4 GHz Wi-Fi。服务设置单独保存；有卡录音和回放可离线使用。</p>
-    <form id="wifi-form">
-      <label for="networks">扫描到的 Wi-Fi</label>
-      <div class="row"><select id="networks"><option value="">正在扫描…</option></select><button type="button" id="scan">刷新</button></div>
-      <div class="hint" id="scan-status" role="status">正在扫描附近网络…</div>
-      <label for="ssid">Wi-Fi 名称</label>
-      <input id="ssid" maxlength="32" required autocomplete="off" placeholder="选择后自动填入，也可手动输入">
-      <label for="password">Wi-Fi 密码</label>
-      <input id="password" type="password" maxlength="64" autocomplete="current-password">
-      <div class="feedback" id="wifi-feedback" role="status" aria-live="polite"></div>
-      <button id="wifi-save" type="submit">连接并保存 Wi-Fi</button>
-    </form>
-    <form id="service-form">
-      <h2>录音服务</h2>
-      <label class="check"><input id="local-only" type="checkbox">仅本地使用</label>
-      <div class="hint">停止联网同步，有卡录音和回放不受影响。无卡录音需要服务。</div>
-      <label for="server-url">服务器地址</label>
-      <input id="server-url" maxlength="240" type="url" inputmode="url" autocomplete="url" spellcheck="false" placeholder="https://你的服务器/路径">
-      <div class="hint">使用 HTTPS；可带端口和路径。IP 地址需要有效证书。</div>
-      <label for="pairing">配对码</label>
-      <input id="pairing" maxlength="16" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false">
-      <div class="hint">在服务器管理页生成；同一服务已配对或正在配对时可留空。</div>
-      <div class="feedback" id="service-feedback" role="status" aria-live="polite"></div>
-      <button id="service-save" type="submit">保存服务设置</button>
-      <p class="hint" id="service-status" role="status" aria-live="polite">正在读取设置…</p>
-    </form>
-    <button id="exit" type="button">完成并关闭热点</button>
-    <div class="feedback" id="exit-feedback" role="status"></div>
-  </main>
-  <script>
-    const $=id=>document.getElementById(id);
-    let csrf='',pending=false,loaded=false,edited=false,polling=false,timer,revision=0;
-    function buttons(){for(const id of ['wifi-save','service-save','exit'])$(id).disabled=pending||!loaded}
-    function localFields(){for(const id of ['server-url','pairing'])$(id).disabled=$('local-only').checked}
-    for(const id of ['server-url','pairing','local-only'])$(id).addEventListener('input',()=>{edited=true;localFields()});
-    async function json(url,options={}){
-      let response;try{response=await fetch(url,{cache:'no-store',...options})}catch(_){throw new Error('网络响应未确认，请保持连接设备热点后重试')}
-      let value;try{value=await response.json()}catch(_){throw new Error('设备响应未确认，请刷新或重试')}
-      if(!response.ok||!value.success&&url!='/scan')throw new Error(value.error||'设备暂不可用，请稍后重试');
-      return value;
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>IdeaPickup · 联网与服务设置</title><style>
+    :root {
+      --font-sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+      --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     }
-    async function status(){
-      if(polling)return;clearTimeout(timer);polling=true;const observed=revision;
-      try{
-        const state=await json('/service');if(observed!==revision||pending)return;csrf=state.csrf;loaded=!!csrf;
-        if(!edited&&!pending){$('server-url').value=state.server_url||'';$('local-only').checked=state.local_only;localFields()}
-        $('service-status').textContent=state.message;
-      }catch(_){if(observed!==revision||pending)return;loaded=false;$('service-status').textContent='设置读取失败，将自动重试；请保持连接设备热点'}
-      finally{polling=false;buttons();timer=setTimeout(status,2500)}
+
+    *, *::before, *::after {
+      box-sizing: border-box;
     }
-    async function scan(){
-      $('scan').disabled=true;$('scan-status').textContent='正在扫描附近网络…';
-      try{
-        const result=await json('/scan'),seen=new Set(),list=$('networks');list.replaceChildren();
-        const prompt=document.createElement('option');prompt.value='';prompt.textContent='请选择网络';list.append(prompt);
-        for(const ap of result.aps||[]){if(!ap.ssid||seen.has(ap.ssid))continue;seen.add(ap.ssid);const option=document.createElement('option');option.value=ap.ssid;option.textContent=`${ap.ssid} (${ap.rssi} dBm)`;list.append(option)}
-        $('scan-status').textContent=seen.size?`找到 ${seen.size} 个网络，也可以手动输入`:'没有找到网络，可以手动输入';
-      }catch(_){$('scan-status').textContent='扫描暂不可用，可以手动输入'}
-      finally{$('scan').disabled=false}
+
+    html {
+      font-size: 16px;
+      -webkit-text-size-adjust: 100%;
     }
-    $('scan').addEventListener('click',scan);
-    $('networks').addEventListener('change',event=>{if(event.target.value)$('ssid').value=event.target.value});
-    async function save(url,body,feedback){
-      if(pending||!loaded)return false;pending=true;revision++;buttons();feedback.textContent='正在保存，请稍候…';
-      try{
-        const result=await json(url,{method:'POST',headers:{'Content-Type':'application/json','X-Memo-CSRF':csrf},body:JSON.stringify(body)});
-        feedback.textContent=result.message||'Wi-Fi 已连接并保存';return true;
-      }catch(reason){feedback.textContent=reason.message||'连接或保存未确认，请重试';return false}
-      finally{pending=false;revision++;buttons()}
+
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: var(--font-sans);
+      background: #E5E7EB;
+      color: #111827;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
     }
-    $('wifi-form').addEventListener('submit',async event=>{
-      event.preventDefault();
-      if(new TextEncoder().encode($('ssid').value).length>32){$('wifi-feedback').textContent='Wi-Fi 名称不能超过32字节';return}
-      if(await save('/submit',{ssid:$('ssid').value,password:$('password').value},$('wifi-feedback')))$('password').value='';
-    });
-    $('service-form').addEventListener('submit',async event=>{
-      event.preventDefault();const local=$('local-only').checked,url=$('server-url').value.trim(),code=$('pairing').value.trim().toUpperCase();
-      if(!local&&!/^https:\/\//i.test(url)){$('service-feedback').textContent='请填写 HTTPS 服务地址';return}
-      if(await save('/service',{server_url:url,pairing_code:code,local_only:local},$('service-feedback'))){$('pairing').value='';edited=false;await status()}
-    });
-    $('exit').addEventListener('click',async()=>{
-      if(await save('/exit',{},$('exit-feedback')))$('exit-feedback').textContent='热点即将关闭，设备会按已保存设置联网；有卡录音仍可离线使用';
-    });
-    buttons();localFields();scan();status();
-  </script>
-</body>
-</html>
+
+    button,
+    input,
+    select {
+      margin: 0;
+    }
+
+    .stage-wrapper {
+      flex: 1;
+      display: flex;
+      justify-content: center;
+      padding: 16px 8px 48px;
+      transition: background-color 0.2s ease;
+    }
+
+    .phone-viewport {
+      width: 100%;
+      max-width: 440px;
+      margin: 0 auto;
+      transition: max-width 0.2s ease;
+    }
+
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    /* Focus visibility */
+    button:focus-visible,
+    input:focus-visible,
+    select:focus-visible,
+    [tabindex]:focus-visible {
+      outline: 3px solid #2563EB;
+      outline-offset: 2px;
+    }
+
+    /* Minimum 16px font on form controls to prevent iOS auto-zoom */
+    .portal-input,
+    .portal-select {
+      font-size: 1rem !important;
+      font-family: inherit;
+    }
+
+    .theme-a {
+      --a-bg: #F6F5F2;
+      --a-surface: #FFFFFF;
+      --a-subtle: #EFECE6;
+      --a-text: #18181B;
+      --a-muted: #52525B;
+      --a-border: #D6D3CD;
+      --a-accent: #18181B;
+      --a-accent-fg: #FFFFFF;
+      --a-blue: #1D4ED8;
+      --a-blue-bg: #EFF6FF;
+      --a-green: #15803D;
+      --a-green-bg: #DCFCE7;
+      --a-amber: #B45309;
+      --a-amber-bg: #FEF3C7;
+      --a-red: #B91C1C;
+      --a-red-bg: #FEE2E2;
+      background-color: var(--a-bg);
+      color: var(--a-text);
+      border-radius: 20px;
+      padding: 18px 16px 28px;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.08);
+      border: 1px solid var(--a-border);
+    }
+
+    .a-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding-bottom: 14px;
+      border-bottom: 1.5px solid var(--a-text);
+      margin-bottom: 14px;
+    }
+
+    .a-title {
+      margin: 0;
+      font-size: 1.125rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+
+    .a-ap-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 4px 9px;
+      border-radius: 999px;
+      background: var(--a-subtle);
+      color: var(--a-text);
+      white-space: nowrap;
+    }
+
+    .a-ap-pill[data-tone="error"] {
+      background: var(--a-red-bg);
+      color: var(--a-red);
+    }
+
+    .a-alert-strip {
+      padding: 11px 12px;
+      border-radius: 10px;
+      background: var(--a-red-bg);
+      color: var(--a-red);
+      border: 1px solid #FCA5A5;
+      font-size: 0.8125rem;
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .a-alert-strip[data-tone="neutral"] {
+      background: var(--a-subtle);
+      color: var(--a-text);
+      border-color: var(--a-border);
+    }
+
+    .a-row-item {
+      background: var(--a-surface);
+      border: 1px solid var(--a-border);
+      border-radius: 14px;
+      margin-bottom: 12px;
+      overflow: hidden;
+    }
+
+    .a-row-summary {
+      padding: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .a-row-meta {
+      min-width: 0;
+      flex: 1;
+    }
+
+    .a-row-label {
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--a-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      margin-bottom: 3px;
+    }
+
+    .a-row-value {
+      font-size: 0.9375rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+      overflow-wrap: anywhere;
+    }
+
+    .a-row-sub {
+      font-size: 0.8125rem;
+      color: var(--a-muted);
+      margin-top: 3px;
+    }
+
+    .a-status-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 6px;
+    }
+
+    .a-status-tag[data-tone="success"] { background: var(--a-green-bg); color: var(--a-green); }
+    .a-status-tag[data-tone="pending"] { background: var(--a-blue-bg); color: var(--a-blue); }
+    .a-status-tag[data-tone="warn"] { background: var(--a-amber-bg); color: var(--a-amber); }
+    .a-status-tag[data-tone="error"] { background: var(--a-red-bg); color: var(--a-red); }
+    .a-status-tag[data-tone="neutral"] { background: var(--a-subtle); color: var(--a-muted); }
+
+    .a-action-btn {
+      min-height: 44px;
+      padding: 0 14px;
+      border-radius: 10px;
+      border: 1.5px solid var(--a-text);
+      background: transparent;
+      color: var(--a-text);
+      font-weight: 700;
+      font-size: 0.875rem;
+      font-family: inherit;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    .a-action-btn[data-primary="true"] {
+      background: var(--a-text);
+      color: var(--a-accent-fg);
+    }
+
+    .a-action-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    .a-drawer {
+      background: var(--a-subtle);
+      border-top: 1px solid var(--a-border);
+      padding: 16px 14px;
+    }
+
+    /* Equal Segmented Control in Candidate A */
+    .a-seg-wrap {
+      padding: 14px;
+    }
+
+    .a-seg-track {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4px;
+      background: var(--a-subtle);
+      padding: 4px;
+      border-radius: 11px;
+      border: 1px solid var(--a-border);
+      margin: 8px 0 12px;
+    }
+
+    .a-seg-btn {
+      min-height: 44px;
+      border: none;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--a-muted);
+      font-family: inherit;
+      font-size: 0.875rem;
+      font-weight: 700;
+      cursor: pointer;
+      padding: 6px 8px;
+      white-space: nowrap;
+      transition: all 0.15s ease;
+    }
+
+    .a-seg-btn[aria-pressed="true"] {
+      background: var(--a-surface);
+      color: var(--a-text);
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    .f-group {
+      margin-bottom: 12px;
+    }
+
+    .f-label-row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 6px;
+      margin-bottom: 5px;
+    }
+
+    .f-label {
+      font-size: 0.8125rem;
+      font-weight: 700;
+      color: inherit;
+    }
+
+    .f-err-inline {
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: #DC2626;
+    }
+
+    .f-input-row {
+      display: flex;
+      gap: 6px;
+      align-items: stretch;
+      width: 100%;
+    }
+
+    .portal-input,
+    .portal-select {
+      width: 100%;
+      min-height: 46px;
+      padding: 9px 12px;
+      border-radius: 10px;
+      border: 1.5px solid #9CA3AF;
+      background: #FFFFFF;
+      color: #111827;
+      transition: border-color 0.15s ease;
+    }
+
+    .f-input-row > .portal-input,
+    .f-input-row > .portal-select {
+      flex: 1 1 0%;
+      min-width: 0;
+      width: auto;
+    }
+
+    .portal-input:disabled,
+    .portal-select:disabled {
+      background: #F3F4F6;
+      color: #6B7280;
+      cursor: not-allowed;
+    }
+
+    .f-sub-btn {
+      min-height: 46px;
+      min-width: 68px;
+      padding: 0 10px;
+      border-radius: 10px;
+      border: 1.5px solid #9CA3AF;
+      background: #F3F4F6;
+      color: #111827;
+      font-weight: 700;
+      font-size: 0.8125rem;
+      font-family: inherit;
+      cursor: pointer;
+      white-space: nowrap;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+    }
+
+    .f-input-row > .f-sub-btn {
+      flex: 0 0 68px;
+      width: 68px;
+    }
+
+    .wifi-select-trigger {
+      display: inline-flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .wifi-select-trigger[aria-expanded="true"] {
+      border-color: var(--a-accent-border);
+    }
+
+    .wifi-select-text {
+      flex: 1 1 0%;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .wifi-select-text[data-placeholder="true"] {
+      color: var(--a-muted);
+    }
+
+    .wifi-select-meta {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+      color: var(--a-muted);
+    }
+
+    .wifi-chevron {
+      transition: transform 0.15s ease;
+    }
+
+    .wifi-select-trigger[aria-expanded="true"] .wifi-chevron {
+      transform: rotate(180deg);
+    }
+
+    .wifi-listbox {
+      margin-top: 6px;
+      border-radius: 10px;
+      border: 1.5px solid var(--a-border);
+      background: var(--a-surface);
+      box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+      max-height: 228px;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .wifi-opt-btn {
+      width: 100%;
+      min-height: 44px;
+      padding: 9px 12px;
+      border: none;
+      border-bottom: 1px solid var(--a-subtle);
+      background: transparent;
+      color: var(--a-text);
+      font-family: inherit;
+      font-size: 0.9375rem;
+      text-align: left;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .wifi-opt-btn:last-child {
+      border-bottom: none;
+    }
+
+    .wifi-opt-btn:hover:not(:disabled) {
+      background-color: var(--a-bg);
+    }
+
+    .wifi-opt-btn[aria-selected="true"] {
+      background-color: var(--a-accent-soft);
+      color: var(--a-accent);
+      font-weight: 700;
+    }
+
+    .wifi-opt-check {
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--a-accent);
+    }
+
+    .wifi-opt-ssid {
+      flex: 1 1 0%;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .wifi-opt-icons {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      flex-shrink: 0;
+      color: var(--a-text);
+    }
+
+    .wifi-opt-btn[aria-selected="true"] .wifi-opt-icons {
+      color: var(--a-accent);
+    }
+
+    .f-primary-btn {
+      width: 100%;
+      min-height: 48px;
+      padding: 10px 16px;
+      border-radius: 11px;
+      border: none;
+      font-size: 0.9375rem;
+      font-weight: 800;
+      font-family: inherit;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .f-primary-btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .f-hint {
+      font-size: 0.75rem;
+      opacity: 0.78;
+      margin-top: 4px;
+      line-height: 1.4;
+    }
+
+    .f-feedback {
+      margin: 10px 0;
+      padding: 9px 11px;
+      border-radius: 8px;
+      font-size: 0.8125rem;
+      font-weight: 600;
+      line-height: 1.4;
+    }
+
+    .f-feedback[data-tone="pending"] { background: #EFF6FF; color: #1E40AF; border: 1px solid #BFDBFE; }
+    .f-feedback[data-tone="success"] { background: #DCFCE7; color: #166534; border: 1px solid #86EFAC; }
+    .f-feedback[data-tone="error"] { background: #FEE2E2; color: #991B1B; border: 1px solid #FCA5A5; }
+    .f-feedback[data-tone="warn"] { background: #FEF3C7; color: #92400E; border: 1px solid #FDE68A; }
+
+    .f-inline-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 0.75rem;
+      color: #52525B;
+      margin-bottom: 8px;
+    }
+
+    .f-link-btn {
+      background: none;
+      border: none;
+      padding: 2px 4px;
+      min-height: 32px;
+      font: inherit;
+      font-weight: 700;
+      text-decoration: underline;
+      cursor: pointer;
+      color: inherit;
+    }
+
+    /* ==========================================================================
+       CANDIDATE A + B COLOR PALETTE OVERRIDE
+       ========================================================================== */
+    .theme-a {
+      --a-bg: #F0F4F8;
+      --a-surface: #FFFFFF;
+      --a-subtle: #E2E8F0;
+      --a-text: #0F172A;
+      --a-muted: #475569;
+      --a-border: #CBD5E1;
+      --a-accent: #0369A1;
+      --a-accent-hover: #0274B3;
+      --a-accent-border: #0284C7;
+      --a-accent-soft: #E0F2FE;
+      --a-accent-fg: #FFFFFF;
+      --a-blue: #0369A1;
+      --a-blue-bg: #E0F2FE;
+      --a-green: #0F766E;
+      --a-green-bg: #CCFBF1;
+      --a-amber: #92400E;
+      --a-amber-bg: #FEF3C7;
+      --a-red: #BE123C;
+      --a-red-bg: #FFE4E6;
+      box-shadow: 0 12px 32px rgba(15, 23, 42, 0.08);
+    }
+
+    .theme-a .a-header {
+      border-bottom-color: var(--a-border);
+    }
+
+    .theme-a .a-ap-pill {
+      background-color: var(--a-accent-soft);
+      color: var(--a-blue);
+    }
+
+    .theme-a .a-ap-pill[data-tone="error"] {
+      background-color: var(--a-red-bg);
+      color: var(--a-red);
+    }
+
+    .theme-a .a-alert-strip {
+      background-color: var(--a-red-bg);
+      color: var(--a-red);
+      border-color: #FDA4AF;
+    }
+
+    .theme-a .a-alert-strip[data-tone="neutral"] {
+      background-color: var(--a-subtle);
+      color: var(--a-text);
+      border-color: var(--a-border);
+    }
+
+    .theme-a .a-drawer {
+      background-color: var(--a-bg);
+      border-top-color: var(--a-border);
+    }
+
+    .theme-a .a-action-btn {
+      border-color: var(--a-border);
+      background-color: var(--a-surface);
+      color: var(--a-text);
+    }
+
+    .theme-a .a-action-btn:hover:not(:disabled) {
+      border-color: var(--a-accent-border);
+      background-color: var(--a-accent-soft);
+      color: var(--a-accent);
+    }
+
+    .theme-a .a-action-btn[data-primary="true"] {
+      background-color: var(--a-accent);
+      border-color: var(--a-accent);
+      color: var(--a-accent-fg);
+    }
+
+    .theme-a .a-action-btn[data-primary="true"]:hover:not(:disabled) {
+      background-color: var(--a-accent-hover);
+      border-color: var(--a-accent-hover);
+      color: var(--a-accent-fg);
+    }
+
+    .theme-a .a-seg-track {
+      background-color: var(--a-bg);
+      border-color: var(--a-border);
+    }
+
+    .theme-a .a-seg-btn {
+      color: var(--a-muted);
+    }
+
+    .theme-a .a-seg-btn[aria-pressed="true"] {
+      background-color: var(--a-accent-soft);
+      color: var(--a-accent);
+      box-shadow: inset 0 0 0 1.5px var(--a-accent-border), 0 1px 3px rgba(15, 23, 42, 0.08);
+    }
+
+    .theme-a .f-primary-btn {
+      background: var(--a-accent) !important;
+      color: var(--a-accent-fg) !important;
+    }
+
+    .theme-a .f-primary-btn:hover:not(:disabled) {
+      background: var(--a-accent-hover) !important;
+      color: var(--a-accent-fg) !important;
+    }
+
+    .theme-a [style*="background:#F6F5F2"] {
+      background-color: var(--a-bg) !important;
+      border-color: var(--a-border) !important;
+    }
+
+    .theme-a [style*="color:#52525B"] {
+      color: var(--a-muted) !important;
+    }
+
+    .theme-a .portal-input,
+    .theme-a .portal-select {
+      border-color: var(--a-border);
+      background-color: var(--a-surface);
+      color: var(--a-text);
+    }
+
+    .theme-a .portal-input:focus,
+    .theme-a .portal-select:focus {
+      border-color: var(--a-accent-border);
+    }
+
+    .theme-a .portal-input:disabled,
+    .theme-a .portal-select:disabled {
+      background-color: #F1F5F9;
+      color: var(--a-muted);
+    }
+
+    .theme-a .f-sub-btn {
+      border-color: var(--a-border);
+      background-color: var(--a-bg);
+      color: var(--a-text);
+    }
+
+    .theme-a .f-sub-btn:hover:not(:disabled) {
+      border-color: var(--a-accent-border);
+      background-color: var(--a-accent-soft);
+      color: var(--a-accent);
+    }
+
+    .theme-a .f-link-btn {
+      color: var(--a-accent);
+    }
+
+    .theme-a .f-err-inline {
+      color: var(--a-red);
+    }
+
+    .theme-a .f-feedback[data-tone="pending"] {
+      background-color: var(--a-blue-bg);
+      color: var(--a-blue);
+      border-color: #7DD3FC;
+    }
+
+    .theme-a .f-feedback[data-tone="success"] {
+      background-color: var(--a-green-bg);
+      color: var(--a-green);
+      border-color: #5EEAD4;
+    }
+
+    .theme-a .f-feedback[data-tone="warn"] {
+      background-color: var(--a-amber-bg);
+      color: var(--a-amber);
+      border-color: #FCD34D;
+    }
+
+    .theme-a .f-feedback[data-tone="error"] {
+      background-color: var(--a-red-bg);
+      color: var(--a-red);
+      border-color: #FDA4AF;
+    }
+
+    .theme-a button:focus-visible,
+    .theme-a input:focus-visible,
+    .theme-a select:focus-visible,
+    .theme-a [tabindex]:focus-visible {
+      outline-color: var(--a-accent);
+    }
+
+</style></head><body>
+<div class="stage-wrapper"><div class="phone-viewport"><div id="portal-mount"></div></div></div>
+<script>    (() => {
+      'use strict';
+      const utf8Encoder=new TextEncoder();
+      const utf8Bytes=str=>utf8Encoder.encode(str).length;
+      // Real device transport; rendering below remains the selected Gemini design.
+      let csrf = '', revision = 0, polling = false, timer = null, everLoaded = false;
+      let wifiEditRevision = 0, serviceEditRevision = 0, wifiSubmitted = null;
+      let serviceSubmitted = false, composing = false;
+      const store = {
+        apOnline: false, closed: false, scanning: false, pendingWrite: false, aps: [],
+        device: {wifi: {}, local_only: false, configured: false, pairing: false, server_url: ''},
+        lastKnownWifiSummary: '无', lastKnownServiceSummary: '无',
+        wifiEdited: false, customSsidMode: false, wifiMenuOpen: false, draftSsid: '', draftPassword: '',
+        exitFeedback: {text: '', tone: ''}, showPassword: false, wifiFeedback: {text: '', tone: ''},
+        serviceEdited: false, draftMode: 'service', draftServerUrl: '', draftPairingCode: '',
+        serviceFeedback: {text: '', tone: ''}, candA_wifiOpen: false, candA_serviceOpen: false
+      };
+      function writable() { return store.apOnline && csrf && !store.closed && !store.pendingWrite && !store.scanning; }
+      function syncDrafts() {
+        if (!store.wifiEdited) {
+          store.draftSsid = store.device.wifi.ssid || '';
+          store.customSsidMode = !!store.draftSsid && !store.aps.some(a => a.ssid === store.draftSsid);
+        }
+        if (!store.serviceEdited) {
+          store.draftMode = store.device.local_only ? 'local' : 'service';
+          store.draftServerUrl = store.device.server_url || '';
+        }
+      }
+      async function status() {
+        if (polling || store.pendingWrite || store.closed) return;
+        clearTimeout(timer); polling = true;
+        const observed = revision;
+        try {
+          const value = await requestJson('/service');
+          if (observed !== revision || store.pendingWrite || store.closed) return;
+          if (typeof value.csrf !== 'string' || !value.csrf || !value.wifi ||
+              typeof value.wifi.state !== 'string' || typeof value.wifi.connected !== 'boolean' ||
+              typeof value.wifi.saved !== 'boolean' || typeof value.local_only !== 'boolean' ||
+              typeof value.configured !== 'boolean' || typeof value.pairing !== 'boolean' ||
+              typeof value.phase !== 'string' || typeof value.server_url !== 'string') throw Error('Invalid device state');
+          csrf = value.csrf; store.device = value; store.apOnline = true;
+          syncDrafts();
+          if (!everLoaded) {
+            store.candA_wifiOpen = (!value.wifi.connected || !value.wifi.saved) && !value.local_only;
+            store.candA_serviceOpen = value.phase === 'error' || value.phase === 'unconfigured';
+          }
+          everLoaded = true;
+          const w = value.wifi;
+          if (wifiSubmitted && w.ssid === wifiSubmitted.ssid) {
+            if (w.connected && w.saved) {
+              if (wifiEditRevision === wifiSubmitted.editRevision) {
+                store.draftPassword = ''; store.wifiEdited = false; store.candA_wifiOpen = false; store.wifiMenuOpen = false;
+              }
+              store.wifiFeedback = {text: '', tone: ''}; wifiSubmitted = null;
+            } else if (w.state === 'failed' || w.state === 'save_failed') {
+              store.wifiFeedback = {text: '', tone: ''}; wifiSubmitted = null;
+              store.candA_wifiOpen = true;
+            }
+          }
+          if (serviceSubmitted) {
+            store.serviceFeedback = {text: '', tone: ''};
+            if (value.phase === 'error' || value.local_only || (value.phase === 'paired' && value.configured)) {
+              if (!store.serviceEdited) store.candA_serviceOpen = value.phase === 'error';
+              serviceSubmitted = false;
+            }
+          }
+        } catch (_) {
+          if (observed !== revision || store.pendingWrite || store.closed) return;
+          csrf = ''; store.apOnline = false;
+        } finally {
+          polling = false; render();
+          if (!store.closed) timer = setTimeout(status, 2000);
+        }
+      }
+      async function triggerScan() {
+        if (!writable() || deriveWifiInfo().busy) return;
+        store.wifiMenuOpen = false;
+        store.scanning = true; render();
+        try {
+          const value = await requestJson('/scan');
+          if (store.closed) return;
+          const seen = new Set();
+          store.aps = (Array.isArray(value.aps) ? value.aps : []).filter(a => {
+            if (typeof a.ssid !== 'string' || !a.ssid || seen.has(a.ssid)) return false;
+            seen.add(a.ssid); return true;
+          });
+          if (!store.wifiEdited) syncDrafts();
+        } catch (e) {
+          if (!store.closed) store.wifiFeedback = {text: e.message, tone: 'error'};
+        } finally { store.scanning = false; if (!store.closed) render(); }
+      }
+      async function save(url, body, feedback) {
+        if (!writable()) return false;
+        store.pendingWrite = true; revision++; clearTimeout(timer); render();
+        try {
+          await requestJson(url, {method:'POST', headers:{'Content-Type':'application/json','X-Memo-CSRF':csrf}, body:JSON.stringify(body)});
+          return true;
+        } catch (e) {
+          store[feedback] = {text:e.message, tone:'error'}; return false;
+        } finally {
+          store.pendingWrite = false; revision++; render();
+          if (!store.closed) timer = setTimeout(status, 0);
+        }
+      }
+      async function submitWifi() {
+        if (!writable() || deriveWifiInfo().busy) return;
+        store.wifiMenuOpen = false;
+        const rawSsid=store.draftSsid, rawPwd=store.draftPassword, edit=wifiEditRevision;
+        let error = !rawSsid ? '请选择或输入 2.4GHz Wi-Fi 名称' : utf8Bytes(rawSsid)>32 ? 'Wi-Fi 名称过长（最多约 10 个汉字或 32 个字母）' : utf8Bytes(rawPwd)>64 ? '密码过长（最多 64 个字符）' : '';
+        if (error) {store.wifiFeedback={text:error,tone:'error'};render();return;}
+        store.wifiFeedback={text:'正在发送连接请求…',tone:'pending'};
+        if (await save('/submit',{ssid:rawSsid,password:rawPwd},'wifiFeedback')) {
+          wifiSubmitted={ssid:rawSsid,editRevision:edit};
+          store.wifiFeedback={text:`已接收请求，正在连接「${rawSsid}」并验证保存结果…`,tone:'pending'};
+        }
+        await status();
+      }
+      async function submitService() {
+        if (!writable()) return;
+        const wantLocal=store.draftMode==='local', cleanUrl=store.draftServerUrl.trim(), cleanCode=store.draftPairingCode.trim().toUpperCase(), edit=serviceEditRevision;
+        let error = wantLocal ? '' : !cleanUrl ? '请填写服务器内网 IP 或 HTTPS 域名' : utf8Bytes(cleanUrl)>240 ? '服务器地址超出长度限制' : cleanCode.length>16 ? '配对码最多 16 位字符' : '';
+        if(error){store.serviceFeedback={text:error,tone:'error'};render();return;}
+        store.serviceFeedback={text:'正在保存…',tone:'pending'};
+        if(await save('/service',{server_url:cleanUrl,pairing_code:cleanCode,local_only:wantLocal},'serviceFeedback')) {
+          if(serviceEditRevision===edit){store.draftPairingCode='';store.serviceEdited=false;}
+          serviceSubmitted=true;
+        }
+        await status();
+      }
+      async function triggerExitHotspot() {
+        if (!writable()) return;
+        store.wifiMenuOpen = false;
+        store.exitFeedback={text:'',tone:''};
+        if(await save('/exit',{},'exitFeedback')) {
+          store.closed=true;store.apOnline=false;csrf='';clearTimeout(timer);
+          store.draftPassword='';store.draftPairingCode='';store.wifiEdited=false;store.serviceEdited=false;
+          render();
+        } else {render();await status();}
+      }
+      // Preserve actual controls (and iOS keyboard/IME selection) across status updates.
+      function reconcile(parent, desired) {
+        const incoming=[...desired.childNodes];
+        for(let i=0;i<incoming.length;i++) {
+          const fresh=incoming[i]; let old=parent.childNodes[i];
+          const key=n=>n.nodeType===1 ? (n.id || (n.dataset.action ? n.dataset.action+':'+(n.dataset.mode||n.dataset.wifiOpt||'') :
+            n.tagName+':'+(n.getAttribute('class')||'')+':'+(n.getAttribute('for')||((n.classList.contains('f-group')||n.classList.contains('f-label-row'))?n.querySelector('label')?.htmlFor:'')||'')+':'+(n.tagName==='OPTION'?n.getAttribute('value')||'':''))) : '';
+          if(key(fresh) && (!old || key(old)!==key(fresh))) {
+            const match=[...parent.childNodes].slice(i).find(n=>key(n)===key(fresh));
+            if(match){parent.insertBefore(match,old||null);old=match;}
+            else {parent.insertBefore(fresh.cloneNode(true),old||null);continue;}
+          }
+          if(!old){parent.appendChild(fresh.cloneNode(true));continue;}
+          if(old.nodeType!==fresh.nodeType || old.nodeName!==fresh.nodeName || key(old)!==key(fresh)) {parent.replaceChild(fresh.cloneNode(true),old);continue;}
+          if(old.nodeType!==1){if(old.nodeValue!==fresh.nodeValue)old.nodeValue=fresh.nodeValue;continue;}
+          if(old.tagName.toLowerCase()==='svg'){if(old.outerHTML!==fresh.outerHTML)parent.replaceChild(fresh.cloneNode(true),old);continue;}
+          for(const a of [...old.attributes])if(!fresh.hasAttribute(a.name))old.removeAttribute(a.name);
+          for(const a of [...fresh.attributes])if(old.getAttribute(a.name)!==a.value)old.setAttribute(a.name,a.value);
+          if(old.tagName==='INPUT') {if(old.value!==fresh.value)old.value=fresh.value;}
+          else {reconcile(old,fresh);if(old.tagName==='SELECT' && old.value!==fresh.value)old.value=fresh.value;}
+        }
+        while(parent.childNodes.length>incoming.length)parent.lastChild.remove();
+      }
+      function render() {
+        if(composing)return;
+        const template=document.createElement('template');template.innerHTML=renderCandidateA();
+        reconcile(document.getElementById('portal-mount'),template.content);
+      }
+      function createTimeoutSignal(ms) {
+        if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+          return AbortSignal.timeout(ms);
+        }
+        const controller = new AbortController();
+        setTimeout(() => controller.abort(new DOMException('TimeoutError', 'TimeoutError')), ms);
+        return controller.signal;
+      }
+
+      async function requestJson(url, options = {}) {
+        let response;
+        try {
+          response = await fetch(url, {
+            cache: 'no-store',
+            signal: createTimeoutSignal(8000),
+            ...options
+          });
+        } catch (err) {
+          const isTimeout = err && (err.name === 'TimeoutError' || err.name === 'AbortError');
+          if (isTimeout) {
+            throw new Error('等待设备响应超时（操作结果尚未确认，设备可能仍在继续处理）；请保持连接IdeaPickup热点，稍后查看上方最新状态');
+          }
+          throw new Error('未能收到设备响应（操作结果尚未确认）；请确认手机仍连着IdeaPickup热点，连接恢复后将自动更新状态');
+        }
+
+        let rawText = '';
+        try {
+          rawText = await response.text();
+        } catch (_) {
+          throw new Error('设备响应读取未完成，请稍后重试');
+        }
+
+        let value = null;
+        if (rawText) {
+          try {
+            value = JSON.parse(rawText);
+          } catch (_) {
+            value = null;
+          }
+        }
+
+        if (!response.ok) {
+          if (value && typeof value.error === 'string' && value.error.trim()) {
+            throw new Error(value.error.trim());
+          }
+          if (value && typeof value.message === 'string' && value.message.trim()) {
+            throw new Error(value.message.trim());
+          }
+          const cleanPlain = rawText ? rawText.replace(/\s+/g, ' ').trim().slice(0, 120) : '';
+          if (response.status === 403) {
+            throw new Error(cleanPlain || '页面会话已更新，正在重新同步设备状态，请稍后再试');
+          }
+          if (response.status === 409) {
+            throw new Error(cleanPlain || '设备当前正忙或设置条件冲突，请检查后重试');
+          }
+          if (response.status >= 500) {
+            throw new Error(cleanPlain || '设备处理请求时遇到问题，请稍后重试');
+          }
+          throw new Error(cleanPlain || '请求未能完成，请检查输入后重试');
+        }
+
+        if (!value || typeof value !== 'object') {
+          throw new Error('设备返回内容无法识别，请稍后重试');
+        }
+
+        if (url !== '/scan' && !value.success) {
+          throw new Error(value.error || value.message || '设备暂不可用，请稍后重试');
+        }
+
+        return value;
+      }
+
+      function deriveWifiInfo() {
+        if (store.closed) {
+          return {
+            short: `停止更新（原：${store.lastKnownWifiSummary}）`,
+            note: '',
+            tone: 'neutral',
+            icon: '○',
+            isReady: false,
+            busy: false
+          };
+        }
+        if (!store.apOnline) {
+          return {
+            short: `当前未知（原：${store.lastKnownWifiSummary}）`,
+            note: '',
+            tone: 'neutral',
+            icon: '?',
+            isReady: false,
+            busy: false
+          };
+        }
+        const w = store.device.wifi || {};
+        const name = w.ssid || '';
+        if (w.state === 'connecting') {
+          return {
+            short: `正在连接 ${name || 'Wi-Fi'}…`,
+            note: '',
+            tone: 'pending',
+            icon: '◐',
+            isReady: false,
+            busy: true
+          };
+        }
+        if (w.connected && w.saved) {
+          store.lastKnownWifiSummary = name;
+          return {
+            short: `已连 ${name}`,
+            note: '',
+            tone: 'success',
+            icon: '✓',
+            isReady: true,
+            busy: false
+          };
+        }
+        if (w.connected && !w.saved && w.state !== 'save_failed') {
+          return {
+            short: `已连 ${name}（保存中…）`,
+            note: '',
+            tone: 'pending',
+            icon: '◐',
+            isReady: false,
+            busy: false
+          };
+        }
+        if (w.state === 'save_failed') {
+          return {
+            short: '已连接但未保存',
+            note: w.error || '请重新保存',
+            tone: 'error',
+            icon: '!',
+            isReady: false,
+            busy: false
+          };
+        }
+        if (w.state === 'failed') {
+          return {
+            short: '连接失败',
+            note: w.error || `无法连接「${name}」，请核对密码或确认 2.4GHz`,
+            tone: 'error',
+            icon: '✕',
+            isReady: false,
+            busy: false
+          };
+        }
+        if (w.state === 'disconnected') {
+          return {
+            short: `${name || 'Wi-Fi'} 已断开`,
+            note: w.error || '',
+            tone: 'warn',
+            icon: '!',
+            isReady: false,
+            busy: false
+          };
+        }
+        return {
+          short: '未连接',
+          note: '',
+          tone: 'warn',
+          icon: '○',
+          isReady: false,
+          busy: false
+        };
+      }
+
+      function deriveServiceInfo() {
+        if (store.closed) {
+          return {
+            short: `停止更新（原：${store.lastKnownServiceSummary}）`,
+            note: '',
+            tone: 'neutral',
+            icon: '○',
+            activeMode: store.device.local_only ? 'local' : 'service',
+            isPaired: false
+          };
+        }
+        if (!store.apOnline) {
+          return {
+            short: `当前未知（原：${store.lastKnownServiceSummary}）`,
+            note: '',
+            tone: 'neutral',
+            icon: '?',
+            activeMode: store.device.local_only ? 'local' : 'service',
+            isPaired: false
+          };
+        }
+        const d = store.device;
+        const isLocal = Boolean(d.local_only) || d.phase === 'local';
+        if (isLocal) {
+          store.lastKnownServiceSummary = '仅本地使用';
+          return {
+            short: '仅本地使用',
+            note: '',
+            tone: 'success',
+            icon: '✓',
+            activeMode: 'local',
+            isPaired: false
+          };
+        }
+        const host = (d.server_url || '').replace(/^https?:\/\//, '');
+        if (d.phase === 'paired' && d.configured) {
+          store.lastKnownServiceSummary = `已配对 ${host}`;
+          return {
+            short: host ? `已配对 ${host}` : '已配对',
+            note: '',
+            tone: 'success',
+            icon: '✓',
+            activeMode: 'service',
+            isPaired: true
+          };
+        }
+        if (d.phase === 'error') {
+          return {
+            short: '配对未通过',
+            note: d.message || '请检查地址或重新生成配对码',
+            tone: 'error',
+            icon: '✕',
+            activeMode: 'service',
+            isPaired: false
+          };
+        }
+        if (d.phase === 'pairing' || d.pairing) {
+          if (d.phase === 'waiting_wifi') {
+            return {
+              short: '待连 Wi-Fi 后配对',
+              note: host ? `已保存 ${host}` : '',
+              tone: 'pending',
+              icon: '◐',
+              activeMode: 'service',
+              isPaired: false
+            };
+          }
+          return {
+            short: '正在配对…',
+            note: d.message || (host ? `正在验证 ${host}` : ''),
+            tone: 'pending',
+            icon: '◐',
+            activeMode: 'service',
+            isPaired: false
+          };
+        }
+        if (d.phase === 'waiting_wifi') {
+          return {
+            short: '待连 Wi-Fi 后配对',
+            note: host ? `已保存 ${host}` : '',
+            tone: 'pending',
+            icon: '◐',
+            activeMode: 'service',
+            isPaired: false
+          };
+        }
+        return {
+          short: '未配对服务',
+          note: '',
+          tone: 'warn',
+          icon: '○',
+          activeMode: 'none',
+          isPaired: false
+        };
+      }
+
+      function isSameServerWithExistingPairing() {
+        const cleanDraft = (store.draftServerUrl || '').trim();
+        const cleanDevice = (store.device.server_url || '').trim();
+        const cleanCode = (store.draftPairingCode || '').trim();
+        return Boolean(
+          cleanDraft &&
+          cleanDraft === cleanDevice &&
+          !cleanCode &&
+          (store.device.configured || store.device.pairing || (store.device.local_only && store.device.server_url))
+        );
+      }
+
+      function renderApIcons(ap) {
+        const hasAuth = typeof ap.authmode === 'number' && Number.isFinite(ap.authmode);
+        const isEncrypted = hasAuth && ap.authmode !== 0;
+        const hasRssi = typeof ap.rssi === 'number' && Number.isFinite(ap.rssi);
+        const level = hasRssi ? (ap.rssi >= -60 ? 3 : ap.rssi >= -72 ? 2 : 1) : 0;
+
+        const srParts = [];
+        if (hasRssi) srParts.push(level === 3 ? '信号强' : level === 2 ? '信号良' : '信号弱');
+        if (hasAuth) srParts.push(isEncrypted ? '加密网络' : '开放网络');
+
+        const lockSvg = isEncrypted ? `
+          <svg class="wifi-icon-lock" width="13" height="13" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+            <path d="M5 7V5a3 3 0 0 1 6 0v2" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round"/>
+            <rect x="3.5" y="7" width="9" height="6.5" rx="1.75" fill="currentColor"/>
+          </svg>
+        ` : '';
+
+        const wifiSvg = hasRssi ? `
+          <svg class="wifi-icon-bars" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+            <circle cx="8" cy="12.75" r="1.35" fill="currentColor"/>
+            <path d="M4.75 9.5a4.6 4.6 0 0 1 6.5 0" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" opacity="${level >= 2 ? '1' : '0.22'}"/>
+            <path d="M2.24 7a8.15 8.15 0 0 1 11.52 0" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" opacity="${level >= 3 ? '1' : '0.22'}"/>
+          </svg>
+        ` : '';
+
+        const srHtml = srParts.length ? `<span class="sr-only">（${srParts.join('，')}）</span>` : '';
+        return `${lockSvg}${wifiSvg}${srHtml}`;
+      }
+
+      function renderCheckIcon(active) {
+        if (!active) return '<span class="wifi-opt-check" aria-hidden="true"></span>';
+        return `
+          <span class="wifi-opt-check" aria-hidden="true">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" focusable="false">
+              <path d="M3.2 8.3L6.6 11.7L13 4.8" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </span>
+        `;
+      }
+
+      function renderUnifiedWifiControls(btnColorStyle) {
+        const wInfo = deriveWifiInfo();
+        const disabled = store.closed || !store.apOnline || store.pendingWrite || store.scanning || wInfo.busy;
+        const ssidTooLong = utf8Bytes(store.draftSsid) > 32;
+        const pwdTooLong = utf8Bytes(store.draftPassword) > 64;
+
+        const selectedAp = !store.customSsidMode ? store.aps.find((ap) => ap.ssid === store.draftSsid) : null;
+        const customSelected = store.customSsidMode || store.aps.length === 0 || Boolean(store.draftSsid && !selectedAp);
+        const menuOpen = Boolean(store.wifiMenuOpen && !disabled);
+
+        let triggerText = '选择附近网络…';
+        let isPlaceholder = false;
+        if (selectedAp) {
+          triggerText = selectedAp.ssid;
+        } else if (customSelected) {
+          triggerText = store.aps.length === 0 ? '未扫到附近网络 · 请在下方输入名称' : '手动输入其他网络名称…';
+        } else {
+          isPlaceholder = true;
+        }
+
+        let listboxHtml = '';
+        if (menuOpen) {
+          let itemsHtml = '';
+          for (let i = 0; i < store.aps.length; i++) {
+            const ap = store.aps[i];
+            const sel = Boolean(selectedAp && selectedAp.ssid === ap.ssid);
+            itemsHtml += `
+              <button
+                type="button"
+                id="wifi-opt-ap-${i}"
+                role="option"
+                class="wifi-opt-btn"
+                aria-selected="${sel}"
+                data-action="pick-wifi"
+                data-wifi-opt="ap:${i}"
+              >
+                ${renderCheckIcon(sel)}
+                <span class="wifi-opt-ssid">${escapeHtml(ap.ssid)}</span>
+                <span class="wifi-opt-icons">${renderApIcons(ap)}</span>
+              </button>
+            `;
+          }
+          itemsHtml += `
+            <button
+              type="button"
+              id="wifi-opt-custom"
+              role="option"
+              class="wifi-opt-btn"
+              aria-selected="${customSelected}"
+              data-action="pick-wifi"
+              data-wifi-opt="custom"
+            >
+              ${renderCheckIcon(customSelected)}
+              <span class="wifi-opt-ssid">手动输入其他网络名称…</span>
+            </button>
+          `;
+          listboxHtml = `
+            <div id="wifi-net-listbox" class="wifi-listbox" role="listbox" aria-labelledby="wifi-net-label">
+              ${itemsHtml}
+            </div>
+          `;
+        }
+
+        const showCustomInput = customSelected;
+
+        return `
+          <div class="f-group">
+            <div class="f-label-row">
+              <label id="wifi-net-label" class="f-label" for="wifi-net-select">选择网络（仅支持 2.4GHz）</label>
+              ${store.wifiEdited && store.apOnline && !store.closed
+                ? '<button type="button" class="f-link-btn" data-action="reset-wifi-draft">还原</button>'
+                : ''}
+            </div>
+            <div class="f-input-row">
+              <button
+                type="button"
+                id="wifi-net-select"
+                class="portal-select wifi-select-trigger"
+                aria-haspopup="listbox"
+                aria-expanded="${menuOpen}"
+                aria-labelledby="wifi-net-label wifi-net-select"
+                data-action="toggle-wifi-menu"
+                ${disabled ? 'disabled' : ''}
+              >
+                <span class="wifi-select-text" data-placeholder="${isPlaceholder}">${escapeHtml(triggerText)}</span>
+                <span class="wifi-select-meta">
+                  ${selectedAp ? renderApIcons(selectedAp) : ''}
+                  <svg class="wifi-chevron" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" focusable="false">
+                    <path d="M4 6L8 10L12 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </span>
+              </button>
+              <button type="button" class="f-sub-btn" data-action="scan-wifi" ${store.closed || !store.apOnline || store.scanning || store.pendingWrite || wInfo.busy ? 'disabled' : ''}>
+                ${store.scanning ? '扫描中' : '刷新'}
+              </button>
+            </div>
+            ${listboxHtml}
+          </div>
+
+          ${showCustomInput ? `
+            <div class="f-group">
+              <div class="f-label-row">
+                <label class="f-label" for="wifi-ssid-input">网络名称 (SSID)</label>
+                ${ssidTooLong ? '<span class="f-err-inline">名称超长</span>' : ''}
+              </div>
+              <input
+                id="wifi-ssid-input"
+                class="portal-input"
+                type="text"
+                maxlength="32"
+                autocomplete="off"
+                autocapitalize="none"
+                spellcheck="false"
+                placeholder="输入路由器名称（区分大小写）"
+                value="${escapeAttr(store.draftSsid)}"
+                ${disabled ? 'disabled' : ''}
+              >
+            </div>
+          ` : ''}
+
+          <div class="f-group">
+            <div class="f-label-row">
+              <label class="f-label" for="wifi-pwd-input">密码</label>
+              ${pwdTooLong ? '<span class="f-err-inline">密码超长</span>' : ''}
+            </div>
+            <div class="f-input-row">
+              <input
+                id="wifi-pwd-input"
+                class="portal-input"
+                type="${store.showPassword ? 'text' : 'password'}"
+                maxlength="64"
+                autocomplete="current-password"
+                placeholder="无密码可留空"
+                value="${escapeAttr(store.draftPassword)}"
+                ${disabled ? 'disabled' : ''}
+              >
+              <button type="button" class="f-sub-btn" data-action="toggle-pwd" ${disabled ? 'disabled' : ''}>
+                ${store.showPassword ? '隐藏' : '显示'}
+              </button>
+            </div>
+          </div>
+
+          ${store.wifiFeedback.text ? `
+            <div class="f-feedback" data-tone="${store.wifiFeedback.tone}" role="status" aria-live="polite">
+              ${escapeHtml(store.wifiFeedback.text)}
+            </div>
+          ` : ''}
+
+          <button
+            type="button"
+            class="f-primary-btn"
+            style="${btnColorStyle}"
+            data-action="submit-wifi"
+            ${disabled ? 'disabled' : ''}
+          >
+            ${wInfo.busy ? '正在连接…' : '连接并保存'}
+          </button>
+        `;
+      }
+
+      // Shared Service Form Controls (No duplicate draft banner)
+      function renderServiceFieldsControls(btnColorStyle) {
+        const disabled = store.closed || !store.apOnline || store.pendingWrite || store.scanning;
+        const urlTooLong = utf8Bytes(store.draftServerUrl) > 240;
+        const codeTooLong = (store.draftPairingCode || '').trim().length > 16;
+        const samePairedServer = isSameServerWithExistingPairing();
+        const hasExistingServer = Boolean(store.device.configured || store.device.pairing || (store.device.local_only && store.device.server_url));
+
+        let btnText = '保存并配对';
+        if (samePairedServer) {
+          btnText = store.device.local_only ? '启用此转写服务' : '保存更改';
+        }
+
+        return `
+          <div class="f-group">
+            <div class="f-label-row">
+              <label class="f-label" for="srv-url-input">服务器地址</label>
+              ${urlTooLong
+                ? '<span class="f-err-inline">地址超长</span>'
+                : (store.serviceEdited && store.apOnline && !store.closed
+                    ? '<button type="button" class="f-link-btn" data-action="reset-service-draft">还原修改</button>'
+                    : '')}
+            </div>
+            <input
+              id="srv-url-input"
+              class="portal-input"
+              type="text"
+              inputmode="url"
+              maxlength="240"
+              autocomplete="url"
+              autocapitalize="none"
+              spellcheck="false"
+              placeholder="内网 IP (默认8765) 或 https://域名"
+              value="${escapeAttr(store.draftServerUrl)}"
+              ${disabled ? 'disabled' : ''}
+            >
+          </div>
+
+          <div class="f-group">
+            <div class="f-label-row">
+              <label class="f-label" for="srv-code-input">配对码</label>
+              ${codeTooLong ? '<span class="f-err-inline">最多 16 位</span>' : ''}
+            </div>
+            <input
+              id="srv-code-input"
+              class="portal-input"
+              type="text"
+              maxlength="16"
+              autocomplete="one-time-code"
+              autocapitalize="characters"
+              spellcheck="false"
+              placeholder="${hasExistingServer ? '不换服务器可留空；换新地址需填新码' : '在服务器管理页生成'}"
+              value="${escapeAttr(store.draftPairingCode)}"
+              ${disabled ? 'disabled' : ''}
+            >
+          </div>
+
+          ${store.serviceFeedback.text ? `
+            <div class="f-feedback" data-tone="${store.serviceFeedback.tone}" role="status" aria-live="polite">
+              ${escapeHtml(store.serviceFeedback.text)}
+            </div>
+          ` : ''}
+
+          <button
+            type="button"
+            class="f-primary-btn"
+            style="${btnColorStyle}"
+            data-action="submit-service"
+            ${disabled ? 'disabled' : ''}
+          >
+            ${btnText}
+          </button>
+        `;
+      }
+
+      // Concise Local Mode Panel:
+      // - When already active on device: 1 calm line, NO redundant disabled button or repeated status badge.
+      // - When newly selected as draft: 1 brief explanation + primary save button.
+      function renderLocalModeAction(btnColorStyle) {
+        const disabled = store.closed || !store.apOnline || store.pendingWrite || store.scanning;
+        const alreadyLocalOnDevice = Boolean(store.device.local_only) && store.apOnline && !store.closed;
+
+        if (alreadyLocalOnDevice) {
+          return `
+            <div style="font-size:0.8125rem; color:#52525B; line-height:1.45;">
+              插存储卡即可离线录音与回放，不联网同步（原服务器地址已保留）。
+            </div>
+          `;
+        }
+
+        return `
+          <div style="font-size:0.8125rem; color:#52525B; line-height:1.45; margin-bottom:10px;">
+            切换后停止联网同步，插存储卡可离线录音与回放（原服务器地址会保留）。
+          </div>
+
+          ${store.serviceFeedback.text ? `
+            <div class="f-feedback" data-tone="${store.serviceFeedback.tone}" role="status" aria-live="polite">
+              ${escapeHtml(store.serviceFeedback.text)}
+            </div>
+          ` : ''}
+
+          <button
+            type="button"
+            class="f-primary-btn"
+            style="${btnColorStyle}"
+            data-action="submit-service"
+            ${disabled ? 'disabled' : ''}
+          >
+            启用仅本地使用
+          </button>
+        `;
+      }
+
+      function renderCandidateA() {
+        const w = deriveWifiInfo();
+        const s = deriveServiceInfo();
+
+        return `
+          <main class="theme-a" aria-label="IdeaPickup 联网与服务设置">
+            <header class="a-header">
+              <h1 class="a-title">IdeaPickup · 联网与服务设置</h1>
+              <span class="a-ap-pill" data-tone="${store.apOnline ? 'neutral' : 'error'}" role="status">
+                ${store.closed ? '○ 热点已关' : store.apOnline ? '● 热点已连' : '✕ 热点失联'}
+              </span>
+            </header>
+
+            ${!store.apOnline || store.closed ? `
+              <div class="a-alert-strip" data-tone="${store.closed ? 'neutral' : 'error'}" role="status" aria-live="polite">
+                <div>
+                  <strong>${store.closed ? '已请求关闭配置热点，页面停止更新' : '与设备热点连接中断'}</strong>
+                  ${!store.closed ? '<div style="margin-top:2px;">请确认手机仍连着设备热点；重连后自动恢复实时状态。</div>' : ''}
+                </div>
+                ${!store.closed ? `<button type="button" class="a-action-btn" data-action="reconnect-ap">重连</button>` : ''}
+              </div>
+            ` : ''}
+
+            <!-- Item 1: Wi-Fi Row + Expandable Drawer -->
+            <section class="a-row-item" aria-label="Wi-Fi 网络">
+              <div class="a-row-summary">
+                <div class="a-row-meta">
+                  <div class="a-row-label">Wi-Fi 网络</div>
+                  <div class="a-row-value">
+                    <span class="a-status-tag" role="status" aria-live="polite" data-tone="${w.tone}">${w.icon} ${escapeHtml(w.short)}</span>
+                  </div>
+                  ${w.note ? `<div class="a-row-sub">${escapeHtml(w.note)}</div>` : ''}
+                </div>
+                <button
+                  type="button"
+                  class="a-action-btn"
+                  data-primary="${!w.isReady && !store.candA_wifiOpen ? 'true' : 'false'}"
+                  data-action="toggle-a-wifi" aria-expanded="${store.candA_wifiOpen}"
+                  ${store.closed ? 'disabled' : ''}
+                >
+                  ${store.candA_wifiOpen ? '收起' : (w.isReady ? '更换' : '配置')}
+                </button>
+              </div>
+
+              ${store.candA_wifiOpen ? `
+                <div class="a-drawer">
+                  ${renderUnifiedWifiControls('background:#18181B; color:#FFFFFF;')}
+                </div>
+              ` : ''}
+            </section>
+
+            <!-- Item 2: Mode Segmented Switcher + Service Config -->
+            <section class="a-row-item" aria-label="工作模式与转写服务">
+              <div class="a-seg-wrap">
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;">
+                  <span class="a-row-label" style="margin:0;">工作模式</span>
+                  <span class="a-status-tag" role="status" aria-live="polite" data-tone="${s.tone}">${s.icon} ${escapeHtml(s.short)}</span>
+                </div>
+
+                ${s.note ? `<div class="a-row-sub" style="margin-top:6px;">${escapeHtml(s.note)}</div>` : ''}
+
+                <div class="a-seg-track" role="group" aria-label="选择工作模式">
+                  <button
+                    type="button"
+                    class="a-seg-btn"
+                    aria-pressed="${store.draftMode === 'service'}"
+                    data-action="set-mode"
+                    data-mode="service"
+                    ${store.closed ? 'disabled' : ''}
+                  >
+                    转写服务
+                  </button>
+                  <button
+                    type="button"
+                    class="a-seg-btn"
+                    aria-pressed="${store.draftMode === 'local'}"
+                    data-action="set-mode"
+                    data-mode="local"
+                    ${store.closed ? 'disabled' : ''}
+                  >
+                    仅本地使用
+                  </button>
+                </div>
+
+                ${store.draftMode === 'local' ? `
+                  ${renderLocalModeAction('background:#18181B; color:#FFFFFF;')}
+                ` : `
+                  ${(!store.candA_serviceOpen && s.isPaired && !store.serviceEdited) ? `
+                    <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+                      <span style="font-size:0.8125rem; color:#52525B;">支持无卡录音与自动同步转写</span>
+                      <button type="button" class="a-action-btn" data-action="toggle-a-service" aria-expanded="${store.candA_serviceOpen}">修改服务器</button>
+                    </div>
+                  ` : `
+                    <div style="background:#F6F5F2; padding:12px; border-radius:10px; border:1px solid #D6D3CD;">
+                      ${renderServiceFieldsControls('background:#18181B; color:#FFFFFF;')}
+                    </div>
+                  `}
+                `}
+              </div>
+            </section>
+
+            <!-- Item 3: Explicit Hotspot Exit -->
+            <footer style="margin-top:14px; text-align:center;">
+              ${store.exitFeedback.text ? `<div class="f-feedback" data-tone="${store.exitFeedback.tone}" role="status" aria-live="polite">${escapeHtml(store.exitFeedback.text)}</div>` : ''}
+              <button
+                type="button"
+                class="a-action-btn"
+                style="width:100%;"
+                data-action="exit-hotspot"
+                ${store.closed || !store.apOnline || store.pendingWrite ? 'disabled' : ''}
+              >
+                ${store.closed ? '配置热点已关闭' : '完成并关闭配置热点'}
+              </button>
+            </footer>
+          </main>
+        `;
+      }
+
+      function escapeHtml(str) {
+        return String(str ?? '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;');
+      }
+
+      function escapeAttr(str) {
+        return escapeHtml(str);
+      }
+
+      function applyWifiSelection(val) {
+        store.wifiEdited = true; wifiEditRevision++;
+        store.wifiMenuOpen = false;
+        if (val === 'custom') {
+          store.customSsidMode = true;
+          if (store.aps.some((a) => a.ssid === store.draftSsid)) {
+            store.draftSsid = '';
+          }
+          render();
+          const input = document.getElementById('wifi-ssid-input');
+          if (input) input.focus();
+        } else {
+          store.customSsidMode = false;
+          store.draftSsid = val.startsWith('ap:') ? (store.aps[Number(val.slice(3))]?.ssid || '') : '';
+          render();
+          if (val) {
+            const pwd = document.getElementById('wifi-pwd-input');
+            if (pwd) pwd.focus();
+          }
+        }
+      }
+
+      document.getElementById('portal-mount').addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-action]');
+        if (!btn || btn.disabled) return;
+        const action = btn.dataset.action;
+
+        if (action === 'toggle-a-wifi') {
+          store.candA_wifiOpen = !store.candA_wifiOpen;
+          if (!store.candA_wifiOpen) store.wifiMenuOpen = false;
+          render();
+        } else if (action === 'toggle-wifi-menu') {
+          store.wifiMenuOpen = !store.wifiMenuOpen;
+          render();
+          if (store.wifiMenuOpen) {
+            const activeOpt = document.querySelector('#wifi-net-listbox .wifi-opt-btn[aria-selected="true"]') || document.querySelector('#wifi-net-listbox .wifi-opt-btn');
+            if (activeOpt) activeOpt.focus();
+          }
+        } else if (action === 'pick-wifi') {
+          applyWifiSelection(btn.dataset.wifiOpt || '');
+        } else if (action === 'toggle-a-service') {
+          store.candA_serviceOpen = !store.candA_serviceOpen;
+          render();
+        } else if (action === 'set-mode') {
+          const targetMode = btn.dataset.mode;
+          if (targetMode && targetMode !== store.draftMode) {
+            store.draftMode = targetMode;
+            const currentDeviceMode = store.device.local_only ? 'local' : 'service';
+            store.serviceEdited = store.serviceEdited || (targetMode !== currentDeviceMode); serviceEditRevision++;
+            store.serviceFeedback = { text: '', tone: '' };
+            if (targetMode === 'service') {
+              store.candA_serviceOpen = true;
+            }
+            render();
+          }
+        } else if (action === 'toggle-pwd') {
+          store.showPassword = !store.showPassword;
+          render();
+        } else if (action === 'scan-wifi') {
+          triggerScan();
+        } else if (action === 'submit-wifi') {
+          submitWifi();
+        } else if (action === 'submit-service') {
+          submitService();
+        } else if (action === 'reset-wifi-draft') {
+          store.wifiEdited = false; wifiEditRevision++;
+          store.draftSsid = store.device.wifi.ssid || '';
+          store.draftPassword = '';
+          store.customSsidMode = false;
+          store.wifiMenuOpen = false;
+          store.wifiFeedback = { text: '', tone: '' };
+          render();
+        } else if (action === 'reset-service-draft') {
+          store.serviceEdited = false; serviceEditRevision++;
+          store.draftMode = store.device.local_only ? 'local' : 'service';
+          store.draftServerUrl = store.device.server_url || '';
+          store.draftPairingCode = '';
+          store.serviceFeedback = { text: '', tone: '' };
+          render();
+        } else if (action === 'reconnect-ap') {
+          status();
+        } else if (action === 'exit-hotspot') {
+          triggerExitHotspot();
+        }
+      });
+
+      document.addEventListener('click', (e) => {
+        if (!store.wifiMenuOpen) return;
+        const inTrigger = e.target.closest('#wifi-net-select');
+        const inList = e.target.closest('#wifi-net-listbox');
+        if (!inTrigger && !inList) {
+          store.wifiMenuOpen = false;
+          render();
+        }
+      });
+
+      document.getElementById('portal-mount').addEventListener('keydown', (e) => {
+        const trigger = e.target.closest('#wifi-net-select');
+        const listbox = e.target.closest('#wifi-net-listbox');
+
+        if (trigger && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+          e.preventDefault();
+          if (!store.wifiMenuOpen) {
+            store.wifiMenuOpen = true;
+            render();
+          }
+          const opts = [...document.querySelectorAll('#wifi-net-listbox .wifi-opt-btn')];
+          const target = opts.find((o) => o.getAttribute('aria-selected') === 'true') || opts[0];
+          if (target) target.focus();
+          return;
+        }
+
+        if (listbox) {
+          const opts = [...listbox.querySelectorAll('.wifi-opt-btn')];
+          const idx = opts.indexOf(document.activeElement);
+          if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            const next = opts[idx + 1] || opts[0];
+            if (next) next.focus();
+          } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            const prev = opts[idx - 1] || opts[opts.length - 1];
+            if (prev) prev.focus();
+          } else if (e.key === 'Home') {
+            e.preventDefault();
+            if (opts[0]) opts[0].focus();
+          } else if (e.key === 'End') {
+            e.preventDefault();
+            if (opts[opts.length - 1]) opts[opts.length - 1].focus();
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            store.wifiMenuOpen = false;
+            render();
+            const btn = document.getElementById('wifi-net-select');
+            if (btn) btn.focus();
+          }
+        }
+      });
+
+      document.getElementById('portal-mount').addEventListener('input', (e) => {
+        const id = e.target.id;
+        if (id === 'wifi-ssid-input') {
+          store.wifiEdited = true; wifiEditRevision++;
+          store.draftSsid = e.target.value;
+          render();
+        } else if (id === 'wifi-pwd-input') {
+          store.wifiEdited = true; wifiEditRevision++;
+          store.draftPassword = e.target.value;
+          render();
+        } else if (id === 'srv-url-input') {
+          store.serviceEdited = true; serviceEditRevision++;
+          store.draftServerUrl = e.target.value;
+          render();
+        } else if (id === 'srv-code-input') {
+          store.serviceEdited = true; serviceEditRevision++;
+          store.draftPairingCode = e.target.value;
+          render();
+        }
+      });
+
+      document.getElementById('portal-mount').addEventListener('compositionstart',()=>{composing=true;});
+      document.getElementById('portal-mount').addEventListener('compositionend',()=>{composing=false;render();});
+      document.addEventListener('visibilitychange',()=>{if(!document.hidden)status();});
+      window.addEventListener('pageshow',status);
+      window.addEventListener('online',status);
+      render(); status().then(triggerScan);
+
+    })();</script></body></html>

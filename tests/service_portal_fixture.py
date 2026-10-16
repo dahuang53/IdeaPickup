@@ -12,17 +12,34 @@ def build(temp):
     for name,text in HEADERS.items():
         p=temp/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_text(text)
     source=(ROOT/'main/network_sync.cpp').read_text()
-    markers=['class ConfigGuard','class ConfigCommitGuard','bool current_service','void status_update','void refresh_service_status',
+    markers=['class ConfigGuard','class ConfigCommitGuard','bool current_service','void status_update','void set_error','void refresh_service_status',
         'extern "C" void network_sync_get_status','extern "C" void network_sync_get_service_config',
         'extern "C" memo_config_result_t network_sync_configure_service',
         'extern "C" bool network_sync_prepare_audio','extern "C" void network_sync_audio_done']
     bodies='\n'.join(extract(source,m)+(';' if m.startswith('class ') else '') for m in markers)
     ap=(ROOT/'components/esp-wifi-connect/wifi_configuration_ap.cc').read_text()
     bodies+='\n'+extract(ap,'bool WifiConfigurationAp::Save')
+    for marker in ['bool WifiConfigurationAp::RequestConnection(', 'void WifiConfigurationAp::ProcessConnection(',
+                   'WifiPortalStatus WifiConfigurationAp::GetConnectionStatus(']:
+        bodies+='\n'+extract(ap,marker)
     bodies+='\n'+extract((ROOT/'components/esp-wifi-connect/wifi_manager.cc').read_text(),'bool WifiManager::Initialize')
     h=HARNESS[:HARNESS.index('int main(int argc')]
-    h=h.replace('public: bool Save(', 'public: std::function<void()> on_exit_requested_; bool ConnectToWifi(const std::string &,const std::string &){return !wifi_connect_fault;} bool Save(')
-    h=h.replace('struct wifi_ap_record_t', 'static bool wifi_connect_fault=false;\nstruct wifi_ap_record_t')
+    h=h.replace('class WifiConfigurationAp {','''static bool wifi_connect_fault=false;
+void esp_wifi_disconnect(){}
+struct WifiPortalStatus {std::string state="not_configured",ssid,error;bool saved=false,connected=false;};
+class WifiConfigurationAp {''')
+    h=h.replace('public: bool Save(','''std::mutex connection_mutex_;
+    WifiPortalStatus connection_;
+    std::string pending_ssid_,pending_password_;
+    bool request_pending_=false,request_active_=false,persist_request_=false;
+    std::atomic<bool> running_{true},is_connecting_{false},connected_{false};
+public:
+    std::function<void()> on_exit_requested_;
+    bool ConnectToWifi(const std::string &,const std::string &){connected_.store(!wifi_connect_fault);return !wifi_connect_fault;}
+    bool RequestConnection(const std::string&,const std::string&,bool save=true);
+    void ProcessConnection();
+    WifiPortalStatus GetConnectionStatus();
+    bool Save(''')
     h=h.replace('// __PRODUCTION_BODIES__',bodies)
     extra=r'''
 #include <cJSON.h>
@@ -45,7 +62,6 @@ void httpd_resp_set_type(httpd_req_t *,const char *){}
 void httpd_resp_set_hdr(httpd_req_t *,const char *,const char *){}
 void httpd_resp_set_status(httpd_req_t *r,const char *s){r->status=atoi(s);}
 int httpd_req_recv(httpd_req_t *r,char *out,size_t size){size_t n=std::min(size,std::min(size_t(7),r->body.size()-r->at));memcpy(out,r->body.data()+r->at,n);r->at+=n;return (int)n;}
-void esp_wifi_disconnect(){}
 void vTaskDelete(void *){}
 void xTaskCreate(void (*fn)(void *),const char *,int,void *ctx,int,void *){fn(ctx);}
 static char portal_csrf[33]="0123456789abcdef0123456789abcdef";
@@ -79,7 +95,9 @@ int main(){
         if(!strcmp(route,"/__control")){
             auto *v=cJSON_GetObjectItem(j,"busy");unique_audio=cJSON_IsTrue(v);
             fault_namespace=1;v=cJSON_GetObjectItem(j,"fault");fault=cJSON_IsNumber(v)?v->valueint:0;after_commit=false;
+            if(cJSON_IsTrue(cJSON_GetObjectItem(j,"wifi_process"))){ap.ProcessConnection();status_value.connected=ap.GetConnectionStatus().connected;}
             wifi_connect_fault=cJSON_IsTrue(cJSON_GetObjectItem(j,"wifi_fail"));
+            if(cJSON_IsString(cJSON_GetObjectItem(j,"network_error")))set_error(text("network_error",""));
             if(cJSON_IsTrue(cJSON_GetObjectItem(j,"paired"))){ConfigCommitGuard commit;ConfigGuard guard;auto generation=guard.value->value.generation;memo_server_uuid_t id{};id.bytes[0]=1;memo_config_bind_instance(guard.value,generation,&id);memo_config_finish_pairing(guard.value,guard.value->value.generation,&id);refresh_service_status();}
             req.response="{\"success\":true}";
         }else if(!strcmp(route,"/service")) {if(!strcmp(method,"POST"))service_post(&req);else service_get(&req);}

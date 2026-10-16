@@ -6,6 +6,9 @@
 #include "power_policy.h"
 #include "ui_layout.h"
 #include "lvgl.h"
+#if MEMO_UI_COMPACT
+#include "src/core/lv_obj_event_private.h" // LVGL 9.3 exposes hit-test fields here.
+#endif
 #include <inttypes.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -40,7 +43,7 @@ static uint32_t displayed_voice_wake_count;
 static lv_obj_t *battery_button, *battery_label, *battery_outline;
 static lv_obj_t *battery_fill, *battery_terminal;
 #endif
-static lv_obj_t *provision_root, *provision_ap_label, *provision_password_label, *provision_detail_label;
+static lv_obj_t *provision_root, *provision_ap_label, *provision_detail_label, *provision_back;
 static lv_obj_t *cat_fallback[2];
 static uint32_t row_ids[MEMO_PAGE_SIZE];
 static lv_obj_t *record_root, *record_title, *record_meta, *record_status_label, *record_info, *record_back;
@@ -75,6 +78,7 @@ static uint32_t saved_idle_tick;
 static memo_cmd_t primary_command = CMD_START;
 
 #define SAVED_IDLE_MS 120000U
+#define PANEL_IDLE_MS 60000U
 
 static const uint32_t BG = 0x101D20;
 static const uint32_t CAT_BG = 0x000000;
@@ -167,6 +171,11 @@ static void enabled(lv_obj_t *obj, bool enable)
     else lv_obj_add_state(obj, LV_STATE_DISABLED);
 }
 
+static void publish_storage_view(void) {
+    app_storage_view(!provision_visible && !usb_visible &&
+        (record_visible?!selected_record.cardless:panel_visible));
+}
+
 static void show_panel(bool show)
 {
     if (provision_visible && show) return;
@@ -182,6 +191,7 @@ static void show_panel(bool show)
         network_sync_select_record(0);
     }
     panel_visible = show;
+    publish_storage_view();
     if (show) {
         panel_activity_tick = lv_tick_get();
         lv_obj_add_flag(cat_root, LV_OBJ_FLAG_HIDDEN);
@@ -199,9 +209,10 @@ static void show_usb(bool show)
         lv_obj_add_flag(cat_root, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(panel_root, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(usb_root, LV_OBJ_FLAG_HIDDEN);
+        publish_storage_view();
     } else {
         lv_obj_add_flag(usb_root, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_remove_flag(cat_root, LV_OBJ_FLAG_HIDDEN);
+        show_panel(false); // Publish only the final cat view, never stale panel demand.
     }
 }
 
@@ -212,6 +223,7 @@ static void show_provision(bool show)
         lv_obj_add_flag(cat_root, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(panel_root, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(provision_root, LV_OBJ_FLAG_HIDDEN);
+        publish_storage_view();
     } else {
         lv_obj_add_flag(provision_root, LV_OBJ_FLAG_HIDDEN);
         show_panel(false);
@@ -296,6 +308,7 @@ static void record_clicked(lv_event_t *event)
         if(index>=snapshot.item_count || snapshot.items[index].id!=row_ids[index])return;
         selected_record=snapshot.items[index];
         record_visible=true;
+        publish_storage_view();
         lv_obj_add_flag(panel_root,LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(cat_root,LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(record_root,LV_OBJ_FLAG_HIDDEN);
@@ -307,6 +320,18 @@ static void record_clicked(lv_event_t *event)
 static void record_back_clicked(lv_event_t *event) {
     (void)event;note_saved_activity();show_panel(true);
 }
+#if MEMO_UI_COMPACT
+/* Keep the drawn control unchanged; only its same-width area extends down. */
+static void bottom_hit_test(lv_event_t *event)
+{
+    lv_hit_test_info_t *hit = lv_event_get_hit_test_info(event);
+    lv_area_t area;
+    lv_obj_get_coords(lv_event_get_current_target(event), &area);
+    area.y2 = MEMO_UI_HEIGHT - 1;
+    hit->res = hit->point->x >= area.x1 && hit->point->x <= area.x2 &&
+               hit->point->y >= area.y1 && hit->point->y <= area.y2;
+}
+#endif
 static void record_play_clicked(lv_event_t *event) {
     (void)event;note_saved_activity();panel_activity_tick=lv_tick_get();
     if(selected_record.cardless)return;
@@ -637,6 +662,8 @@ static void expression(const memo_snapshot_t *s)
 {
     bool voice_woke = displayed_voice_wake_count != s->voice_wake_count;
     bool previous_voice_window = displayed_voice_window;
+    bool state_changed = displayed_state != s->state || displayed_recovering != s->recovering;
+    bool voice_changed = displayed_voice_window != s->voice_window || voice_woke;
     displayed_voice_wake_count = s->voice_wake_count;
     if (displayed_state == s->state && displayed_sd_ready == s->sd_ready &&
         displayed_cardless == s->cardless && displayed_cardless_ready == s->cardless_ready &&
@@ -789,8 +816,8 @@ static void expression(const memo_snapshot_t *s)
         lv_obj_add_flag(cat_state_dot, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(cat_level_bar, LV_OBJ_FLAG_HIDDEN);
     }
-    // Every real state transition returns to the expressive view. Paging and
-    // list refreshes only change revision, so they keep an open panel stable.
+    // Media/readiness refreshes update these controls in place. Demand probing
+    // may finish just after the first tap; it is not a navigation event.
     bool keep_list=detail_return_after_stop && s->state==MEMO_IDLE;
     if(detail_return_after_stop && s->state!=MEMO_PLAYING && s->state!=MEMO_PAUSED)
         detail_return_after_stop=false;
@@ -806,7 +833,7 @@ static void expression(const memo_snapshot_t *s)
     } else if (previous_state == MEMO_USB_MIC) {
         show_usb(false);
     }
-    if(s->state != MEMO_USB_MIC && !keep_list && (!record_visible || s->recovering ||
+    if((state_changed || voice_changed) && s->state != MEMO_USB_MIC && !keep_list && (!record_visible || s->recovering ||
                       s->state==MEMO_RECORDING || s->state==MEMO_ERROR))
         show_panel(s->recovering);
     // Voice interaction stays on the expressive view. Only a touch opens
@@ -889,7 +916,12 @@ static void detail_text(const memo_snapshot_t *s, const memo_network_status_t *n
     } else if (network->syncing) {
         snprintf(text, size, "正在送往思源喵");
     } else if (network->error[0]) {
-        snprintf(text, size, "%s", network->error);
+        // Network diagnostics belong on the web page, not over the recording cards.
+        memo_config_public_t service; network_sync_get_service_config(&service);
+        const char *notice = service.pairing ? DETAIL_COPY("配对中，录音可用", "正在配对，录音可用") :
+            !network->configured ? DETAIL_COPY("待配对，录音可用", "服务待配对，录音可用") :
+            DETAIL_COPY("同步未完成，可录音", "同步未完成，录音可用");
+        snprintf(text, size, "%s", notice);
     } else if (!network->configured) {
 #if MEMO_UI_COMPACT
         snprintf(text, size, "返回后长按表情配网");
@@ -1016,6 +1048,10 @@ static void refresh(lv_timer_t *timer)
         snprintf(text,sizeof(text),"电量低啦，给我充充电喵");
 #endif
     text_if_changed(detail_label, text);
+    // Bound the network status to its single reserved line; existing explicit
+    // voice/notice layouts keep their established two-line region.
+    lv_obj_set_height(detail_label, network.error[0] && !s.notice[0] && !s.voice_window ?
+        lv_font_get_line_height(MEMO_UI_COMPACT ? &memo_font : &memo_font20) : LV_SIZE_CONTENT);
 #if MEMO_UI_COMPACT
     lv_obj_set_y(detail_label,(s.notice[0] || (s.voice_window && s.state!=MEMO_RECORDING))?43:53);
 #endif
@@ -1076,7 +1112,7 @@ static void refresh(lv_timer_t *timer)
     for (size_t i = 0; i < MEMO_PAGE_SIZE; ++i) {
         enabled(rows[i], !busy && row_ids[i] != 0 && (s.items[i].cardless || s.sd_ready));
     }
-    if (panel_visible && !record_visible && lv_tick_elaps(panel_activity_tick) >= 15000) {
+    if (panel_visible && !record_visible && lv_tick_elaps(panel_activity_tick) >= PANEL_IDLE_MS) {
         show_panel(false);
     }
     if (timed_animation_active && lv_tick_elaps(timed_animation_tick) >= timed_animation_ms) {
@@ -1099,28 +1135,23 @@ static void refresh(lv_timer_t *timer)
         show_provision(true);
         snprintf(text, sizeof(text), "热点 %s", network.ap_ssid[0] ? network.ap_ssid : "正在启动");
         text_if_changed(provision_ap_label, text);
-        snprintf(text, sizeof(text), "密码 %s", network.ap_password);
-        text_if_changed(provision_password_label, text);
         memo_config_public_t service;network_sync_get_service_config(&service);
         if(service.result!=MEMO_CONFIG_OK)snprintf(text,sizeof(text),DETAIL_COPY("设置未确认，网页重试","设置未确认，请在网页重试喵"));
-        else if(service.pairing)snprintf(text,sizeof(text),DETAIL_COPY("配对待联网，可关热点","配对待联网，请关闭热点喵"));
         else if(!service.enabled)snprintf(text,sizeof(text),DETAIL_COPY("仅本地，有卡录放可用","仅本地，有卡录音回放可用喵"));
+        else if(service.pairing)snprintf(text,sizeof(text), "%s", !network.connected ?
+            "等待连接 Wi-Fi" : network.error[0] ? "配对未完成，请看网页" : "正在配对，请稍候");
         else if (network.configured) {
 #if MEMO_UI_COMPACT
-            snprintf(text, sizeof(text), "服务已配对，待联网");
+            snprintf(text, sizeof(text), "服务已配对");
 #else
-            snprintf(text, sizeof(text), "服务已配对，网页完成后联网");
+            snprintf(text, sizeof(text), "服务已配对");
 #endif
         }
         else if (network.error[0]) snprintf(text, sizeof(text),DETAIL_COPY("配对失败，网页重试","服务未配对，请在网页重试喵"));
-        else {
-#if MEMO_UI_COMPACT
-            snprintf(text, sizeof(text), "打开 192.168.4.1");
-#else
-            snprintf(text, sizeof(text), "连接热点后打开 192.168.4.1");
-#endif
-        }
+        else text[0] = 0;
         text_if_changed(provision_detail_label, text);
+        lv_obj_set_y(provision_back, lv_obj_get_y(provision_detail_label) +
+            (text[0] ? lv_font_get_line_height(&memo_font) + (MEMO_UI_COMPACT ? 12 : 24) : 0));
     } else if (provision_visible) {
         show_provision(false);
     }
@@ -1254,6 +1285,9 @@ void ui_init(void)
         rows[i] = button(panel_root, 69, 150 + (int)i * 26, 102, 24, "", &row_labels[i]);
         lv_obj_add_event_cb(rows[i], record_clicked, LV_EVENT_CLICKED, (void *)(uintptr_t)i);
     }
+    lv_obj_set_ext_click_area(rows[MEMO_PAGE_SIZE - 1], 14);
+    lv_obj_add_flag(rows[MEMO_PAGE_SIZE - 1], LV_OBJ_FLAG_ADV_HITTEST);
+    lv_obj_add_event_cb(rows[MEMO_PAGE_SIZE - 1], bottom_hit_test, LV_EVENT_HIT_TEST, NULL);
     /* Transparent side sectors give the triangles generous touch targets while
      * leaving the record rows visually uncluttered on the round panel. */
     previous = button(panel_root, 19, 139, 50, 88, "", NULL);
@@ -1359,19 +1393,34 @@ void ui_init(void)
     lv_obj_set_style_bg_color(provision_root, lv_color_hex(BG), 0);
     lv_obj_set_style_bg_opa(provision_root, LV_OPA_COVER, 0);
     lv_obj_remove_flag(provision_root, LV_OBJ_FLAG_SCROLLABLE);
+    const int provision_line_height = lv_font_get_line_height(&memo_font);
+    const int provision_gap = 6;
+    const int provision_step = provision_line_height + provision_gap;
 #if MEMO_UI_COMPACT
-    label(provision_root, 55, 36, 130, "联网设置", MINT);
-    provision_ap_label = label(provision_root, 20, 76, 200, "热点正在启动", INK);
-    provision_password_label = label(provision_root, 20, 108, 200, "密码", INK);
-    provision_detail_label = label(provision_root, 30, 142, 180, "打开 192.168.4.1", GOLD);
-    lv_obj_t *provision_back = button(provision_root, 58, 184, 124, 36, "退出配网", NULL);
+    const int provision_flow_y = 64;
+    const int provision_feedback_y = provision_flow_y + provision_step +
+                                     provision_line_height + 2 * provision_gap;
+    label(provision_root, 55, provision_flow_y - provision_line_height - 2 * provision_gap,
+          130, "联网设置", MINT);
+    provision_ap_label = label(provision_root, 20, provision_flow_y, 200, "热点正在启动", INK);
+    provision_detail_label = label(provision_root, 30, provision_feedback_y, 180, "", GOLD);
+    label(provision_root, 20, provision_flow_y + provision_step, 200, "打开 http://192.168.4.1", INK);
+    provision_back = button(provision_root, 58,
+        provision_feedback_y + provision_line_height + 2 * provision_gap,
+        124, 36, "退出配网", NULL);
 #else
-    label(provision_root, 70, 52, 220, "联网设置", MINT);
-    label(provision_root, 55, 91, 250, "手机连接下面的临时热点", MUTED);
-    provision_ap_label = label(provision_root, 38, 126, 284, "热点正在启动", INK);
-    provision_password_label = label(provision_root, 38, 157, 284, "密码", INK);
-    provision_detail_label = label(provision_root, 38, 202, 284, "打开 192.168.4.1", GOLD);
-    lv_obj_t *provision_back = button(provision_root, 92, 257, 176, 44, "退出配网", NULL);
+    const int provision_flow_y = 91;
+    const int provision_feedback_y = provision_flow_y + 2 * provision_step +
+                                     provision_line_height + 3 * provision_gap;
+    label(provision_root, 70, provision_flow_y - provision_line_height - 3 * provision_gap,
+          220, "联网设置", MINT);
+    label(provision_root, 55, provision_flow_y, 250, "手机连接下面的临时热点", MUTED);
+    provision_ap_label = label(provision_root, 38, provision_flow_y + provision_step, 284, "热点正在启动", INK);
+    provision_detail_label = label(provision_root, 38, provision_feedback_y, 284, "", GOLD);
+    label(provision_root, 38, provision_flow_y + 2 * provision_step, 284, "打开 http://192.168.4.1", INK);
+    provision_back = button(provision_root, 92,
+        provision_feedback_y + provision_line_height + 4 * provision_gap,
+        176, 44, "退出配网", NULL);
 #endif
     lv_obj_add_event_cb(provision_back, provision_back_clicked, LV_EVENT_CLICKED, NULL);
     lv_obj_add_flag(provision_root, LV_OBJ_FLAG_HIDDEN);
@@ -1386,6 +1435,9 @@ void ui_init(void)
     record_play=button(record_root,27,122,90,42,"播放录音",&record_play_label);
     record_retry=button(record_root,123,122,90,42,"重试",&record_retry_label);
     record_back=button(record_root,70,175,100,38,"返回",NULL);
+    lv_obj_set_ext_click_area(record_back, 27);
+    lv_obj_add_flag(record_back, LV_OBJ_FLAG_ADV_HITTEST);
+    lv_obj_add_event_cb(record_back, bottom_hit_test, LV_EVENT_HIT_TEST, NULL);
 #else
     record_title=label(record_root,66,42,228,"录音",INK);
     lv_obj_set_style_text_font(record_title,&memo_font24,0);

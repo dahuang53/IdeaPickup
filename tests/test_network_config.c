@@ -106,5 +106,10 @@ int main(void) {
     assert(memo_config_activity_acquire(&gate,MEMO_ACTIVITY_COMMIT));
     assert(!memo_config_activity_acquire(&gate,MEMO_ACTIVITY_AUDIO));
     assert(memo_config_activity_release(&gate,MEMO_ACTIVITY_COMMIT));
+    assert(memo_config_activity_acquire(&gate,MEMO_ACTIVITY_MEDIA));
+    assert(!memo_config_activity_acquire(&gate,MEMO_ACTIVITY_AUDIO));
+    assert(!memo_config_activity_acquire(&gate,MEMO_ACTIVITY_COMMIT));
+    assert(!memo_config_activity_release(&gate,MEMO_ACTIVITY_AUDIO));
+    assert(memo_config_activity_release(&gate,MEMO_ACTIVITY_MEDIA));
     puts("PASS current-service config: URL, reload, local-only, no secret on uncertainty, all six persistence cuts, schema/corruption, audio exclusion");
 }

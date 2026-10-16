@@ -16,7 +16,7 @@ if [ "$actual" != "$expected" ]; then
     exit 1
 fi
 npm ci --prefix assets/fonts --cache .tools/npm-cache --ignore-scripts --no-audit --no-fund
-symbols=$(python3 -c 'from pathlib import Path; import re; paths=[Path("main/ui.c"),Path("main/app.c"),Path("main/memo_cardless.cpp")]; text="".join("".join(re.findall(r"\"((?:[^\"\\]|\\.)*)\"",p.read_text())) for p in paths if p.exists()); print("".join(sorted(set(c for c in text if ord(c)>127))))')
+symbols=$(python3 -c 'from pathlib import Path; import re; paths=[Path("main/ui.c"),Path("main/app.c"),Path("main/memo_cardless.cpp"),Path("main/network_sync.cpp"),Path("main/memo_service_portal.cpp")]; text="".join("".join(re.findall(r"\"((?:[^\"\\]|\\.)*)\"",p.read_text())) for p in paths if p.exists()); print("".join(sorted(set(c for c in text if ord(c)>127))))')
 node assets/fonts/node_modules/lv_font_conv/lv_font_conv.js \
     --font "$font" --range 0x20-0x7e --symbols "$symbols" \
     --size 18 --bpp 4 --format lvgl --no-compress --no-prefilter \

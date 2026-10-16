@@ -111,7 +111,7 @@ static bool swap_before_transport=false;
 static std::string base_url,device_token;
 static int xSemaphoreTakeRecursive(void*,int){http_claims++;return 1;}
 static int xSemaphoreGiveRecursive(void*){http_claims--;return 1;}
-static bool ensure_clock(){return true;}
+static bool ensure_clock(const char *base){return base && base[0];}
 static bool current_service(memo_config_snapshot_t &out){
  if(swap_before_transport){current.instance.bytes[0]^=1;swap_before_transport=false;}
  out={};out.instance=current.instance;snprintf(out.device_id,sizeof(out.device_id),"%s",current.device_id);

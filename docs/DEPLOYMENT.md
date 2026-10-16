@@ -1,12 +1,12 @@
 # Docker 部署与普通更新
 
-Linux Docker Compose 后端由非 root relay、无网络的 root 配置 broker 和自动卷初始化组成。用户只填写部署地址/镜像与必要TLS信息；管理员、千问Key、思源Token从HTTPS管理页配置。配置/接口定义见[当前契约](contracts/device-api-v2.json)、[broker契约](contracts/config-broker-v1.json)，验证边界见[支持状态](SUPPORT.md)。无需旧设备/旧服务迁移、共享令牌、人工资格记录或上传包中的root测试。
+Linux Docker Compose 后端由非 root relay、无网络的 root 配置 broker 和自动卷初始化组成。用户填写部署地址和镜像；本地电脑填内网 IP，服务器填域名。只有域名 HTTPS 路径需要配置证书/代理；管理员、千问Key、思源Token从对应管理页配置。配置/接口定义见[当前契约](contracts/device-api-v2.json)、[broker契约](contracts/config-broker-v1.json)，验证边界见[支持状态](SUPPORT.md)。无需旧设备/旧服务迁移、共享令牌、人工资格记录或上传包中的root测试。
 
 ## 运行边界与首次启动
 
 使用 Linux rootful Docker、Compose V2及Buildx；首版目标 `linux/arm64`、`linux/amd64`。工具不安装Docker/QEMU，不修改全局配置、防火墙、DNS或个人服务器。rootless/UID映射尚未通过本项目秘密权限边界，不能通过放宽权限启用。Docker Desktop Linux VM的原生/模拟与Linux宿主实测分开，已执行范围见支持表。
 
-固定候选镜像和完整对应源码下载见[发布入口](PUBLIC_RELEASE.md#获取-020rc1-候选)。取得已发布镜像时可跳过构建；在工程根执行：
+R12固定镜像和完整对应源码见[发布入口](PUBLIC_RELEASE.md#r12-验收交付r12-20261016)。首发 `0.2.0rc1` 不包含内网 IP 支持，不可混用旧镜像。取得对应Release的固定镜像时可跳过构建；从当前源码构建则在工程根执行：
 
 ```sh
 mkdir -p private/deploy
@@ -19,7 +19,7 @@ docker build --target runtime --iidfile private/deploy/image.id -f server-relay/
 必须填写两项：
 
 - `VOICE_MEMO_IMAGE`：实际image.id中的 `sha256:...`，或已发布 `registry/name:version@sha256:...`。只用tag可能悄悄变版本，脚本要求固定身份。
-- `VOICE_MEMO_PUBLIC_URL`：实际公开HTTPS根地址或子路径，例如 `https://relay.example.org`、`https://relay.example.org/memo`、有效IP证书的 `https://192.0.2.10:9443/memo`。证书/端口/主机/路径需一致，不加结尾斜线。HTTP不能作为设备服务入口。
+- `VOICE_MEMO_PUBLIC_URL`：设备访问的服务地址。本地填电脑内网 IP，例如 `192.168.1.20`，自动采用 `http://192.168.1.20:8765`；自定义端口/子路径可填 `192.168.1.20:9876/memo`。服务器填 `relay.example.org`，自动采用 HTTPS；也可填写完整 `https://relay.example.org/memo` 或证书匹配的 HTTPS IP 地址。完整 HTTP URL 按其显式端口（省略为80）处理。
 
 其余保留默认；`VOICE_MEMO_PROJECT`应保持稳定，决定四个持久卷。默认专用网络 `172.30.86.0/24`如与已有网络冲突，按示例同时修改网关/relay/proxy地址；同机多套部署也须避免网段和端口冲突。这是普通Docker网络配置，没有设备/服务数量限制。env仅部署元数据，不接受API Key、管理员口令、设备令牌、旧兼容字段或shell展开，不要source它。
 
@@ -42,9 +42,19 @@ docker build --target runtime --iidfile private/deploy/image.id -f server-relay/
 
 镜像基础/代理digest分别由 `server-relay/container-base.lock.json`、`deploy/proxy-image.lock.json`锁定；Python hash lock和固定libopus版本沿用后端锁。`.dockerignore`为允许列表，私有数据、历史、固件、主机环境不会进入构建上下文。production默认target与用户10001保持；verification target仅隔离测试用，不能部署为业务镜像。
 
-## HTTPS 代理与路径
+## 本地电脑：直接使用内网 IP
 
-默认relay只发布宿主 `127.0.0.1:8765`；用已有HTTPS代理时参考 `deploy/nginx-existing.conf.example`。根路径用 `location /`，子路径如 `/memo/` 使用对应location；`proxy_pass`无URI后缀，保留原始路径前缀，不能截掉后再转发。服务入口、页面资源、登录cookie路径与设备API使用同一前缀；编码/中文路径按后端已有规范处理。
+把 `VOICE_MEMO_PUBLIC_URL` 填为电脑在路由器网络中的 IP，例如 `192.168.1.20`；保持其他默认值，按上面的部署入口启动。工具自动在该 IP 的8765端口监听。浏览器打开 `http://192.168.1.20:8765/admin/` 初始化管理员并生成配对码；设备填同一个 IP 和配对码即可。自定义端口时设备也填 `IP:端口`。无需域名、证书、反向代理或路由器公网端口转发。
+
+HTTP 仅接受字面量 RFC1918 IPv4（10/8、172.16/12、192.168/16），用于自己信任的家庭/办公局域网。设备与电脑须可互相访问，电脑防火墙需允许该端口；访客隔离可能阻断连接。电脑休眠、Docker停止或IP改变会使中继不可达；可在路由器固定该电脑IP。HTTP链路不加密，配对和登录仍生效，但同网监听者可能读取传输的凭据与音频；需要链路加密时可使用下述HTTPS路径。
+
+本地连接和配对不依赖公网校时；千问转写和思源投递仍须联网并使用它们各自的 HTTPS 接口。有卡录放保持离线可用。这里的“本地部署”指中继在本地，未提供离线转写或本地思源替代接口。局域网真机验收状态见[支持状态](SUPPORT.md)。
+
+## 服务器域名：HTTPS 代理与路径
+
+域名默认采用 HTTPS，可信证书须匹配设备实际访问的域名或 IP；错误证书不得关闭校验。本地网络也可选择此路径。HTTP 域名和公网 IP 不作为明文服务入口。
+
+HTTPS模式下relay只发布宿主 `127.0.0.1:8765`；用已有HTTPS代理时参考 `deploy/nginx-existing.conf.example`。根路径用 `location /`，子路径如 `/memo/` 使用对应location；`proxy_pass`无URI后缀，保留原始路径前缀，不能截掉后再转发。服务入口、页面资源、登录cookie路径与设备API使用同一前缀；编码/中文路径按后端已有规范处理。
 
 代理保留Host，覆盖X-Forwarded-Proto/For，关闭缓存、请求/响应缓冲及自动上游重试，body上限沿用2147483646。信任地址仅专用Docker网关与proxy地址，不能设 `*` 来绕过HTTPS来源校验。其他拓扑先核对实际代理来源；错误证书不得关闭校验。
 

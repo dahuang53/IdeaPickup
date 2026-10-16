@@ -64,7 +64,7 @@ class SyncTests(unittest.TestCase):
         lib.memo_store_append.argtypes=[C.POINTER(Store),C.c_void_p,C.c_size_t];lib.memo_store_finish.argtypes=[C.POINTER(Store),C.POINTER(Record)]
         lib.memo_store_abort.argtypes=[C.POINTER(Store)];lib.memo_store_discard_partial.argtypes=[C.POINTER(Store),C.c_uint32]
         lib.memo_sd_sync_attempt.argtypes=[C.c_char_p,C.c_char_p,C.c_uint32,C.POINTER(Target),C.c_int,C.POINTER(IO),C.POINTER(Result)]
-        lib.memo_sd_sync_pending.argtypes=[C.c_char_p,C.POINTER(Target),C.POINTER(C.c_uint32),C.POINTER(C.c_bool)]
+        lib.memo_sd_sync_pending.argtypes=[C.c_char_p,C.POINTER(Target),C.POINTER(C.c_uint32),C.POINTER(C.c_bool),C.POINTER(C.c_bool)]
         lib.memo_sync_entry_write.argtypes=[C.c_char_p,C.POINTER(Entry)];lib.memo_sync_entry_write.restype=C.c_bool
         lib.memo_sync_entry_read.argtypes=[C.c_char_p,C.c_uint32,C.POINTER(Entry)]
     @classmethod
@@ -181,16 +181,24 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(self.run_device(mode=2).state,9)
         self.assertEqual(self.events.count(('RETRY',1)),1)
         self.assertEqual((len(self.asr),len(self.deliveries)),(1,1))
+    def test_pending_directory_error_is_not_empty_queue(self):
+        cursor=C.c_uint32(0);manual=C.c_bool();complete=C.c_bool(True)
+        missing=self.root/'missing'
+        self.assertEqual(self.lib.memo_sd_sync_pending(str(missing).encode(),C.byref(self.target),C.byref(cursor),C.byref(manual),C.byref(complete)),0)
+        self.assertFalse(complete.value)
+        missing.mkdir()
+        self.assertEqual(self.lib.memo_sd_sync_pending(str(missing).encode(),C.byref(self.target),C.byref(cursor),C.byref(manual),C.byref(complete)),0)
+        self.assertTrue(complete.value)
     def test_new_offline_multiple_then_reboot_each_sync(self):
         for id in range(2,5):self.make_wav(id);self.intent(id)
         cursor=C.c_uint32(0);manual=C.c_bool();discovered=[]
         for expected in range(1,5):
-            id=self.lib.memo_sd_sync_pending(str(self.root).encode(),C.byref(self.target),C.byref(cursor),C.byref(manual))
+            id=self.lib.memo_sd_sync_pending(str(self.root).encode(),C.byref(self.target),C.byref(cursor),C.byref(manual),None)
             self.assertEqual(id,expected);self.assertFalse(manual.value);discovered.append(id)
             self.assertEqual(self.run_device(id).state,6);self.work();self.assertEqual(self.run_device(id).state,9)
             cursor=C.c_uint32(0) # discard the only RAM scanning hint between each durable reconstruction
         self.assertEqual(discovered,[1,2,3,4])
-        self.assertEqual(self.lib.memo_sd_sync_pending(str(self.root).encode(),C.byref(self.target),C.byref(cursor),C.byref(manual)),0)
+        self.assertEqual(self.lib.memo_sd_sync_pending(str(self.root).encode(),C.byref(self.target),C.byref(cursor),C.byref(manual),None),0)
         self.assertEqual(len(self.deliveries),4)
         before=len(self.events)
         for id in range(1,5):self.assertEqual(self.run_device(id,2).state,9)
@@ -292,7 +300,7 @@ class SyncTests(unittest.TestCase):
             self.assertTrue(self.lib.memo_sync_entry_write(str(self.cache(1)).encode(),C.byref(e)))
         self.run_device(1,2);e=self.read_entry(1);self.assertTrue(e.automatic);self.assertEqual(e.manual,manual)
         cursor=C.c_uint32(0);flag=C.c_bool()
-        self.assertEqual(self.lib.memo_sd_sync_pending(str(self.root).encode(),C.byref(self.target),C.byref(cursor),C.byref(flag)),1)
+        self.assertEqual(self.lib.memo_sd_sync_pending(str(self.root).encode(),C.byref(self.target),C.byref(cursor),C.byref(flag),None),1)
         self.assertEqual(flag.value,manual)
         self.assertEqual(self.run_device(1,int(manual)).state,6);self.work();self.assertEqual(self.run_device(1,2).state,9)
         self.assertEqual(self.events.count(('POST',1)),1)
@@ -317,7 +325,7 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(self.lib.memo_store_begin_after(C.byref(store),floor.value),0);self.assertEqual(store.id,2)
         pcm=(C.c_int16*32000)(*[123]*32000);self.assertEqual(self.lib.memo_store_append(C.byref(store),pcm,32000),0)
         record=Record();self.assertEqual(self.lib.memo_store_finish(C.byref(store),C.byref(record)),0)
-        cursor=C.c_uint32(0);manual=C.c_bool();self.assertEqual(self.lib.memo_sd_sync_pending(str(self.root).encode(),C.byref(self.target),C.byref(cursor),C.byref(manual)),0)
+        cursor=C.c_uint32(0);manual=C.c_bool();self.assertEqual(self.lib.memo_sd_sync_pending(str(self.root).encode(),C.byref(self.target),C.byref(cursor),C.byref(manual),None),0)
         self.assertEqual(self.run_device(2).error,b'no_pending_intent');self.assertEqual(self.events,[])
         self.assertEqual(Path(str(self.cache(1))+'.0').read_bytes(),original)
         self.assertEqual(self.run_device(2,1).state,6);self.assertEqual(self.events.count(('POST',2)),1)

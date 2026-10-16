@@ -1,15 +1,16 @@
 /* URL/UUID/activity primitives extracted from DONOR; current-service storage below. */
 #include "memo_network_config.h"
+#include <stdio.h>
 
 bool memo_config_activity_acquire(memo_config_activity_gate_t *gate, memo_config_activity_t owner)
 {
-    if (!gate || (owner != MEMO_ACTIVITY_AUDIO && owner != MEMO_ACTIVITY_COMMIT)) return false;
+    if (!gate || (owner != MEMO_ACTIVITY_AUDIO && owner != MEMO_ACTIVITY_COMMIT && owner != MEMO_ACTIVITY_MEDIA)) return false;
     uint32_t expected = MEMO_ACTIVITY_IDLE;
     return __atomic_compare_exchange_n(&gate->owner, &expected, (uint32_t)owner, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
 }
 bool memo_config_activity_release(memo_config_activity_gate_t *gate, memo_config_activity_t owner)
 {
-    if (!gate || (owner != MEMO_ACTIVITY_AUDIO && owner != MEMO_ACTIVITY_COMMIT)) return false;
+    if (!gate || (owner != MEMO_ACTIVITY_AUDIO && owner != MEMO_ACTIVITY_COMMIT && owner != MEMO_ACTIVITY_MEDIA)) return false;
     uint32_t expected = (uint32_t)owner;
     return __atomic_compare_exchange_n(&gate->owner, &expected, MEMO_ACTIVITY_IDLE, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
 }
@@ -126,6 +127,14 @@ static bool ipv4_valid(const char *s, size_t n)
         if (at == n || s[at++] != '.') return false;
     }
     return false;
+}
+/* Literal RFC1918 addresses only: HTTP must not depend on DNS resolution. */
+static bool ipv4_lan(const char *s, size_t n)
+{
+    if (!ipv4_valid(s, n)) return false;
+    unsigned a = 0, b = 0;
+    if (sscanf(s, "%u.%u", &a, &b) != 2) return false;
+    return a == 10 || (a == 172 && b >= 16 && b <= 31) || (a == 192 && b == 168);
 }
 static bool ipv6_valid(const char *s, size_t n)
 {
@@ -256,26 +265,49 @@ static bool path_clean(const char *s, size_t n)
 memo_config_result_t memo_config_validate_url(const char *input, char *normalized, size_t capacity)
 {
     size_t n = bounded_length(input, MEMO_CONFIG_URL_MAX);
-    if (n < 9 || n > MEMO_CONFIG_URL_MAX || !utf8_clean(input, n)) return MEMO_CONFIG_INVALID;
-    const char *scheme = "https://";
-    for (size_t i = 0; i < 8; ++i) {
-        char c = input[i];
-        if (c >= 'A' && c <= 'Z') c = (char)(c + ('a' - 'A'));
-        if (c != scheme[i]) return MEMO_CONFIG_INVALID;
+    if (!n || n > MEMO_CONFIG_URL_MAX || !utf8_clean(input, n)) return MEMO_CONFIG_INVALID;
+    if (!strstr(input, "://")) {
+        size_t host = 0;
+        while (host < n && input[host] != ':' && input[host] != '/') ++host;
+        bool lan = ipv4_lan(input, host);
+        bool default_port = lan && (host == n || input[host] == '/');
+        char expanded[MEMO_CONFIG_URL_MAX + 1];
+        int count = snprintf(expanded, sizeof(expanded), "%s%.*s%s%s",
+                             lan ? "http://" : "https://", (int)host, input,
+                             default_port ? ":8765" : "", input + host);
+        if (count < 0 || (size_t)count >= sizeof(expanded)) return MEMO_CONFIG_INVALID;
+        return memo_config_validate_url(expanded, normalized, capacity);
     }
-    size_t end = 8;
+    bool tls = n >= 8;
+    const char *scheme = "https://";
+    for (size_t i = 0; tls && i < 8; ++i) {
+        char c = input[i]; if (c >= 'A' && c <= 'Z') c += 'a' - 'A';
+        if (c != scheme[i]) tls = false;
+    }
+    size_t base = tls ? 8 : 7;
+    if (!tls) {
+        scheme = "http://";
+        if (n < 8) return MEMO_CONFIG_INVALID;
+        for (size_t i = 0; i < 7; ++i) {
+            char c = input[i]; if (c >= 'A' && c <= 'Z') c += 'a' - 'A';
+            if (c != scheme[i]) return MEMO_CONFIG_INVALID;
+        }
+    }
+    size_t end = base;
     while (end < n && input[end] != '/') ++end;
     size_t host_end; char ipv6[40] = {0}; size_t ipv6_length = 0;
-    if (input[8] == '[') {
-        host_end = 9;
+    if (input[base] == '[') {
+        if (!tls) return MEMO_CONFIG_INVALID;
+        host_end = base + 1;
         while (host_end < end && input[host_end] != ']') ++host_end;
-        if (host_end == end || !ipv6_valid(input + 9, host_end - 9)) return MEMO_CONFIG_INVALID;
-        ipv6_length = ipv6_canonical(input + 9, host_end - 9, ipv6);
+        if (host_end == end || !ipv6_valid(input + base + 1, host_end - base - 1)) return MEMO_CONFIG_INVALID;
+        ipv6_length = ipv6_canonical(input + base + 1, host_end - base - 1, ipv6);
         ++host_end;
     } else {
-        host_end = 8;
+        host_end = base;
         while (host_end < end && input[host_end] != ':') ++host_end;
-        if (!dns_valid(input + 8, host_end - 8)) return MEMO_CONFIG_INVALID;
+        if (!dns_valid(input + base, host_end - base) ||
+            (!tls && !ipv4_lan(input + base, host_end - base))) return MEMO_CONFIG_INVALID;
     }
     unsigned port = 0;
     if (host_end < end) {
@@ -290,16 +322,16 @@ memo_config_result_t memo_config_validate_url(const char *input, char *normalize
     while (n > end && input[n - 1] == '/') --n;
     if (!path_clean(input + end, n - end)) return MEMO_CONFIG_INVALID;
     if (normalized) {
-        char result[MEMO_CONFIG_URL_MAX + 1]; size_t length = 8;
-        memcpy(result, "https://", length);
+        char result[MEMO_CONFIG_URL_MAX + 1]; size_t length = base;
+        memcpy(result, scheme, length);
         if (ipv6_length) {
             result[length++] = '['; memcpy(result + length, ipv6, ipv6_length); length += ipv6_length; result[length++] = ']';
         } else {
-            for (size_t i = 8; i < host_end; ++i) {
+            for (size_t i = base; i < host_end; ++i) {
                 char c = input[i]; if (c >= 'A' && c <= 'Z') c += 'a' - 'A'; result[length++] = c;
             }
         }
-        if (port && port != 443) { memcpy(result + length, input + host_end, end - host_end); length += end - host_end; }
+        if (port && port != (tls ? 443U : 80U)) { memcpy(result + length, input + host_end, end - host_end); length += end - host_end; }
         memcpy(result + length, input + end, n - end); length += n - end; result[length] = 0;
         if (capacity <= length) return MEMO_CONFIG_INVALID;
         memcpy(normalized, result, length + 1);
@@ -475,9 +507,13 @@ memo_config_result_t memo_config_set_service(memo_config_t *c, const char *devic
     if (memo_config_validate_url(url, normalized, sizeof(normalized)) != MEMO_CONFIG_OK) return MEMO_CONFIG_INVALID;
     bool same = !strcmp(normalized, next.base_url) && !strcmp(device, next.device_id);
     if (same && (!code || !*code) && next.enabled) return MEMO_CONFIG_OK;
+    /* Keep the durable candidate while refreshing the code: the server may
+     * already have created/activated it even if its response was lost. */
     if (same && next.phase == MEMO_SERVICE_PAIRING && code && *code) {
-        if (strcmp(next.pairing_code, code)) return MEMO_CONFIG_BUSY;
-        next.enabled = true; return next.enabled == c->value.enabled ? MEMO_CONFIG_OK : publish(c, &next);
+        if (!code_valid(code)) return MEMO_CONFIG_INVALID;
+        bool unchanged = next.enabled && !strcmp(next.pairing_code, code);
+        memcpy(next.pairing_code, code, strlen(code) + 1); next.enabled = true;
+        return unchanged ? MEMO_CONFIG_OK : publish(c, &next);
     }
     if (!same || (code && *code)) {
         memset(&next, 0, sizeof(next)); memcpy(next.base_url, normalized, strlen(normalized) + 1);

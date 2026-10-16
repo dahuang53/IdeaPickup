@@ -16,6 +16,20 @@ ghcr.io/dahuang53/ideapickup-relay:0.2.0rc1@sha256:ff801391c3c2200a3575204afead8
 
 将此值填入部署 env 的 `VOICE_MEMO_IMAGE`；无需改变数据卷或其他持久标识。安装和普通更新入口见[部署说明](DEPLOYMENT.md)。同一 Release 提供镜像内 Debian 包的[完整对应源码归档](https://github.com/dahuang53/IdeaPickup/releases/download/0.2.0rc1/ideapickup-relay-0.2.0rc1-corresponding-source.tar.gz)与校验值；精确包和来源索引见[第三方声明](../THIRD_PARTY_NOTICES.md)。
 
+## R12 验收交付（r12-20261016）
+
+R12使用既有仓库中的独立 `r12-20261016` 标签，交付两板固件、源码、SHA256SUMS及对应源码，保留历史 `0.2.0rc1` 原件。实际可获取文件以对应Release为准。此标签是验收修订标识；后端运行时 `code_version` 仍为 `0.2.0rc1`，部署必须使用下面配套索引摘要，不凭该字段或旧标签判断代码相同。
+
+R12配套镜像的固定索引身份为：
+
+```text
+ghcr.io/dahuang53/ideapickup-relay:r12-20261016@sha256:970c10f0ce8ee260d731bc7165bfc52a0f13b1d5ad9710a01685f6fd2a4f6d60
+```
+
+索引仅含已审的 `linux/amd64` 与 `linux/arm64` 运行manifest，不含构建证明或私人历史。该交付的附件名称为 `ideapickup-r12-20261016-vocat16.tar.gz`、`ideapickup-r12-20261016-spotpear.tar.gz`、`ideapickup-r12-20261016-source.tar.gz`、`SHA256SUMS`，以及已核匹配、字节不变的 `ideapickup-relay-0.2.0rc1-corresponding-source.tar.gz`。最后一个文件沿用原名，内容对应相同系统依赖；应用源码以本次R12源码归档为准。
+
+固件包附原第三方许可、实际manifest、支持限制和校验值，按[安装说明](DEVICE_INSTALL.md)选择板型。低电矩阵未实测、斑梨旧看门狗告警未解决等限制见[支持状态](SUPPORT.md)，不以附件发布掩盖延期项。发布流程要求精确材料审查、对象授权和实际下载核验，不改写rc1历史。
+
 ## 准备源码候选
 
 ```sh

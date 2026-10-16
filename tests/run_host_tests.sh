@@ -84,3 +84,6 @@ fi
   -fsanitize=address,undefined -I "$project_dir/main" "$project_dir/main/memo_usb_pcm.c" \
   "$project_dir/tests/test_usb_pcm.c" -o "$test_dir/test_usb_pcm"
 "$test_dir/test_usb_pcm"
+
+# Production SD polling / idle handoff with synthetic hardware and power state.
+"${PYTHON:-python3}" "$project_dir/tests/test_sd_probe.py"

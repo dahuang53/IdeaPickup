@@ -6,24 +6,31 @@ def open_serial(factory,port):
  connection=factory(port=None,baudrate=115200,timeout=.1,write_timeout=2,exclusive=True)
  connection.rts=False;connection.dtr=False;connection.port=port;connection.open();return connection
 
-def controlled_return(connection,esp,mac):
+def controlled_return(connection,esp,mac,board="vocat16"):
+ require(board in ("vocat16","spotpear"),"unsupported return board")
  require(not connection.rts and not connection.dtr,'ROM serial controls must remain idle')
- esp.connect(mode='no-reset',attempts=1,warnings=False)
+ # Spotpear uses the official USB Serial/JTAG entry after the CLI handle
+ # handoff; reopening with idle controls can already release the old ROM.
+ esp.connect(mode='usb-reset' if board=='spotpear' else 'no-reset',attempts=1,warnings=False)
  require(esp.CHIP_NAME=='ESP32-S3' and not esp.IS_STUB,'unsupported ROM')
  require(bytes(esp.read_mac())==mac,'ROM device changed')
  security=esp.get_security_info(cache=False)
  flags=security['parsed_flags']
  require(not flags['SECURE_BOOT_EN'] and not flags['SECURE_DOWNLOAD_ENABLE'] and security['flash_crypt_cnt'].bit_count()%2==0,'unsupported protected ROM')
  require(esp.get_uart_no()==4,'USB Serial/JTAG ROM required')
- # GPIO0 held low would force download again after the watchdog. Never claim
+ # GPIO0 held low can keep download mode. Never claim
  # an application return from the reset request; installer verification is separate.
  require(esp.read_reg(0x6000403c)&1,'release GPIO0 before returning from ROM')
  before=esp.read_reg(esp.RTC_CNTL_OPTION1_REG)
  esp.write_reg(esp.RTC_CNTL_OPTION1_REG,0,esp.RTC_CNTL_FORCE_DOWNLOAD_BOOT_MASK)
  require(esp.read_reg(esp.RTC_CNTL_OPTION1_REG)==before&~esp.RTC_CNTL_FORCE_DOWNLOAD_BOOT_MASK,'force-download clear not confirmed')
- esp.watchdog_reset();return 'RESET_REQUESTED_BOOT_NOT_CONFIRMED'
+ # Reuse the pinned upstream return strategy for Spotpear USB Serial/JTAG.
+ # Vocat16 entered from composite CDC keeps its verified watchdog path.
+ if board=='spotpear':esp.hard_reset()
+ else:esp.watchdog_reset()
+ return 'RESET_REQUESTED_BOOT_NOT_CONFIRMED'
 
-def reset(port,mac):
+def reset(port,mac,board="vocat16"):
  import os
  os.environ["ESPTOOL_CFGFILE"]=str(ROOT/"scripts/esptool-protected.cfg")
  import serial
@@ -31,5 +38,5 @@ def reset(port,mac):
  class ROM(ESP32S3ROM):
   def _post_connect(self):pass
  connection=open_serial(serial.Serial,port)
- try:return controlled_return(connection,ROM(port=connection,baud=115200,trace_enabled=False),mac)
+ try:return controlled_return(connection,ROM(port=connection,baud=115200,trace_enabled=False),mac,board)
  finally:connection.close()

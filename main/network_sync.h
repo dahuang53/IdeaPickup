@@ -28,7 +28,6 @@ typedef struct {
     bool queued_sync_manual;
     char device_id[40];
     char ap_ssid[33];
-    char ap_password[16];
     char error[80];
 } memo_network_status_t;
 
@@ -71,12 +70,20 @@ int network_sync_stream_request(const char *method, const char *path,
                                 const char *content_type, const char *chunk_sha,
                                 char *response, size_t capacity);
 
-/* Toggle the captive portal. Safe only while recording/playback are idle. */
+/* Toggle the manual browser configuration hotspot. Safe only while recording/playback are idle. */
 void network_sync_toggle_provisioning(void);
+/* Temporary read-only AP observer; numeric results only, no credentials. */
 
 /* Prevent SD upload reads from overlapping recording or playback startup. */
 bool network_sync_prepare_audio(uint32_t timeout_ms);
 void network_sync_audio_done(void);
+/* Exclusive, non-reentrant background media query. No retry or SD access if busy. */
+bool network_sync_try_sd_probe(void);
+void network_sync_sd_probe_done(void);
+/* Caller must hold AUDIO; hashes a local file only, also while offline. */
+bool network_sync_hash_local_audio(const char *path,memo_audio_identity_t *out);
+bool network_sync_sd_work_pending(void);
+uint32_t network_sync_sd_scan_count(void);
 
 /* Power policy hooks. They never interrupt provisioning, an active upload or
  * an SD reader. Historical records stay local until selected manually. */

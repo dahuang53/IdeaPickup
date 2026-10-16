@@ -40,6 +40,9 @@ memo_pair_result_t failure(int code,const char *body,memo_pairing_receipt_t *out
     if(!code)return MEMO_PAIR_NETWORK;
     Json json(body);const char *error=field(json.root,"error");
     if(error && strlen(error)<sizeof(out->error_code))snprintf(out->error_code,sizeof(out->error_code),"%s",error);
+    // A server rejecting our fixed request schema is incompatible, not a
+    // transient connection failure or an invalid user-entered pairing code.
+    if(code==400 && error && !strcmp(error,"invalid_fields"))return MEMO_PAIR_INVALID_RESPONSE;
     return terminal_error(error)?MEMO_PAIR_REJECTED:MEMO_PAIR_NETWORK;
 }
 }

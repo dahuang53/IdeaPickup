@@ -41,8 +41,20 @@ static memo_item_t *record_index;
 static memo_record_t *sd_index;
 static size_t sd_count;
 static SemaphoreHandle_t sd_probe_mutex;
-static atomic_bool sd_probe_ready;
+static atomic_int sd_probe_ready; // 0 none, 1 mounted insertion, 2 status failure/remount
 static atomic_bool sd_probe_busy;
+static TaskHandle_t sd_probe_handle;
+static atomic_bool sd_view_visible, sd_view_requested;
+static atomic_uint sd_probe_checks, sd_probe_wakes;
+
+/* LVGL publishes demand only; media I/O stays off the display task. */
+void app_storage_view(bool visible) {
+    bool changed=atomic_exchange(&sd_view_visible,visible)!=visible;
+    if(changed) {
+        atomic_store(&sd_view_requested,visible);
+        if(sd_probe_handle)xTaskNotifyGive(sd_probe_handle);
+    }
+}
 static bool cardless_available;
 static uint32_t cardless_revision;
 static size_t record_count;
@@ -54,6 +66,7 @@ static atomic_bool shutdown_failed;
 static atomic_bool recovery_deferred;
 static atomic_int_fast64_t recovery_retry_after_us;
 static FILE *playing;
+static memo_audio_identity_t play_identity;
 static uint32_t play_remaining, play_bytes;
 static int16_t pcm[512];
 static int64_t started_us;
@@ -204,6 +217,22 @@ static int add_to_index(const memo_record_t *record) {
     if(cardless_available)memo_cardless_observe_id(record->id);
     return merge_index(0);
 }
+static bool sd_probe_allowed(const memo_snapshot_t *s) {
+    memo_power_status_t power;power_policy_get_status(&power);
+    memo_network_status_t network;network_sync_get_status(&network);
+    return !network.provisioning && !network.syncing && atomic_load(&power_listening) && (!power.initialized || power.external_power || power.stage==MEMO_POWER_ACTIVE) &&
+        !memo_cardless_busy() &&
+        s->state!=MEMO_RECORDING && s->state!=MEMO_PLAYING && s->state!=MEMO_PAUSED &&
+        s->state!=MEMO_SAVING && s->state!=MEMO_USB_MIC;
+}
+/* Zero means indefinite notification wait, including pure cat idle. */
+static uint32_t sd_probe_interval(const memo_snapshot_t *s) {
+    bool view=atomic_load(&sd_view_visible);
+    bool work=network_sync_sd_work_pending();
+    if((!view && !work) || !sd_probe_allowed(s))return 0;
+    if(!s->cardless && !s->sd_ready && !atomic_load(&sd_view_requested))return 0;
+    return view?5000U:15000U;
+}
 static bool storage_prepare(bool remount) {
     network_sync_set_storage_available(false);
     xSemaphoreTake(mutex,portMAX_DELAY);
@@ -251,6 +280,40 @@ static bool storage_prepare(bool remount) {
     network_sync_observe_latest(latest_visible_id());
     network_sync_set_storage_available(true);
     ESP_LOGI(TAG,"STORAGE_READY count=%zu",model.count);
+    return true;
+}
+/* AUDIO is already claimed. Recheck even when the cached mode is cardless.
+ * A responsive bad card stays an error; only confirmed no-response can fall
+ * back before capture starts. Never call while a recording is in progress. */
+static esp_err_t microphone_stop(void);
+static bool storage_check_for_operation(void) {
+    if(memo_cardless_busy())return false;
+    memo_snapshot_t s;app_snapshot(&s);
+    int change=atomic_exchange(&sd_probe_ready,0);
+    bool prepared;
+    if(!s.sd_ready && !s.cardless)prepared=storage_prepare(true);
+    else {
+        xSemaphoreTake(sd_probe_mutex,portMAX_DELAY);
+        esp_err_t result=s.sd_ready?board_sd_check():board_sd_mount();
+        bool absent=board_sd_absent();
+        xSemaphoreGive(sd_probe_mutex);
+        atomic_fetch_add(&sd_probe_checks,1);
+        if(s.sd_ready && result==ESP_OK && change!=2)return true;
+        if(s.cardless && result!=ESP_OK && absent && !change)return true;
+        voice_set_mode(VOICE_OFF);microphone_stop();
+        prepared=storage_prepare(s.sd_ready || change==2);
+    }
+    if(!prepared)return false;
+    app_snapshot(&s);
+    if(s.sd_ready) {
+        uint32_t pending=0;int present=memo_store_pending_id(&store,&pending);
+        if(present) {
+            /* Do not begin over a recovered card's unfinished recording.
+             * The existing worker resumes recovery after AUDIO is released. */
+            if(present>0)atomic_store(&recovery_deferred,true);
+            state(MEMO_ERROR,"录音恢复暂时繁忙");return false;
+        }
+    }
     return true;
 }
 static bool have_space(void) {
@@ -413,10 +476,12 @@ static void playback_resume(void) {
         ESP_LOGW(TAG,"PLAY_RESUME_BUSY id=%"PRIu32,s.active_id);
         return;
     }
-    char path[MEMO_PATH_MAX];memo_record_t record;
-    if(memo_store_path(&store,s.active_id,path,sizeof(path)) ||
+    char path[MEMO_PATH_MAX];memo_record_t record;memo_audio_identity_t current_identity;
+    if(board_sd_check()!=ESP_OK || memo_store_path(&store,s.active_id,path,sizeof(path)) ||
        memo_store_validate(path,&record) ||
        record.data_bytes!=play_bytes+play_remaining ||
+       !network_sync_hash_local_audio(path,&current_identity) ||
+       !memo_sync_audio_matches(&play_identity,&current_identity) ||
        play_bytes>(uint32_t)(LONG_MAX-44L) ||
        (playing=fopen(path,"rb"))==NULL ||
        fseek(playing,44L+(long)play_bytes,SEEK_SET)!=0) {
@@ -433,11 +498,13 @@ static void playback_resume(void) {
 }
 static void start_record(void) {
     memo_snapshot_t s;app_snapshot(&s);
-    if (!s.sd_ready && !s.cardless) {notice("录音存储未就绪喵");ESP_LOGW(TAG,"REJECT start: storage not ready");return;}
-    if (s.cardless && !s.cardless_ready) {failure("无卡录音需联网且上传空闲");return;}
     if (!audio_ready) {failure("音频初始化失败");return;}
     if (atomic_load(&recovery_deferred)) {failure("电量不足，恢复暂缓");return;}
+    if (memo_cardless_busy()) {failure("无卡录音需联网且上传空闲");return;}
     if (!network_sync_prepare_audio(1500)) {failure("网络同步正忙，请重试");return;}
+    if(!storage_check_for_operation()) {network_sync_audio_done();return;}
+    app_snapshot(&s);
+    if(s.cardless && !s.cardless_ready) {network_sync_audio_done();failure("无卡录音需联网且上传空闲");return;}
     if(s.cardless) {
         if(microphone_start()!=ESP_OK || board_record_resync()!=ESP_OK) {
             microphone_stop();network_sync_audio_done();failure("麦克风打开失败");return;
@@ -461,17 +528,8 @@ static void start_record(void) {
         return;
     }
     bool injected=fault_space;fault_space=false;
-    bool media_ok=board_sd_check()==ESP_OK;
-    if(!media_ok)errno=EIO;
-    if (injected || !media_ok || !have_space()) {
-        if(!injected && errno==EIO) {
-            /* Media removed while idle: classify once before starting a new
-             * recording. Never migrate an already-running SD recording. */
-            bool prepared=storage_prepare(true);
-            network_sync_audio_done();
-            memo_snapshot_t refreshed;app_snapshot(&refreshed);
-            if(prepared && refreshed.cardless) {start_record();return;}
-        } else network_sync_audio_done();
+    if (injected || !have_space()) {
+        network_sync_audio_done();
         failure(injected?"测试：空间不足，未保存":"空间不足或存储卡错误");return;
     }
     uint32_t floor=0,reserved=0;
@@ -495,10 +553,14 @@ static void start_record(void) {
 static void start_play(uint32_t id) {
     memo_snapshot_t s;app_snapshot(&s);
     if(id & MEMO_CARDLESS_ID_FLAG) {failure("无卡记录不提供回放");return;}
-    if (!s.sd_ready || !audio_ready) {failure("存储卡或音频未就绪");return;}
+    if (!audio_ready) {failure("存储卡或音频未就绪");return;}
     if (!network_sync_prepare_audio(1500)) {failure("网络同步正忙，请重试");return;}
+    if(!storage_check_for_operation()) {network_sync_audio_done();return;}
+    app_snapshot(&s);
+    if(!s.sd_ready) {network_sync_audio_done();failure("存储卡或音频未就绪");return;}
     char path[MEMO_PATH_MAX]; memo_record_t r;
-    if (memo_store_path(&store,id,path,sizeof(path)) || memo_store_validate(path,&r)) {network_sync_audio_done();failure("录音文件无效");return;}
+    if (memo_store_path(&store,id,path,sizeof(path)) || memo_store_validate(path,&r) ||
+        !network_sync_hash_local_audio(path,&play_identity)) {network_sync_audio_done();failure("录音文件无效");return;}
     playing=fopen(path,"rb");
     if (!playing || fseek(playing,44,SEEK_SET)) {if(playing)fclose(playing);playing=NULL;network_sync_audio_done();failure("无法读取录音");return;}
     voice_set_mode(VOICE_OFF);
@@ -530,12 +592,14 @@ static void dump_record(uint32_t id) {
     memo_usb_set_bulk_output(false);
 }
 static void inspect_partial(uint32_t id) {
+    if(!network_sync_prepare_audio(1500)) {printf("PARTIAL_ERROR %"PRIu32" busy\n",id);fflush(stdout);return;}
     memo_record_t record;
     if(memo_store_inspect_partial(&store,id,&record))
         printf("PARTIAL_ERROR %"PRIu32" errno=%d\n",id,errno);
     else
         printf("PARTIAL id=%"PRIu32" bytes=%"PRIu32" duration_ms=%"PRIu32"\n",
                record.id,record.data_bytes,record.duration_ms);
+    network_sync_audio_done();
     fflush(stdout);
 }
 static void recover_partial(uint32_t id) {
@@ -595,8 +659,12 @@ static void recover_pending(void) {
 static bool sd_recovery_ready(void) {
     memo_snapshot_t s;app_snapshot(&s);
     if(!s.sd_ready)return false;
+    if(!network_sync_prepare_audio(1500)) {
+        atomic_store(&recovery_deferred,true);return false;
+    }
     uint32_t pending=0;
     int present=memo_store_pending_id(&store,&pending);
+    network_sync_audio_done();
     if(present!=1) {
         if(present<0)ESP_LOGE(TAG,"AUTO_RECOVERY_MARKER_INVALID errno=%d",errno);
         return false;
@@ -725,11 +793,22 @@ static void handle(command_t *c) {
     if(!strcmp(c->source,"voice") && c->cmd!=CMD_VOICE_WAKE && c->cmd!=CMD_VOICE_CANCEL)
         voice_command_ack(c->arg);
 }
+static bool apply_sd_probe(void) {
+    memo_snapshot_t s;app_snapshot(&s);
+    if(!atomic_load(&sd_probe_ready) || !sd_probe_allowed(&s) || !network_sync_prepare_audio(3000))return false;
+    int change=atomic_exchange(&sd_probe_ready,0);
+    voice_set_mode(VOICE_OFF);microphone_stop();
+    if(storage_prepare(change==2))state(audio_ready?MEMO_IDLE:MEMO_ERROR,audio_ready?NULL:"音频初始化失败");
+    network_sync_audio_done();
+    if(sd_recovery_ready())recover_pending();
+    return true;
+}
 static void worker(void *arg) {
     (void)arg;uint32_t capacity_ticks=0;
     int64_t metadata_refresh_us=0;
     int64_t recovery_retry_us=0;
     int64_t capture_previous_us=0;
+    uint32_t previous_probe_interval=UINT32_MAX;
     for (;;) {
         const int64_t loop_started_us=esp_timer_get_time();
         if(notice_until_us && loop_started_us>=notice_until_us)notice(NULL);
@@ -749,6 +828,13 @@ static void worker(void *arg) {
         TickType_t wait=(listening||s.state==MEMO_RECORDING||s.state==MEMO_PLAYING||s.state==MEMO_USB_MIC)?0:pdMS_TO_TICKS(100);
         if(xQueueReceive(queue,&c,wait)==pdTRUE)handle(&c);
         update_voice_mode();app_snapshot(&s);
+        /* Existing audio loop observes only flags. No extra timer wakes the
+         * device for media when all demand is gone. */
+        uint32_t probe_interval=sd_probe_interval(&s);
+        if(probe_interval!=previous_probe_interval) {
+            previous_probe_interval=probe_interval;
+            if(sd_probe_handle)xTaskNotifyGive(sd_probe_handle);
+        }
         // A recovery deferred by an active USB/record/play task must resume
         // after that task ends, without requiring another charger edge.
         if(atomic_load(&recovery_deferred) && s.sd_ready &&
@@ -758,14 +844,7 @@ static void worker(void *arg) {
             app_power_recover_deferred();
         }
         if(s.state!=MEMO_RECORDING && s.state!=MEMO_PLAYING && s.state!=MEMO_PAUSED && s.state!=MEMO_SAVING && s.state!=MEMO_USB_MIC) {
-            if(atomic_load(&sd_probe_ready) && !memo_cardless_busy() && network_sync_prepare_audio(3000)) {
-                atomic_store(&sd_probe_ready,false);
-                voice_set_mode(VOICE_OFF);microphone_stop();
-                if(storage_prepare(false))state(audio_ready?MEMO_IDLE:MEMO_ERROR,audio_ready?NULL:"音频初始化失败");
-                network_sync_audio_done();
-                if(sd_recovery_ready())recover_pending();
-                app_snapshot(&s);
-            }
+            if(apply_sd_probe())app_snapshot(&s);
             if(memo_cardless_revision()!=cardless_revision &&
                esp_timer_get_time()-metadata_refresh_us>1000000) {
                 merge_index(s.page);metadata_refresh_us=esp_timer_get_time();
@@ -850,13 +929,18 @@ bool app_power_is_busy(void)
     app_snapshot(&snapshot);
     return snapshot.state == MEMO_RECORDING || snapshot.state == MEMO_SAVING ||
            snapshot.state == MEMO_PLAYING || snapshot.state == MEMO_USB_MIC ||
-           snapshot.voice_window || atomic_load(&sd_probe_busy);
+           snapshot.voice_window; // Background media probes are not user activity.
 }
 
 bool app_power_set_listening(bool enabled, uint32_t timeout_ms)
 {
     if (!enabled && app_power_is_busy()) return false;
     atomic_store(&power_listening, enabled);
+    // Publish sleep intent before checking the probe, whose entry rechecks it.
+    // Keep the SD controller awake until an in-flight query has released it.
+    if(!enabled && atomic_load(&sd_probe_busy)) {
+        atomic_store(&power_listening,true);return false;
+    }
     if (enabled || !atomic_load(&microphone_open)) return true;
     int64_t deadline = esp_timer_get_time() + (int64_t)timeout_ms * 1000LL;
     while (atomic_load(&microphone_open) && esp_timer_get_time() < deadline)
@@ -917,6 +1001,9 @@ static void print_status(void) {
     printf("USB_BUS frame=%"PRIu32" age_ms=%"PRIu32" watchdog_losses=%"PRIu32"\n",
         usb.bus_frame,usb.bus_age_ms,usb.bus_watchdog_losses);
     if(s.notice[0])printf("NOTICE %s\n",s.notice);
+    printf("SD_PROBE checks=%u wakes=%u view=%d work=%d scans=%"PRIu32"\n",
+        atomic_load(&sd_probe_checks),atomic_load(&sd_probe_wakes),atomic_load(&sd_view_visible),
+        network_sync_sd_work_pending(),network_sync_sd_scan_count());
     printf("CARDLESS mode=%d ready=%d transport_busy=%d records=%zu\n",s.cardless,s.cardless_ready,memo_cardless_busy(),memo_cardless_count());
     printf("STATUS state=%d sd=%d count=%zu page=%zu id=%"PRIu32" ms=%"PRIu32" level=%u error=%s\n",
         s.state,s.sd_ready,s.count,s.page,s.active_id,s.elapsed_ms,s.level,s.error);
@@ -988,26 +1075,51 @@ static void console(void *arg) {
         if(!found)printf("HELP status list net_status gauge_diag provision start stop play ID pause resume usb_open usb_close usb_mute usb_unmute next prev refresh fault_write BYTES fault_space dump ID partial ID recover ID discard ID reboot bootloader cardless_test KIND VALUE\n");
     }
 }
-/* A low-priority probe does not stop the microphone or run on the capture
- * worker. A newly mounted card is adopted only at the next idle boundary. */
+/* Healthy mounted cards need only CMD13; no FAT scan or write. The task
+ * is notification-driven and has a timer only while real demand exists. */
+static void sd_probe_once(void) {
+    memo_snapshot_t s;app_snapshot(&s);
+    if(atomic_load(&sd_probe_ready) || !sd_probe_allowed(&s) ||
+       (!atomic_load(&sd_view_visible) && !network_sync_sd_work_pending()))return;
+    if(xSemaphoreTake(sd_probe_mutex,0)!=pdTRUE)return;
+    atomic_store(&sd_probe_busy,true);
+    app_snapshot(&s);
+    if(sd_probe_allowed(&s) && network_sync_try_sd_probe()) {
+        // Audio/config may have won before the exclusive claim. Check again.
+        app_snapshot(&s);
+        if(sd_probe_allowed(&s)) {
+            atomic_fetch_add(&sd_probe_checks,1);
+            esp_err_t err=s.sd_ready?board_sd_check():board_sd_mount();
+            int change=s.sd_ready?(err!=ESP_OK?2:0):(err==ESP_OK || !board_sd_absent()?1:0);
+            if(change) {
+                atomic_store(&sd_probe_ready,change);
+                ESP_LOGI(TAG,"SD_MEDIA_CHANGE kind=%d result=%s",change,esp_err_to_name(err));
+            }
+        }
+        network_sync_sd_probe_done();
+    }
+    atomic_store(&sd_probe_busy,false);
+    xSemaphoreGive(sd_probe_mutex);
+}
 static void sd_probe_task(void *arg) {
     (void)arg;
+    int64_t next_us=0;
     for(;;) {
-        vTaskDelay(pdMS_TO_TICKS(15000));
         memo_snapshot_t s;app_snapshot(&s);
-        if(!s.cardless || !atomic_load(&power_listening) || memo_cardless_busy() ||
-           s.state==MEMO_RECORDING || s.state==MEMO_PLAYING ||
-           s.state==MEMO_PAUSED || s.state==MEMO_SAVING || s.state==MEMO_USB_MIC)continue;
-        if(xSemaphoreTake(sd_probe_mutex,0)!=pdTRUE)continue;
-        atomic_store(&sd_probe_busy,true);
-        if(!atomic_load(&power_listening)) {
-            atomic_store(&sd_probe_busy,false);xSemaphoreGive(sd_probe_mutex);continue;
-        }
-        esp_err_t err=board_sd_mount();
-        bool absent=board_sd_absent();
-        xSemaphoreGive(sd_probe_mutex);
-        if(err==ESP_OK || !absent)atomic_store(&sd_probe_ready,true);
-        atomic_store(&sd_probe_busy,false);
+        uint32_t interval=sd_probe_interval(&s);
+        TickType_t wait=portMAX_DELAY;
+        if(interval) {
+            int64_t now=esp_timer_get_time();
+            if(atomic_exchange(&sd_view_requested,false) || now>=next_us) {
+                sd_probe_once();
+                next_us=esp_timer_get_time()+(int64_t)interval*1000;
+            }
+            int64_t remaining=next_us-esp_timer_get_time();
+            wait=pdMS_TO_TICKS((uint32_t)(remaining>0?(remaining+999)/1000:1));
+            if(!wait)wait=1;
+        } else next_us=0;
+        ulTaskNotifyTake(pdTRUE,wait);
+        atomic_fetch_add(&sd_probe_wakes,1);
     }
 }
 void app_main(void) {
@@ -1072,7 +1184,7 @@ void app_main(void) {
     }
     if(xTaskCreate(network_boot,"memo_net_boot",5120,(void *)(uintptr_t)latest,1,NULL)!=pdPASS)
         ESP_LOGE(TAG,"NETWORK_UNAVAILABLE offline recording remains available");
-    if(xTaskCreate(sd_probe_task,"memo_sd_probe",4096,NULL,1,NULL)!=pdPASS)
+    if(xTaskCreate(sd_probe_task,"memo_sd_probe",4096,NULL,1,&sd_probe_handle)!=pdPASS)
         ESP_LOGW(TAG,"SD auto-detect unavailable; use refresh while idle");
     power_policy_init();
     ESP_LOGI(TAG,"READY display=%d sd=%d audio=%d",display_ok,model.sd_ready,audio_ready);

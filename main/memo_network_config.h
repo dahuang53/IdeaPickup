@@ -15,7 +15,7 @@ extern "C" {
 #define MEMO_CONFIG_BLOB_MAX 512U
 
 typedef struct { uint32_t owner; } memo_config_activity_gate_t;
-typedef enum { MEMO_ACTIVITY_IDLE, MEMO_ACTIVITY_AUDIO, MEMO_ACTIVITY_COMMIT } memo_config_activity_t;
+typedef enum { MEMO_ACTIVITY_IDLE, MEMO_ACTIVITY_AUDIO, MEMO_ACTIVITY_COMMIT, MEMO_ACTIVITY_MEDIA } memo_config_activity_t;
 bool memo_config_activity_acquire(memo_config_activity_gate_t *, memo_config_activity_t);
 bool memo_config_activity_release(memo_config_activity_gate_t *, memo_config_activity_t);
 memo_config_activity_t memo_config_activity(const memo_config_activity_gate_t *);

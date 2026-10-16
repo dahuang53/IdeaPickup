@@ -104,7 +104,7 @@
       "restart": "unless-stopped",
       "stop_grace_period": "2m",
       "environment": {
-        "VOICE_MEMO_PUBLIC_URL": "${VOICE_MEMO_PUBLIC_URL:?Set the public HTTPS base URL}",
+        "VOICE_MEMO_PUBLIC_URL": "${VOICE_MEMO_PUBLIC_URL:?Set the service base URL}",
         "VOICE_MEMO_DB": "/var/lib/voice-memo/relay.db",
         "VOICE_MEMO_WORK_DIR": "/var/lib/voice-memo-work",
         "VOICE_MEMO_STREAM_DIR": "/var/lib/voice-memo/streams",
@@ -113,7 +113,7 @@
         "VOICE_MEMO_CONTROL_SOCKET": "/var/lib/voice-memo/control/control.sock"
       },
       "ports": [
-        "127.0.0.1:${VOICE_MEMO_PORT:-8765}:8765"
+        "${VOICE_MEMO_BIND:-127.0.0.1}:${VOICE_MEMO_PORT:-8765}:8765"
       ],
       "volumes": [
         "data:/var/lib/voice-memo",

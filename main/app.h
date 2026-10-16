@@ -40,6 +40,8 @@ typedef struct {
 // Thread-safe; touch and serial use the same worker/business logic.
 bool app_command(memo_cmd_t command, uint32_t arg, const char *source);
 void app_snapshot(memo_snapshot_t *out);
+/* UI demand only, no I/O or blocking. */
+void app_storage_view(bool visible);
 bool memo_can_command(memo_state_t state, memo_cmd_t command);
 bool app_power_is_busy(void);
 bool app_power_set_listening(bool enabled, uint32_t timeout_ms);

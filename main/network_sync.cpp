@@ -58,8 +58,15 @@ public:
 };
 memo_network_status_t status_value{};
 memo_config_activity_gate_t activity_gate{};
-bool audio_busy() {return memo_config_activity(&activity_gate)==MEMO_ACTIVITY_AUDIO;}
+// Both owners exclude background SD I/O; only AUDIO permits audio re-entry.
+bool audio_busy() {
+    auto owner=memo_config_activity(&activity_gate);
+    return owner==MEMO_ACTIVITY_AUDIO || owner==MEMO_ACTIVITY_MEDIA;
+}
 std::atomic<bool> storage_available{false};
+std::atomic<bool> sd_scan_requested{true};
+std::atomic<bool> sd_media_work{false};
+std::atomic<uint32_t> sd_directory_scans{0};
 std::atomic<bool> file_read_active{false};
 std::atomic<uint32_t> latest_id{0};
 std::atomic<int64_t> latest_change_us{0};
@@ -136,13 +143,17 @@ esp_err_t read_http_body(esp_http_client_handle_t client, std::string &body)
     return ESP_OK;
 }
 
-bool ensure_clock()
+bool ensure_clock(const char *base)
 {
-    HttpGuard guard;
+    // The validated literal LAN HTTP path does not depend on internet NTP.
+    if (base && !strncmp(base,"http://",7)) return true;
     constexpr time_t MIN_VALID_TIME = 1'704'067'200; // 2024-01-01 UTC
     time_t now = 0;
     time(&now);
     if (now >= MIN_VALID_TIME) return true;
+    {
+    // Serialize initialization only; waiting for a clock must not block saves.
+    HttpGuard guard;
     if (!sntp_initialized) {
         /* Some home proxy/DNS setups return 198.18.0.0/15 fake-IP answers for
            hostnames but do not proxy UDP/123.  Literal public NTP endpoints
@@ -156,6 +167,7 @@ bool ensure_clock()
         }
         sntp_initialized = true;
     }
+    }
     esp_err_t result = esp_netif_sntp_sync_wait(pdMS_TO_TICKS(15'000));
     time(&now);
     ESP_LOGI(TAG, "CLOCK_SYNC result=%s unix=%lld", esp_err_to_name(result),
@@ -168,10 +180,21 @@ void refresh_service_status()
     memo_config_public_t config;network_sync_get_service_config(&config);
     status_update([&config](memo_network_status_t &s){s.configured=config.configured;});
 }
-int pairing_request(void *,const char *base,const char *method,const char *path,const char *token,
+bool pairing_is_current(const memo_config_snapshot_t &expected)
+{
+    ConfigGuard guard;memo_config_snapshot_t current{};
+    return guard.value && memo_config_read_snapshot(guard.value,&current)==MEMO_CONFIG_OK &&
+        current.enabled && current.phase==MEMO_SERVICE_PAIRING &&
+        current.generation==expected.generation && !strcmp(current.enrollment_id,expected.enrollment_id);
+}
+int pairing_request(void *context,const char *base,const char *method,const char *path,const char *token,
                     const char *payload,char *response,size_t capacity)
 {
+    auto *expected=static_cast<memo_config_snapshot_t *>(context);
     if(!response || !capacity)return 0;
+    // The already-paired SD retry caller shares this transport while holding
+    // HttpGuard; only enrollment requests carry a pending-generation guard.
+    if(expected && !pairing_is_current(*expected))return 0;
     response[0]=0;char url[1024];
     if(memo_config_join_url(base,path,url,sizeof(url))!=MEMO_CONFIG_OK)return 0;
     esp_http_client_config_t cfg{};cfg.url=url;cfg.crt_bundle_attach=esp_crt_bundle_attach;
@@ -190,21 +213,26 @@ int pairing_request(void *,const char *base,const char *method,const char *path,
         if(read_http_body(client,body)!=ESP_OK || body.size()>=capacity)code=0;
     }
     if(code)memcpy(response,body.c_str(),body.size()+1);
-    esp_http_client_close(client);esp_http_client_cleanup(client);return code;
+    esp_http_client_close(client);esp_http_client_cleanup(client);
+    // A save can supersede this snapshot while its private HTTP handle waits.
+    if(expected && !pairing_is_current(*expected)){response[0]=0;return 0;}
+    return code;
 }
-memo_config_result_t pairing_bind(void *,memo_config_snapshot_t *pending,const memo_server_uuid_t *instance)
+memo_config_result_t pairing_bind(void *context,memo_config_snapshot_t *pending,const memo_server_uuid_t *instance)
 {
     ConfigCommitGuard commit;if(!commit.acquired)return MEMO_CONFIG_BUSY;
     ConfigGuard guard;if(!guard.value)return MEMO_CONFIG_STORAGE_ERROR;
     memo_config_result_t result=memo_config_bind_instance(guard.value,pending->generation,instance);
     if(result==MEMO_CONFIG_OK)result=memo_config_read_snapshot(guard.value,pending);
+    if(result==MEMO_CONFIG_OK && context)*static_cast<memo_config_snapshot_t *>(context)=*pending;
     return result;
 }
 void recover_pairing()
 {
     if(power_suspended.load())return;
     auto &wifi=WifiManager::GetInstance();if(!wifi.IsConnected())return;
-    HttpGuard http;
+    // Pairing runs on this one worker with a private HTTP handle. Keep only
+    // short configuration locks; snapshots/generations reject obsolete results.
     memo_config_snapshot_t pending{};
     {ConfigGuard guard;if(!guard.value)return;
         if(guard.value->needs_reload){ConfigCommitGuard commit;if(!commit.acquired)return;memo_network_config_nvs_reload();}
@@ -215,24 +243,27 @@ void recover_pairing()
         PairingActivity(){pairing_http_active.store(true);}
         ~PairingActivity(){pairing_http_active.store(false);}
     } active_pairing;
-    if(!ensure_clock()){set_error("网络时间同步失败，配对将自动重试");return;}
-    memo_pairing_io_t io{nullptr,pairing_request,pairing_bind};memo_pairing_receipt_t receipt{};
-    memo_pair_result_t result=memo_pairing_run(pending,&io,&receipt);
+    bool clock_ready=ensure_clock(pending.base_url);
+    if(!pairing_is_current(pending))return;
+    memo_pairing_io_t io{&pending,pairing_request,pairing_bind};memo_pairing_receipt_t receipt{};
+    memo_pair_result_t result=clock_ready?memo_pairing_run(pending,&io,&receipt):MEMO_PAIR_NETWORK;
+    ConfigCommitGuard commit;if(!commit.acquired)return;
+    ConfigGuard guard;if(!guard.value || !pairing_is_current(pending))return;
+    memo_config_snapshot_t current{};
+    if(memo_config_read_snapshot(guard.value,&current)!=MEMO_CONFIG_OK)return;
+    if(!clock_ready){set_error("网络时间同步失败，配对将自动重试");return;}
     if(result==MEMO_PAIR_OK || result==MEMO_PAIR_REJECTED || result==MEMO_PAIR_INSTANCE_CHANGED){
-        ConfigCommitGuard commit;if(!commit.acquired)return;
-        ConfigGuard guard;if(!guard.value)return;
-        memo_config_snapshot_t current{};
-        if(memo_config_read_snapshot(guard.value,&current)!=MEMO_CONFIG_OK || strcmp(current.enrollment_id,pending.enrollment_id))return;
         memo_config_result_t saved=result==MEMO_PAIR_OK?memo_config_finish_pairing(guard.value,current.generation,&receipt.instance):
             memo_config_reject_pairing(guard.value,current.generation);
         if(saved!=MEMO_CONFIG_OK){set_error("服务配置保存结果未确认，稍后自动读取恢复");refresh_service_status();return;}
         refresh_service_status();set_error(result==MEMO_PAIR_OK?nullptr:result==MEMO_PAIR_INSTANCE_CHANGED?
             "服务实例已更换，请使用新的配对码":"配对码无效、过期或设备已撤销，请重新配对");
-    } else if(result!=MEMO_PAIR_BUSY)set_error("配对尚未完成，将自动重试；本地录音可用");
+    } else if(result==MEMO_PAIR_INVALID_RESPONSE)set_error("服务接口不兼容，请检查中继版本；更换配对码无法解决");
+    else if(result!=MEMO_PAIR_BUSY)set_error("配对尚未完成，将自动重试；本地录音可用");
 }
 
 
-bool sha256_file(const char *path, char output[65], uint32_t *size_out)
+bool sha256_file(const char *path, char output[65], uint32_t *size_out, bool audio_owner=false)
 {
     FILE *file = fopen(path, "rb");
     if (!file) return false;
@@ -241,7 +272,7 @@ bool sha256_file(const char *path, char output[65], uint32_t *size_out)
     bool good = mbedtls_sha256_starts(&context, 0) == 0;
     uint8_t block[4096];
     uint32_t total = 0;
-    while (good && !audio_busy()) {
+    while (good && (audio_owner || !audio_busy())) {
         size_t count = fread(block, 1, sizeof(block), file);
         if (count) {
             good = mbedtls_sha256_update(&context, block, count) == 0;
@@ -253,7 +284,7 @@ bool sha256_file(const char *path, char output[65], uint32_t *size_out)
         }
         taskYIELD();
     }
-    if (audio_busy()) good = false;
+    if (!audio_owner && audio_busy()) good = false;
     uint8_t digest[32];
     if (good) good = mbedtls_sha256_finish(&context, digest) == 0;
     mbedtls_sha256_free(&context);
@@ -367,20 +398,20 @@ int upload_file(const memo_record_t &record, const char *hash, uint32_t file_siz
 
 bool begin_sd_io(void *) {file_read_active.store(true);if(audio_busy()){file_read_active.store(false);return false;}return true;}
 void end_sd_io(void *) {file_read_active.store(false);}
-bool hash_audio(void *,const char *path,memo_audio_identity_t *out){
- char hex[65];uint32_t length=0;if(!sha256_file(path,hex,&length))return false;
+bool file_audio_identity(const char *path,memo_audio_identity_t *out,bool audio_owner){
+ char hex[65];uint32_t length=0;if(!sha256_file(path,hex,&length,audio_owner))return false;
  for(unsigned i=0;i<32;i++){unsigned v=0;if(sscanf(hex+i*2,"%2x",&v)!=1)return false;out->sha256[i]=(uint8_t)v;}
  out->bytes=length;return true;
 }
-int sd_status(void *,uint32_t id,char *out,size_t capacity){if(!ensure_clock())return 0;std::string body;int code=remote_status(id,body);if(body.size()>=capacity)return 0;snprintf(out,capacity,"%s",body.c_str());return code;}
+bool hash_audio(void *,const char *path,memo_audio_identity_t *out){return file_audio_identity(path,out,false);}
+int sd_status(void *,uint32_t id,char *out,size_t capacity){memo_config_snapshot_t service{};if(!current_service(service)||!ensure_clock(service.base_url))return 0;std::string body;int code=remote_status(id,body);if(body.size()>=capacity)return 0;snprintf(out,capacity,"%s",body.c_str());return code;}
 int sd_upload(void *,const memo_record_t *record,const memo_audio_identity_t *audio,char *out,size_t capacity){
- if(!ensure_clock())return 0;
+ memo_config_snapshot_t service{};if(!current_service(service)||!ensure_clock(service.base_url))return 0;
  char hex[65];for(unsigned i=0;i<32;i++)snprintf(hex+i*2,3,"%02x",audio->sha256[i]);
  std::string body;int code=upload_file(*record,hex,(uint32_t)audio->bytes,body);if(body.size()>=capacity)return 0;snprintf(out,capacity,"%s",body.c_str());return code;
 }
 int sd_retry(void *,uint32_t id,char *out,size_t capacity){
- if(!ensure_clock())return 0;
- memo_config_snapshot_t service{};if(!current_service(service))return 0;
+ memo_config_snapshot_t service{};if(!current_service(service)||!ensure_clock(service.base_url))return 0;
  char path[160];snprintf(path,sizeof(path),"/v1/memos/%s/%" PRIu32 "/retry",service.device_id,id);
  return pairing_request(nullptr,service.base_url,"POST",path,service.token,"{}",out,capacity);
 }
@@ -423,9 +454,29 @@ void inspect_record(uint32_t id,const memo_network_status_t &snapshot){
  }
  selected_poll_us=esp_timer_get_time();
 }
-uint32_t pending_record(const memo_sync_target_t &target,bool &manual){
- static uint32_t after=0;manual=false;if(!begin_sd_io(nullptr))return 0;
- uint32_t next=memo_sd_sync_pending("/sdcard/memos",&target,&after,&manual);end_sd_io(nullptr);return next;
+bool pending_record(const memo_sync_target_t &target,bool &manual,uint32_t &next){
+ static uint32_t after=0;manual=false;next=0;
+ if(!begin_sd_io(nullptr))return false;
+ bool healthy=board_sd_check()==ESP_OK;
+ if(healthy) {
+  sd_directory_scans.fetch_add(1);
+  next=memo_sd_sync_pending("/sdcard/memos",&target,&after,&manual,&healthy);
+ }
+ end_sd_io(nullptr);return healthy;
+}
+/* Consume the dirty flag before I/O: an event arriving during a scan remains
+ * pending. A busy or missing card never masquerades as an empty directory. */
+bool discover_sd_work(const memo_sync_target_t &target) {
+ if(!sd_scan_requested.exchange(false))return true;
+ bool manual=false;uint32_t next=0;
+ if(!pending_record(target,manual,next)) {sd_scan_requested.store(true);sd_media_work.store(true);return false;}
+ xSemaphoreTake(status_mutex,portMAX_DELAY);
+ if(next && !sync_queue.active_id && !sync_queue.pending_id) {
+  if(manual)memo_sync_queue_offer_manual(&sync_queue,next,true);
+  else memo_sync_queue_offer_auto(&sync_queue,next);
+ }
+ sd_media_work.store(next || sync_queue.active_id || sync_queue.pending_id);
+ xSemaphoreGive(status_mutex);return true;
 }
 bool persist_manual(uint32_t id){
  if(!id)return true;
@@ -445,9 +496,22 @@ bool persist_manual(uint32_t id){
 }
 void sync_task(void *)
 {
+    int64_t next_pairing_us = 0, next_scan_us = 0;
+    bool previously_eligible=false;
     for (;;) {
-        recover_pairing();
+        auto &wifi = WifiManager::GetInstance();
+        wifi.ProcessConfigConnection();
+        bool connected = wifi.IsConnected();
+        status_update([connected](memo_network_status_t &s) { s.connected = connected; });
+        int64_t now = esp_timer_get_time();
+        if (now >= next_pairing_us) {
+            recover_pairing();
+            next_pairing_us = esp_timer_get_time() + RETRY_DELAY_MS * 1000LL;
+        }
         memo_network_status_t snapshot;network_sync_get_status(&snapshot);
+        bool eligible=snapshot.connected && snapshot.configured && !snapshot.provisioning && !power_suspended.load();
+        if(eligible && !previously_eligible) {sd_scan_requested.store(true);next_scan_us=0;}
+        previously_eligible=eligible;
         bool available=storage_available.load() && !snapshot.provisioning && !power_suspended.load() && !audio_busy() && !memo_cardless_busy();
         if(available) {
             HttpGuard service_guard;
@@ -471,12 +535,8 @@ void sync_task(void *)
             }
             if(snapshot.connected && snapshot.configured) {
                 memo_sync_target_t target{};
-                if(network_sync_current_target(&target)){
-                    bool manual_intent=false;uint32_t next=pending_record(target,manual_intent);
-                    xSemaphoreTake(status_mutex,portMAX_DELAY);
-                    if(next&&!sync_queue.active_id&&!sync_queue.pending_id){if(manual_intent)memo_sync_queue_offer_manual(&sync_queue,next,true);else memo_sync_queue_offer_auto(&sync_queue,next);}
-                    xSemaphoreGive(status_mutex);
-                }
+                if(esp_timer_get_time()>=next_scan_us && network_sync_current_target(&target) &&
+                   !discover_sd_work(target))next_scan_us=esp_timer_get_time()+RETRY_DELAY_MS*1000LL;
                 bool settled=esp_timer_get_time()-latest_change_us.load()>=NEW_RECORD_SETTLE_MS*1000LL;
                 uint32_t id;bool manual;
                 xSemaphoreTake(status_mutex,portMAX_DELAY);
@@ -496,6 +556,12 @@ void sync_task(void *)
                         xSemaphoreTake(status_mutex,portMAX_DELAY);
                         memo_sync_queue_finish(&sync_queue,id);
                         xSemaphoreGive(status_mutex);
+                        sd_scan_requested.store(true);
+                        /* Server-processing states retain durable intent. Do
+                         * not spin on that same entry via self-notification. */
+                        bool waiting=result==MEMO_JOB_WAITING || result==MEMO_JOB_RECEIVED ||
+                            result==MEMO_JOB_TRANSCRIBING || result==MEMO_JOB_DELIVERING;
+                        next_scan_us=waiting?esp_timer_get_time()+RETRY_DELAY_MS*1000LL:0;
                         if(manual)persist_manual(0);
                         ESP_LOGI(TAG,"SYNC_SCHEDULE_COMPLETE id=%" PRIu32 " manual=%d state=%d",
                                  id,manual,result);
@@ -508,7 +574,7 @@ void sync_task(void *)
                detail.state==MEMO_JOB_TRANSCRIBING || detail.state==MEMO_JOB_DELIVERING) &&
                esp_timer_get_time()-selected_poll_us>60LL*1000000)inspect_id.store(detail.id);
         }
-        ulTaskNotifyTake(pdTRUE,pdMS_TO_TICKS(RETRY_DELAY_MS));
+        ulTaskNotifyTake(pdTRUE,pdMS_TO_TICKS(wifi.IsConfigMode() ? 1000 : RETRY_DELAY_MS));
     }
 }
 
@@ -533,9 +599,6 @@ extern "C" esp_err_t network_sync_init(uint32_t existing_latest_id)
     config.ssid_prefix = "MeowInbox";
     config.language = "zh-CN";
     config.station_hostname = "meow-inbox";
-    char ap_password[16];
-    snprintf(ap_password, sizeof(ap_password), "Miao%04" PRIX32, esp_random() & 0xffffU);
-    config.ap_password = ap_password;
     memo_service_portal_register(memo_portal_status,memo_portal_apply);
     config.config_commit_begin=[](){
         if(!http_mutex || xSemaphoreTakeRecursive(http_mutex,0)!=pdTRUE)return false;
@@ -546,9 +609,6 @@ extern "C" esp_err_t network_sync_init(uint32_t existing_latest_id)
         return true;
     };
     config.config_commit_end=[](){memo_config_activity_release(&activity_gate,MEMO_ACTIVITY_COMMIT);xSemaphoreGiveRecursive(http_mutex);};
-    status_update([&config](memo_network_status_t &s) {
-        snprintf(s.ap_password, sizeof(s.ap_password), "%s", config.ap_password.c_str());
-    });
     auto &manager = WifiManager::GetInstance();
     if (!manager.Initialize(config)) {
         set_error("网络配置存储初始化失败");
@@ -665,6 +725,7 @@ extern "C" memo_config_result_t network_sync_configure_service(const char *url,c
                 const uint64_t before=guard.value->value.generation;
                 result=memo_config_set_service(guard.value,current.device_id,url,code,identifier,token,local_only);
                 memset(random,0,sizeof(random));memset(token,0,sizeof(token));
+                if(result==MEMO_CONFIG_OK && before!=guard.value->value.generation)set_error(nullptr);
                 if((result==MEMO_CONFIG_OK && before!=guard.value->value.generation) || result==MEMO_CONFIG_STORAGE_ERROR){
                     // Queued SD attempts have not sent any bytes; cancel their
                     // old target intent even when the new durable outcome is
@@ -678,7 +739,10 @@ extern "C" memo_config_result_t network_sync_configure_service(const char *url,c
         }
     }
     refresh_service_status();xSemaphoreGiveRecursive(http_mutex);
-    if(result==MEMO_CONFIG_OK && sync_task_handle)xTaskNotifyGive(sync_task_handle);
+    if(result==MEMO_CONFIG_OK) {
+        sd_scan_requested.store(true);
+        if(sync_task_handle)xTaskNotifyGive(sync_task_handle);
+    }
     return result;
 }
 
@@ -733,12 +797,14 @@ extern "C" bool network_sync_retry_record(uint32_t id) {
     bool accepted=memo_sync_queue_offer_manual(&sync_queue,id,false);
     xSemaphoreGive(status_mutex);
     if(!accepted)return false;
+    sd_media_work.store(true);
     if(sync_task_handle)xTaskNotifyGive(sync_task_handle);
     return true;
 }
 
 extern "C" void network_sync_set_storage_available(bool available) {
     storage_available.store(available);
+    if(available)sd_scan_requested.store(true);
     if(sync_task_handle)xTaskNotifyGive(sync_task_handle);
 }
 
@@ -767,6 +833,7 @@ extern "C" bool network_sync_track_record(uint32_t id){
 }
 extern "C" void network_sync_notify_record(uint32_t id){
  network_sync_observe_latest(id);latest_change_us.store(esp_timer_get_time());
+ sd_scan_requested.store(true);sd_media_work.store(true);
  // The durable per-file intents, rather than a latest-only RAM queue, survive reboot.
  if(sync_task_handle)xTaskNotifyGive(sync_task_handle);
 }
@@ -786,9 +853,9 @@ extern "C" void network_sync_toggle_provisioning(void)
 extern "C" bool network_sync_prepare_audio(uint32_t timeout_ms)
 {
     // The application has one audio owner; emergency close may re-enter its
-    // existing AUDIO claim. Never re-enter a COMMIT owner.
+    // existing AUDIO claim. Never re-enter a COMMIT or MEDIA owner.
     int64_t deadline = esp_timer_get_time() + timeout_ms * 1000LL;
-    while(!audio_busy() && !memo_config_activity_acquire(&activity_gate,MEMO_ACTIVITY_AUDIO)){
+    while(memo_config_activity(&activity_gate)!=MEMO_ACTIVITY_AUDIO && !memo_config_activity_acquire(&activity_gate,MEMO_ACTIVITY_AUDIO)){
         if(esp_timer_get_time()>=deadline)return false;
         vTaskDelay(pdMS_TO_TICKS(10));
     }
@@ -806,21 +873,51 @@ extern "C" void network_sync_audio_done(void)
     if (sync_task_handle) xTaskNotifyGive(sync_task_handle);
 }
 
+extern "C" bool network_sync_try_sd_probe(void)
+{
+    if(!memo_config_activity_acquire(&activity_gate,MEMO_ACTIVITY_MEDIA))return false;
+    // Match begin_sd_io's publish-then-check barrier. Never race an SD reader.
+    if(file_read_active.load() || power_suspended.load() || memo_cardless_busy()) {
+        memo_config_activity_release(&activity_gate,MEMO_ACTIVITY_MEDIA);return false;
+    }
+    return true;
+}
+extern "C" void network_sync_sd_probe_done(void)
+{
+    memo_config_activity_release(&activity_gate,MEMO_ACTIVITY_MEDIA);
+}
+
+/* Reuse the existing streaming hash under the caller's offline AUDIO claim.
+ * No network connection, configuration or remote operation is involved. */
+extern "C" bool network_sync_hash_local_audio(const char *path,memo_audio_identity_t *out) {
+    return path && out && memo_config_activity(&activity_gate)==MEMO_ACTIVITY_AUDIO &&
+        !file_read_active.load() && file_audio_identity(path,out,true);
+}
+
+extern "C" bool network_sync_sd_work_pending(void) {
+    memo_network_status_t s;network_sync_get_status(&s);
+    return !power_suspended.load() && !s.provisioning &&
+        ((s.configured && s.connected && sd_media_work.load()) || inspect_id.load());
+}
+extern "C" uint32_t network_sync_sd_scan_count(void) {return sd_directory_scans.load();}
+
 extern "C" bool network_sync_power_busy(void)
 {
     memo_network_status_t snapshot;
     network_sync_get_status(&snapshot);
-    return snapshot.provisioning || snapshot.syncing || memo_config_activity(&activity_gate)!=MEMO_ACTIVITY_IDLE || file_read_active.load() ||
+    auto owner=memo_config_activity(&activity_gate);
+    // A periodic media query must not restart the user inactivity timer.
+    return snapshot.provisioning || snapshot.syncing || owner==MEMO_ACTIVITY_AUDIO || owner==MEMO_ACTIVITY_COMMIT || file_read_active.load() ||
            stream_http_active.load() || pairing_http_active.load() || memo_cardless_busy();
 }
 
 extern "C" bool network_sync_power_suspend(void)
 {
-    if (network_sync_power_busy()) return false;
+    if (network_sync_power_busy() || memo_config_activity(&activity_gate)==MEMO_ACTIVITY_MEDIA) return false;
     power_suspended.store(true);
     /* Close the check/start race with sync_task: a transfer that crossed its
      * predicate before the flag was set will publish syncing here. */
-    if (network_sync_power_busy()) {
+    if (network_sync_power_busy() || memo_config_activity(&activity_gate)==MEMO_ACTIVITY_MEDIA) {
         power_suspended.store(false);
         return false;
     }
@@ -863,9 +960,9 @@ extern "C" int network_sync_stream_request(const char *method,const char *path,
     if(!snapshot.initialized || !snapshot.configured || !snapshot.connected || snapshot.provisioning || power_suspended.load())return 0;
     stream_http_active.store(true);
     HttpGuard guard;
-    if(!ensure_clock()) {stream_http_active.store(false);return 0;}
     memo_config_snapshot_t service{};char url[1024];
     if(!current_service(service) || memo_config_join_url(service.base_url,path,url,sizeof(url))!=MEMO_CONFIG_OK){stream_http_active.store(false);return 0;}
+    if(!ensure_clock(service.base_url)) {stream_http_active.store(false);return 0;}
     // Recheck inside HTTP exclusion: a selected closed task cannot race a
     // service edit between its early task check and transport construction.
     memo_cardless_record_t task{};memo_sync_target_t current{};

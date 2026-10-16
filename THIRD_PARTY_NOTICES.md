@@ -7,6 +7,7 @@
 | `main/board.c`、`board_lcd_init.h` | [Espressif BSP](https://github.com/espressif/esp-bsp/tree/b1bc71e7980663110055fbeba7eab59d5e689c2b/bsp/esp_vocat)；板级资源由本项目管理，补16MB SD DMA可达性检查 | 文件原版权／Apache-2.0；原文见 `licenses/Apache-2.0.txt` |
 | `main/board_spotpear.c` | [小智斑梨板定义](https://github.com/78/xiaozhi-esp32/tree/184a688/main/boards)的引脚／显示配置及厂商公开引脚资料；本项目独立管理外设 | 小智 MIT 版权及原文保留在 `licenses/xiaozhi-MIT.txt`；引脚事实不等于复制完整聊天应用 |
 | `components/esp-wifi-connect/` | [78/esp-wifi-connect](https://github.com/78/esp-wifi-connect/tree/cc103899ea8199b0fbf18c9b6e65152d9a92091e)，3.3.1；修改见组件 `VOICE_MEMO_PATCHES.md` | MIT，Terrence，保留组件 LICENSE |
+| 配网默认接口和 HTTP 服务 | [ESP-IDF v5.5.1 固定提交示例](https://github.com/espressif/esp-idf/tree/fcae32885b0296b32044cb99ecbdc50d98dddb83/examples)，取用及适配见 `components/esp-wifi-connect/VOICE_MEMO_PATCHES.md` | Espressif，示例 Public Domain / CC0 |
 | `components/usb_device_uac/` | [Espressif 1.3.1](https://components.espressif.com/components/espressif/usb_device_uac/versions/1.3.1)；本地USB门控／描述符适配 | Apache-2.0，保留 license.txt 和源文件版权 |
 | `main/assets/cat/*.aaf` | [ESP-Brookesia](https://github.com/espressif/esp-brookesia/tree/b22c488f50bafe53342c8e171081bd736396ef58/core/brookesia_core/systems/speaker/assets/animations/emotion)六个原动画；无卡快眨眼从slow派生，说明／重建见目录README | Apache-2.0，保留该目录LICENSE与派生说明；导出检查已确认文件摘要 |
 | `main/memo_font*.c` | [Noto CJK Serif2.003 / Sans](https://github.com/notofonts/noto-cjk/tree/Serif2.003/Sans)，使用NotoSansCJKsc-Regular，经过子集化／转换 | SIL OFL-1.1，Adobe版权；原文／原字体摘要／转换工具锁在 `assets/fonts/` |

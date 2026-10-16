@@ -2,6 +2,7 @@
 No real port is opened, no firmware/ROM/hardware acceptance is claimed.
 """
 import io,json,hashlib,struct,sys,tempfile,unittest,subprocess
+from unittest.mock import patch
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'scripts'))
 from firmware_bundle import ARTIFACTS,PROFILES,FLASH_SIZE,SCHEMAS,ROOT,load_bundle,partition_rows,digest,BundleError
@@ -56,6 +57,13 @@ class InstallTests(unittest.TestCase):
  def setUp(self):
   self.temp=tempfile.TemporaryDirectory(dir=ROOT/'private/host-tests');self.addCleanup(self.temp.cleanup);self.folder=Path(self.temp.name);self.bundle=self.folder/'bundle';self.bundle.mkdir();self.manifest=make_bundle(self.bundle,'vocat16');self.value,self.contents=load_bundle(self.manifest,'vocat16');self.rom=FakeROM(self.contents);self.run=self.folder/'run';self.run.mkdir()
  def installer(self,mode='app-only'):return Installer(self.manifest,'vocat16','FAKE_ROM_ONLY',mode,self.run,runner=self.rom,returner=self.rom.reset)
+ def test_default_return_receives_selected_board(self):
+  for board in ['vocat16','spotpear']:
+   manifest=make_bundle(self.bundle,board)
+   with patch('device_registry.reset',return_value='RESET_REQUESTED_BOOT_NOT_CONFIRMED') as reset:
+    installer=Installer(manifest,board,'FAKE_ONLY','app-only',self.run,runner=self.rom)
+    installer.returner('FAKE_ONLY',b'123456')
+    reset.assert_called_once_with('FAKE_ONLY',b'123456',board=board)
  def test_first_install_and_app_update_preserve_project_factory_and_meta(self):
   for mode in ['first-install','app-only']:
    with self.subTest(mode=mode):
@@ -92,7 +100,7 @@ class InstallTests(unittest.TestCase):
   def fail(*args):raise BundleError('GPIO0 held')
   installer=self.installer();installer.returner=fail
   with self.assertRaises(BundleError):installer.execute()
-  self.assertEqual(json.loads((self.run/'result.json').read_text())['boot'],'RETURN_FAILED_REMAIN_IN_ROM')
+  self.assertEqual(json.loads((self.run/'result.json').read_text())['boot'],'RETURN_FAILED_BOOT_NOT_CONFIRMED')
  def test_spotpear_bundle_accepted_and_other_board_refused(self):
   spot=self.folder/'spot';spot.mkdir();manifest=make_bundle(spot,'spotpear');load_bundle(manifest,'spotpear')
   with self.assertRaises(BundleError):load_bundle(manifest,'vocat16')
@@ -175,5 +183,34 @@ class SerialTests(unittest.TestCase):
   rom=ROM()
   with self.assertRaises(BundleError):controlled_return(Connection(),rom,b'wrong!')
   self.assertEqual(rom.resets,0)
+
+ def test_spotpear_official_return_guards_and_failure_do_not_fall_back(self):
+  class Connection:rts=False;dtr=False
+  class ROM:
+   CHIP_NAME='ESP32-S3';IS_STUB=False;RTC_CNTL_OPTION1_REG=1;RTC_CNTL_FORCE_DOWNLOAD_BOOT_MASK=1
+   def __init__(self):self.value=0x101;self.resets=0;self.writes=[];self.secure=False;self.uart=4;self.gpio=1;self.fail=False
+   def connect(self,**kwargs):assert kwargs==dict(mode='usb-reset',attempts=1,warnings=False)
+   def read_mac(self):return b'123456'
+   def get_security_info(self,**kwargs):return {'parsed_flags':{'SECURE_BOOT_EN':self.secure,'SECURE_DOWNLOAD_ENABLE':False},'flash_crypt_cnt':0}
+   def get_uart_no(self):return self.uart
+   def read_reg(self,address):return self.value if address==1 else self.gpio
+   def write_reg(self,address,value,mask):assert address==1;self.writes.append((address,value,mask));self.value=self.value&~mask|value&mask
+   def hard_reset(self):
+    self.resets+=1
+    if self.fail:raise RuntimeError('synthetic reset transport failure')
+   def watchdog_reset(self):raise AssertionError('Spotpear must not fall back to watchdog')
+  rom=ROM();result=controlled_return(Connection(),rom,b'123456','spotpear')
+  self.assertEqual(result,'RESET_REQUESTED_BOOT_NOT_CONFIRMED');self.assertEqual(rom.value,0x100);self.assertEqual(rom.resets,1)
+  for field,value in [('secure',True),('uart',3),('gpio',0),('IS_STUB',True)]:
+   with self.subTest(field=field):
+    rom=ROM();setattr(rom,field,value)
+    with self.assertRaises(BundleError):controlled_return(Connection(),rom,b'123456','spotpear')
+    self.assertEqual(rom.resets,0);self.assertEqual(rom.writes,[])
+  rom=ROM()
+  with self.assertRaises(BundleError):controlled_return(Connection(),rom,b'wrong!','spotpear')
+  self.assertEqual(rom.writes,[]);self.assertEqual(rom.resets,0)
+  rom=ROM();rom.fail=True
+  with self.assertRaises(RuntimeError):controlled_return(Connection(),rom,b'123456','spotpear')
+  self.assertEqual(rom.resets,1)
 
 if __name__=='__main__':unittest.main(verbosity=2)

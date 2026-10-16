@@ -9,6 +9,8 @@
 #include "model_path.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "esp_heap_caps.h"
+#include "freertos/idf_additions.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
@@ -230,7 +232,10 @@ bool voice_init(void) {
         }
     if(esp_mn_commands_update()!=NULL)return false;
     mn->set_det_threshold(mn_data,VOICE_COMMAND_THRESHOLD);
-    frames=xQueueCreate(8,sizeof(frame_t));if(!frames)return false;
+    // These are copied PCM frames, accessed only by tasks (never ISR or DMA).
+    // Keep internal RAM available for the network/HTTP stacks and DMA buffers.
+    frames=xQueueCreateWithCaps(8,sizeof(frame_t),MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
+    if(!frames)return false;
     TaskHandle_t feeder=NULL;
     if(xTaskCreatePinnedToCore(feed_task,"voice_feed",6144,NULL,4,&feeder,0)!=pdPASS)return false;
     if(xTaskCreatePinnedToCore(detect_task,"voice_detect",8192,NULL,4,NULL,1)!=pdPASS){vTaskDelete(feeder);return false;}

@@ -14,6 +14,8 @@ import sys
 import tempfile
 import unittest
 import uuid
+from unittest.mock import patch
+from types import SimpleNamespace
 from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -21,6 +23,7 @@ sys.path.insert(0, str(ROOT / 'server-relay'))
 from fastapi.testclient import TestClient
 from relay.runtime import Runtime
 from relay.web import create_app
+from relay.identity import normalize_base_url, IdentityError
 from test_support import LocalBroker
 
 class UUID(C.Structure):
@@ -105,7 +108,7 @@ class Native:
 
 class Fixture:
     def __init__(self, directory, url='https://relay.example:9443/memo'):
-        self.url = url
+        self.url = url = normalize_base_url(url)
         self.root = Path(directory); (self.root/'secrets').mkdir(mode=0o700)
         self.broker = LocalBroker(self.root/'secrets')
         self.runtime = Runtime(self.root/'state.db', self.broker, self.root/'work', self.root/'streams', start_workers=False, min_free_bytes=0)
@@ -121,7 +124,7 @@ class Fixture:
         self.client.post(self.admin_path+'api/session/initialize',json={'code':code,'password':'synthetic-password-123'},headers=origin).raise_for_status()
         login=self.client.post(self.admin_path+'api/session/login',json={'password':'synthetic-password-123'},headers=origin)
         login.raise_for_status();csrf=login.json()['csrf']
-        cookie=login.headers['set-cookie'];assert 'Secure' in cookie and 'HttpOnly' in cookie and 'SameSite=strict' in cookie
+        cookie=login.headers['set-cookie'];assert ('; Secure' in cookie)==(parsed.scheme=='https') and 'HttpOnly' in cookie and 'SameSite=strict' in cookie
         assert 'Path='+self.admin_path.rstrip('/') in cookie
         assert self.client.get(self.admin_path+'api/config').status_code==200
         self.headers = {**origin,'X-CSRF-Token':csrf}
@@ -156,6 +159,7 @@ class PairingTests(unittest.TestCase):
             subprocess.run([compiler,'-fPIC','-g','-O1','-Wall','-Wextra','-Werror', '-std=c++17' if compiler=='c++' else '-std=c11', *includes,'-c',str(source),'-o',str(obj)],check=True)
         library = cls.directory/'pairing.so';subprocess.run(['c++','-shared',*objects,'-o',str(library)],check=True)
         cls.lib = C.CDLL(str(library));lib = cls.lib
+        lib.memo_config_validate_url.argtypes=[C.c_char_p,C.c_void_p,C.c_size_t]
         lib.memo_config_load.argtypes=[C.POINTER(Config),C.POINTER(Storage)]
         lib.memo_config_set_service.argtypes=[C.POINTER(Config),C.c_char_p,C.c_char_p,C.c_char_p,C.c_char_p,C.c_char_p,C.c_bool]
         lib.memo_config_join_url.argtypes=[C.c_char_p,C.c_char_p,C.c_void_p,C.c_size_t]
@@ -171,6 +175,38 @@ class PairingTests(unittest.TestCase):
         self.addCleanup(self.temp_case.cleanup);self.addCleanup(self.fixture.close)
         self.native = Native(self.lib)
         self.assertEqual(self.native.stage(self.fixture.url,self.fixture.code()),0)
+    def test_service_url_contract_matches_c_and_python(self):
+        cases=json.loads((ROOT/'tests/service-url-cases.json').read_text())
+        for value,expected in cases['valid']:
+            with self.subTest(value=value):
+                out=C.create_string_buffer(241)
+                self.assertEqual(self.lib.memo_config_validate_url(value.encode(),out,len(out)),0)
+                self.assertEqual(out.value.decode(),expected)
+                self.assertEqual(normalize_base_url(value),expected)
+        for value in cases['invalid']:
+            with self.subTest(value=value):
+                out=C.create_string_buffer(241)
+                self.assertNotEqual(self.lib.memo_config_validate_url(value.encode(),out,len(out)),0)
+                with self.assertRaises(IdentityError):normalize_base_url(value)
+
+    def test_bare_lan_ip_pairing_reload_and_target_change(self):
+        directory=tempfile.TemporaryDirectory(dir=self.directory)
+        fixture=Fixture(directory.name,'10.23.45.67')
+        try:
+            native=Native(self.lib)
+            self.assertEqual(native.stage('10.23.45.67',fixture.code()),0)
+            self.assertEqual(native.run(fixture),0,native.callback_errors)
+            reloaded=Native(self.lib,native.durable)
+            self.assertEqual(reloaded.cfg.value.phase,2)
+            token=reloaded.cfg.value.token
+            fixture.restart()
+            headers={'X-Device-ID':reloaded.cfg.value.device_id.decode(),'Authorization':'Bearer '+token.decode()}
+            self.assertEqual(fixture.client.get(fixture.url+'/v1/device-info',headers=headers).status_code,200)
+            self.assertEqual(reloaded.stage('relay.example',''),0)
+            self.assertEqual(reloaded.cfg.value.base_url,b'https://relay.example')
+            self.assertFalse(reloaded.cfg.value.token)
+        finally:fixture.close();directory.cleanup()
+
     def verify(self, native):
         self.assertEqual(native.callback_errors,[])
         self.assertEqual(native.cfg.value.phase,2)
@@ -195,6 +231,35 @@ class PairingTests(unittest.TestCase):
     def test_lost_create_response_then_reboot(self): self.lost('/v1/enrollments')
     def test_lost_activate_response_then_reboot(self): self.lost('/activate')
     def test_lost_finalize_response_then_reboot(self): self.lost('/finalize')
+    def test_new_code_preserves_inflight_candidate_at_each_server_phase(self):
+        for suffix in ('/v1/enrollments','/activate','/finalize'):
+            with self.subTest(suffix=suffix):
+                directory=tempfile.TemporaryDirectory(dir=self.directory)
+                self.addCleanup(directory.cleanup);fixture=Fixture(directory.name)
+                self.addCleanup(fixture.close);native=Native(self.lib)
+                self.assertEqual(native.stage(fixture.url,fixture.code()),0)
+                self.assertEqual(native.run(fixture,drop=lambda p:p.endswith(suffix)),1)
+                value=native.cfg.value
+                candidate=(value.enrollment_id,value.token,bytes(value.instance.bytes));generation=value.generation
+                fresh=fixture.code()
+                self.assertEqual(native.stage(fixture.url,fresh),0)
+                self.assertGreater(native.cfg.value.generation,generation)
+                self.assertEqual((native.cfg.value.enrollment_id,native.cfg.value.token,bytes(native.cfg.value.instance.bytes)),candidate)
+                self.assertEqual(native.cfg.value.pairing_code.decode(),fresh)
+                # A reboot retains the new input AND the original recoverable tuple.
+                reboot=Native(self.lib,native.durable)
+                self.assertEqual(reboot.run(fixture),0)
+                self.assertEqual(reboot.callback_errors,[])
+                with fixture.runtime.store.connect() as db:
+                    self.assertEqual([r[0] for r in db.execute('SELECT phase FROM device_enrollments')],['finalized'])
+    def test_new_code_before_first_server_request_recovers_invalid_pending_code(self):
+        native=Native(self.lib)
+        self.assertEqual(native.stage(self.fixture.url,'23456789AB'),0)
+        candidate=(native.cfg.value.enrollment_id,native.cfg.value.token)
+        self.assertEqual(native.stage(self.fixture.url,self.fixture.code()),0)
+        self.assertEqual((native.cfg.value.enrollment_id,native.cfg.value.token),candidate)
+        self.assertEqual(native.run(self.fixture),0);self.verify(native)
+
     def test_audio_busy_binding_never_activates_before_durable_binding(self):
         self.native.bind_busy=True;self.assertEqual(self.native.run(self.fixture),5)
         self.assertFalse(any(p.endswith('/activate') for _,p,_ in self.native.requests))
@@ -245,6 +310,23 @@ class PairingTests(unittest.TestCase):
         snapshot=Snapshot();self.assertEqual(self.lib.memo_config_credentials(C.byref(native.cfg),C.byref(snapshot)),5)
         self.assertEqual(native.stage(self.fixture.url,self.fixture.code()),0)
         self.assertEqual(native.run(self.fixture),0);self.verify(native)
+    def test_schema_rejection_is_incompatible_and_retains_recoverable_candidate(self):
+        before=bytes(self.native.cfg.value)
+        # Exact response observed from the pre-Route1 service; the real server
+        # is never contacted here. No compatibility/migration path is added.
+        with patch.object(self.fixture.client,'request',return_value=SimpleNamespace(status_code=400,content=b'{"error":"invalid_fields"}')):
+            self.assertEqual(self.native.run(self.fixture),3)
+        self.assertEqual(bytes(self.native.cfg.value),before)
+        self.assertEqual(self.native.requests,[('POST','/v1/enrollments',False)])
+        self.assertEqual(self.native.run(self.fixture),0);self.verify(self.native)
+
+    def test_temporary_server_failure_remains_retryable_not_incompatible(self):
+        before=bytes(self.native.cfg.value)
+        with patch.object(self.fixture.client,'request',return_value=SimpleNamespace(status_code=503,content=b'{"error":"unavailable"}')):
+            self.assertEqual(self.native.run(self.fixture),1)
+        self.assertEqual(bytes(self.native.cfg.value),before)
+        self.assertEqual(self.native.run(self.fixture),0);self.verify(self.native)
+
     def encoded(self,prefix):
         directory=tempfile.TemporaryDirectory(dir=self.directory)
         fixture=Fixture(directory.name,'https://relay.example:9443'+prefix)

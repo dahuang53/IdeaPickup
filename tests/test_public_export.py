@@ -49,6 +49,17 @@ class PublicExportTests(unittest.TestCase):
  def test_no_synthetic_prefix_or_folder_wide_secret_exception(self):
   value='synthetic-real-looking-'+('a'*32);self.write('tests/new_fixture.py',f'api_key="{value}"\n')
   self.assertTrue(exporter.candidate(self.root)['findings'])
+ def test_lan_fixture_reviews_do_not_allow_another_host_or_credential(self):
+  for name in ['docs/DEPLOYMENT.md','tests/service-url-cases.json','tests/test_service_portal.py','server-relay/test_runtime_http.py']:
+   with self.subTest(path=name):
+    self.write(name,'http'+'://'+'192.168.1.20:8765\n')
+    self.assertFalse(exporter.candidate(self.root)['findings'])
+    self.write(name,'http'+'://'+'192.168.1.21:8765\n')
+    self.assertTrue(exporter.candidate(self.root)['findings'])
+    value='synthetic-real-looking-'+'abcdefghijklmnopqrstuvwxyz'
+    self.write(name,f'api_key="{value}"\n')
+    self.assertTrue(exporter.candidate(self.root)['findings'])
+    (self.root/name).unlink()
  def test_unknown_binary_links_and_missing_required_source_reject(self):
   f=self.root/'main/new.pcm';f.write_bytes(b'new');self.assertTrue(exporter.candidate(self.root)['findings']);f.unlink()
   f.symlink_to(self.root/'README.md');self.assertTrue(exporter.candidate(self.root)['findings']);f.unlink()

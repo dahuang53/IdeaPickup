@@ -16,7 +16,7 @@ class PortalTests(unittest.TestCase):
     def csrf(self):return self.call()[1]['csrf']
     def test_redacted_fresh_state_and_request_guards(self):
         status,state=self.call();self.assertEqual(status,200);self.assertTrue(state['local_only']);self.assertFalse(state['configured']);
-        self.assertEqual(set(state),{'success','server_url','local_only','configured','pairing','connected','message','csrf'})
+        self.assertEqual(set(state),{'success','server_url','local_only','configured','pairing','connected','message','phase','wifi','csrf'})
         body={'server_url':'https://one.example','pairing_code':'23456789AB','local_only':False}
         for overrides in [{},{'csrf':'wrong'},{'csrf':state['csrf'],'host':'evil.example'},{'csrf':state['csrf'],'origin':'http://evil.example'},{'csrf':state['csrf'],'type':'text/plain'}]:
             self.assertEqual(self.call(body=body,**overrides)[0],403)
@@ -42,10 +42,45 @@ class PortalTests(unittest.TestCase):
         self.native.call({'route':'/__control','paired':True});self.assertTrue(self.call()[1]['configured'])
         self.assertEqual(self.call(body={**body,'pairing_code':'','local_only':True},csrf=csrf)[0],200)
         self.assertTrue(self.call()[1]['local_only'])
+    def test_new_code_for_pending_service_is_saved_without_false_busy(self):
+        csrf=self.csrf();body={'server_url':'https://one.example','pairing_code':'23456789AB','local_only':False}
+        self.assertEqual(self.call(body=body,csrf=csrf)[0],200)
+        self.assertEqual(self.call(body={**body,'pairing_code':'BCDEFGHJKL'},csrf=csrf)[0],200)
+        state=self.call()[1];self.assertTrue(state['pairing']);self.assertFalse(state['configured'])
+        self.assertNotIn('pairing_code',state)
+
+    def test_bare_lan_ip_save_and_public_http_rejection(self):
+        csrf=self.csrf();body={'server_url':'192.168.1.20','pairing_code':'23456789AB','local_only':False}
+        self.assertEqual(self.call(body=body,csrf=csrf)[0],200)
+        self.assertEqual(self.call()[1]['server_url'],'http://192.168.1.20:8765')
+        self.assertEqual(self.call(body={**body,'server_url':'http://public.example'},csrf=csrf)[0],409)
+        self.assertEqual(self.call()[1]['server_url'],'http://192.168.1.20:8765')
+
+    def test_pairing_progress_visible_without_exiting(self):
+        csrf=self.csrf();body={'server_url':'https://one.example','pairing_code':'23456789AB','local_only':False}
+        self.assertEqual(self.call(body=body,csrf=csrf)[0],200)
+        self.assertEqual(self.call()[1]['phase'],'waiting_wifi')
+        self.call('/submit',{'ssid':'Home','password':'synthetic-only'},csrf=csrf)
+        self.native.call({'route':'/__control','wifi_process':True})
+        self.assertEqual(self.call()[1]['phase'],'pairing')
+        failure='服务接口不兼容，请检查中继版本；更换配对码无法解决'
+        self.native.call({'route':'/__control','network_error':failure})
+        state=self.call()[1];self.assertEqual(state['phase'],'error');self.assertEqual(state['message'],failure)
+        self.assertTrue(state['pairing']);self.assertFalse(state['configured'])
+        self.assertEqual(self.call()[1]['message'],failure)
+        self.native.call({'route':'/__control','network_error':''})
+        self.native.call({'route':'/__control','paired':True})
+        self.assertEqual(self.call()[1]['phase'],'paired')
+        self.assertNotIn('token',self.call()[1]);self.assertNotIn('password',self.call()[1]['wifi'])
+
     def test_wifi_separate_save_and_session_protection(self):
         csrf=self.csrf();body={'ssid':'Home <&>','password':'synthetic-only'}
         self.assertEqual(self.call('/submit',body)[0],403)
-        self.assertEqual(self.call('/submit',body,csrf=csrf)[1],{'success':True})
+        self.assertEqual(self.call('/submit',body,csrf=csrf)[0],202)
+        self.assertEqual(self.call()[1]['wifi']['state'],'connecting')
+        self.native.call({'route':'/__control','wifi_process':True})
+        self.assertTrue(self.call()[1]['wifi']['saved'])
+        self.assertTrue(self.call()[1]['wifi']['connected'])
         self.assertTrue(self.call()[1]['local_only'])
         self.assertFalse(self.call('/submit',{'ssid':'','password':''},csrf=csrf)[1]['success'])
         self.assertFalse(self.call('/submit',{'ssid':'x','password':{}},csrf=csrf)[1]['success'])

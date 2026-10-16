@@ -19,7 +19,7 @@ idf_component_register(SRCS "app.c" "voice.c" "voice_gate.c" "state.c" "power_st
         "assets/usb_no_host.pcm"
     REQUIRES esp_adc esp_driver_gpio esp_driver_i2c esp_driver_i2s esp_driver_spi esp_driver_ledc
              esp_driver_sdmmc esp_driver_usb_serial_jtag fatfs sdmmc esp_timer app_update mbedtls
-             esp_http_client esp-wifi-connect esp_netif nvs_flash image_player esp_lcd_gc9a01
+             esp_http_client esp-wifi-connect esp_netif nvs_flash bootloader_support image_player esp_lcd_gc9a01
              usb_device_uac espressif__tinyusb vfs efuse heap)
 
 idf_component_get_property(tusb_lib espressif__tinyusb COMPONENT_LIB)
@@ -28,4 +28,6 @@ target_include_directories(${tusb_lib} PUBLIC
     "${PROJECT_DIR}/components/usb_device_uac/tusb_uac")
 if(CONFIG_MEMO_VOCAT16)
     target_sources(${tusb_lib} PRIVATE "${COMPONENT_DIR}/usb/usb_descriptors.c")
+    target_link_options(${COMPONENT_LIB} INTERFACE
+        "-Wl,--wrap=sdmmc_read_sectors" "-Wl,--wrap=sdmmc_write_sectors")
 endif()

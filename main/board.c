@@ -39,6 +39,7 @@
 #include "esp_timer.h"
 #include "esp_sleep.h"
 #include "esp_memory_utils.h"
+#include "esp_attr.h"
 #include "esp_rom_sys.h"
 #include "board_lcd_init.h"
 
@@ -209,6 +210,60 @@ static bool sd_buffer_dma_safe(int slot, const void *buffer, size_t bytes)
     }
     return sdmmc_host_check_buffer_alignment(slot, buffer, bytes);
 }
+
+/* IDF's unsafe-buffer path mallocs a DMA sector on every operation. SoftAP
+ * and voice can exhaust that heap after mount. Reserve one real DMA sector
+ * and serialize its use, only for cards using this board's DMA callback.
+ * This also covers mount/remount before s_card is published. Safe DMA callers
+ * and other-card operations retain the locked SDK path. */
+static DMA_ATTR uint8_t s_sd_sector[512];
+static StaticSemaphore_t s_sd_sector_mutex_storage;
+static SemaphoreHandle_t s_sd_sector_mutex;
+
+esp_err_t __real_sdmmc_read_sectors(sdmmc_card_t *, void *, size_t, size_t);
+esp_err_t __real_sdmmc_write_sectors(sdmmc_card_t *, const void *, size_t, size_t);
+
+static esp_err_t sd_reserved_sector_io(sdmmc_card_t *card, void *buffer,
+                                     size_t first, size_t count, bool write)
+{
+    if (!card || card->host.check_buffer_alignment != sd_buffer_dma_safe ||
+        card->csd.sector_size != sizeof(s_sd_sector) || !count) {
+        return write ? __real_sdmmc_write_sectors(card, buffer, first, count)
+                     : __real_sdmmc_read_sectors(card, buffer, first, count);
+    }
+    if (!buffer || first > card->csd.capacity || count > card->csd.capacity - first ||
+        count > SIZE_MAX / sizeof(s_sd_sector))
+        return ESP_ERR_INVALID_SIZE;
+    if (sd_buffer_dma_safe(card->host.slot, buffer, count * sizeof(s_sd_sector)))
+        return write ? __real_sdmmc_write_sectors(card, buffer, first, count)
+                     : __real_sdmmc_read_sectors(card, buffer, first, count);
+    if (!s_sd_sector_mutex || xSemaphoreTake(s_sd_sector_mutex, portMAX_DELAY) != pdTRUE)
+        return ESP_ERR_INVALID_STATE;
+    esp_err_t err = ESP_OK;
+    uint8_t *position = buffer;
+    for (size_t i = 0; i < count && err == ESP_OK; ++i) {
+        if (write) {
+            memcpy(s_sd_sector, position, sizeof(s_sd_sector));
+            err = __real_sdmmc_write_sectors(card, s_sd_sector, first + i, 1);
+        } else {
+            err = __real_sdmmc_read_sectors(card, s_sd_sector, first + i, 1);
+            if (err == ESP_OK) memcpy(position, s_sd_sector, sizeof(s_sd_sector));
+        }
+        position += sizeof(s_sd_sector);
+    }
+    xSemaphoreGive(s_sd_sector_mutex);
+    return err;
+}
+
+esp_err_t __wrap_sdmmc_read_sectors(sdmmc_card_t *card, void *buffer, size_t first, size_t count)
+{
+    return sd_reserved_sector_io(card, buffer, first, count, false);
+}
+
+esp_err_t __wrap_sdmmc_write_sectors(sdmmc_card_t *card, const void *buffer, size_t first, size_t count)
+{
+    return sd_reserved_sector_io(card, (void *)buffer, first, count, true);
+}
 #endif
 
 static bool s_sd_no_response;
@@ -228,6 +283,11 @@ esp_err_t board_sd_check(void) { return s_card?sdmmc_get_status(s_card):ESP_ERR_
 esp_err_t board_sd_mount(void)
 {
     if (s_card) return ESP_OK;
+#if CONFIG_MEMO_VOCAT16
+    if (!s_sd_sector_mutex)
+        s_sd_sector_mutex = xSemaphoreCreateMutexStatic(&s_sd_sector_mutex_storage);
+    ESP_RETURN_ON_FALSE(s_sd_sector_mutex, ESP_ERR_NO_MEM, TAG, "SD sector mutex");
+#endif
     ESP_RETURN_ON_ERROR(lcd_sd_power_on(), TAG, "SD power");
     const esp_vfs_fat_sdmmc_mount_config_t mount = {
         .format_if_mount_failed = false,

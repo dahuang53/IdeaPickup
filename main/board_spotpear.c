@@ -266,9 +266,10 @@ esp_err_t board_init_display(void)
         .rst_gpio_num = TOUCH_RESET,
         .int_gpio_num = TOUCH_INTERRUPT,
         .levels = {.reset = 0, .interrupt = 0},
-        /* Use the same axis mapping as the display, so a visible control
-         * and its touch target occupy the same physical point. */
-        .flags = {.swap_xy = 0, .mirror_x = 0, .mirror_y = 1},
+        /* CST816D and GC9A01 have different native X directions on this BOX.
+         * Actual left/right taps reported X=208/55 without touch X mirroring;
+         * mirror the input only so it matches the upright displayed controls. */
+        .flags = {.swap_xy = 0, .mirror_x = 1, .mirror_y = 1},
     };
     esp_lcd_touch_handle_t touch;
     ESP_RETURN_ON_ERROR(esp_lcd_touch_new_i2c_cst816s(touch_io, &touch_config, &touch), TAG, "touch init");
@@ -283,7 +284,7 @@ esp_err_t board_init_display(void)
     ESP_RETURN_ON_ERROR(ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, 307), TAG, "brightness");
     ESP_RETURN_ON_ERROR(ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0), TAG, "brightness update");
     s_display = display;
-    ESP_LOGI(TAG, "DISPLAY_READY board=%s 240x240 GC9A01 CST816D display_swap=0 display_mirror_x=0 display_mirror_y=1 touch_swap=0 touch_mirror_x=0 touch_mirror_y=1",
+    ESP_LOGI(TAG, "DISPLAY_READY board=%s 240x240 GC9A01 CST816D display_swap=0 display_mirror_x=0 display_mirror_y=1 touch_swap=0 touch_mirror_x=1 touch_mirror_y=1",
              board_name());
     return ESP_OK;
 }

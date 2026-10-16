@@ -24,6 +24,7 @@ from test_support import LocalBroker
 
 
 class RuntimeHTTPTests(unittest.TestCase):
+    base_url = "https://relay.example.org"
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='route1-http-')
         self.addCleanup(self.temp.cleanup)
@@ -62,9 +63,9 @@ class RuntimeHTTPTests(unittest.TestCase):
 
     def open_client(self, prefix=''):
         self.prefix = prefix
-        self.origin = {'Origin': 'https://relay.example.org'}
-        self.app = create_app(self.root / 'state.db', public_url='https://relay.example.org' + prefix, broker=self.broker, runtime=self.runtime)
-        self.client = TestClient(self.app, base_url='https://relay.example.org')
+        self.origin = {'Origin': self.base_url}
+        self.app = create_app(self.root / 'state.db', public_url=self.base_url + prefix, broker=self.broker, runtime=self.runtime)
+        self.client = TestClient(self.app, base_url=self.base_url)
 
     def close_current(self):
         self.client.close()
@@ -620,7 +621,7 @@ class RuntimeHTTPTests(unittest.TestCase):
 
     def test_administrator_and_device_permissions_are_separate_and_retired_routes_are_absent(self):
         self.config(); device = self.pair()
-        other = TestClient(self.app, base_url='https://relay.example.org')
+        other = TestClient(self.app, base_url=self.base_url)
         self.addCleanup(other.close)
         auth = {'Authorization': 'Bearer ' + device['candidate_token']}
         self.assertEqual(other.get('/admin/api/config', headers=auth).status_code, 401)
@@ -645,6 +646,26 @@ class RuntimeHTTPTests(unittest.TestCase):
         self.client.close(); self.open_client(); self.login()
         self.assertTrue(self.client.get('/health/ready').json()['ready'])
         self.assertEqual(self.broker.view()['pin_count'], 1)
+
+
+class RuntimeLANHTTPTests(RuntimeHTTPTests):
+    # Replay all durable workflow/isolation/cleanup tests over the actual LAN app.
+    base_url = "http://192.168.1.20:8765"
+
+    def test_lan_login_cookie_origin_csrf_host_and_logout(self):
+        response=self.client.post('/admin/api/session/login',json={'password':self.password},headers=self.origin)
+        cookie=response.headers['set-cookie']
+        self.assertIn('voicememo-admin-lan=',cookie)
+        self.assertIn('HttpOnly',cookie);self.assertIn('SameSite=strict',cookie)
+        self.assertNotIn('Secure',cookie)
+        self.assertNotIn('Strict-Transport-Security',response.headers)
+        self.assertEqual(self.client.get('/admin/api/config').status_code,200)
+        for headers in ({**self.admin_headers,'Origin':'http://evil.example'},self.origin,{**self.admin_headers,'X-CSRF-Token':'wrong'}):
+            self.assertEqual(self.client.post('/admin/api/devices/pairing-code',json={},headers=headers).status_code,403)
+        self.assertEqual(self.client.get('/admin/',headers={'Host':'evil.example'}).status_code,400)
+        self.assertEqual(self.client.get(self.base_url.replace('http:','https:')+'/admin/').status_code,400)
+        self.assertEqual(self.client.post('/admin/api/session/logout',json={},headers={**self.origin,'X-CSRF-Token':response.json()['csrf']}).status_code,200)
+        self.assertFalse(self.client.get('/admin/api/session').json()['authenticated'])
 
 
 if __name__ == '__main__':

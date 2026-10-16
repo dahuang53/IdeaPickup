@@ -56,36 +56,54 @@ def _device(value: str):
 
 
 def normalize_base_url(value: str) -> str:
-    """Canonical HTTPS origin/path prefix; no credentials or hidden URL parts."""
+    """Canonical HTTPS or literal RFC1918 HTTP origin/path prefix; no credentials or hidden URL parts."""
     try:
         encoded_length = len(value.encode("utf-8")) if isinstance(value, str) else 0
     except UnicodeError:
-        _fail("invalid_url", "a valid HTTPS base URL is required")
+        _fail("invalid_url", "a valid service base URL is required")
     if (not isinstance(value, str) or not value or
             encoded_length > MAX_BASE_URL_BYTES or
             any(ord(c) <= 32 or ord(c) == 127 for c in value) or
             any(c in value for c in "?#\\")):
-        _fail("invalid_url", "a bounded HTTPS base URL is required")
+        _fail("invalid_url", "a bounded service base URL is required")
     try:
+        if "://" not in value:
+            bare = urllib.parse.urlsplit("//" + value)
+            try:
+                address = ipaddress.IPv4Address(bare.hostname or "")
+                lan = any(address in ipaddress.IPv4Network(net) for net in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"))
+            except ipaddress.AddressValueError:
+                lan = False
+            authority = bare.netloc + (":8765" if lan and bare.port is None else "")
+            value = urllib.parse.urlunsplit(("http" if lan else "https", authority, bare.path, "", ""))
         parts = urllib.parse.urlsplit(value)
-        if (parts.scheme != "https" or not parts.hostname or
+        if (parts.scheme not in {"http", "https"} or not parts.hostname or
                 parts.username is not None or parts.password is not None):
             raise ValueError()
         host = parts.hostname
+        if parts.scheme == "http":
+            address = ipaddress.IPv4Address(host)
+            if not any(address in ipaddress.IPv4Network(net) for net in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")):
+                raise ValueError()
         try:
             address = ipaddress.ip_address(host)
             if getattr(address, "scope_id", None):
                 raise ValueError()
             host = f"[{address.compressed}]" if address.version == 6 else address.compressed
         except ValueError:
-            host = host.encode("idna").decode("ascii").lower()
+            if re.fullmatch(r"[0-9.]+", host):
+                raise ValueError()
+            host = host.encode("ascii").decode("ascii").lower()
             if (len(host) > 253 or any(not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", p)
                                        for p in host.split("."))):
                 raise ValueError()
+        port_text = parts.netloc.rsplit("]", 1)[-1] if parts.netloc.startswith("[") else parts.netloc[len(parts.hostname):]
+        if port_text and (not re.fullmatch(r":[1-9][0-9]{0,4}", port_text)):
+            raise ValueError()
         port = parts.port
         if port is not None and not 1 <= port <= 65535:
             raise ValueError()
-        authority = host + (f":{port}" if port is not None and port != 443 else "")
+        authority = host + (f":{port}" if port is not None and port != (443 if parts.scheme == "https" else 80) else "")
         path = parts.path.rstrip("/")
         if re.search(r"%(?![0-9a-fA-F]{2})", path):
             raise ValueError()
@@ -95,12 +113,12 @@ def normalize_base_url(value: str) -> str:
                 any(p in {".", ".."} for p in decoded.split("/")) or
                 re.search(r"%(?:2f|5c)", path, re.I)):
             raise ValueError()
-        result = urllib.parse.urlunsplit(("https", authority, path, "", ""))
+        result = urllib.parse.urlunsplit((parts.scheme, authority, path, "", ""))
         if len(result.encode("utf-8")) > MAX_BASE_URL_BYTES:
             raise ValueError()
         return result
     except (ValueError, UnicodeError):
-        _fail("invalid_url", "a valid HTTPS base URL is required")
+        _fail("invalid_url", "a valid service base URL is required")
 
 
 class IdentityStore:

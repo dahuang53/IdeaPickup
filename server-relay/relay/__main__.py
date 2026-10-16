@@ -39,7 +39,7 @@ def serve(args, env):
         control = ControlServer(Path(env.get("VOICE_MEMO_CONTROL_SOCKET", "/run/voice-memo-control/control.sock")), runtime,
                                 {"code_version": __version__, "schema_version": RUNTIME_SCHEMA_VERSION,
                                  "instance_uuid": runtime.instance_uuid})
-        uvicorn.run(app, host=args.host, port=args.port, workers=1, proxy_headers=True,
+        uvicorn.run(app, host=args.host, port=args.port, workers=1, proxy_headers=public_url.startswith("https://"),
                     forwarded_allow_ips=env.get("VOICE_MEMO_FORWARDED_ALLOW_IPS", "127.0.0.1"),
                     access_log=False, server_header=False, limit_concurrency=32,
                     timeout_graceful_shutdown=90, timeout_keep_alive=5)

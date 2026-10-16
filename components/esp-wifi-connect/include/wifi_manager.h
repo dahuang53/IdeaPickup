@@ -57,17 +57,6 @@ struct WifiManagerConfig {
     // remember_bssid is off). 0 = driver default (one attempt only).
     uint8_t station_failure_retry_cnt = 3;
 
-    // Whether to show the OTA URL field in the config portal advanced tab.
-    // Defaults to false so the field is hidden unless explicitly enabled.
-    bool show_ota_config = false;
-
-    // Whether to show the sleep mode toggle in the config portal advanced tab.
-    bool show_sleep_config = false;
-
-    // Project extension: protect the temporary captive portal. Empty keeps the
-    // upstream open-AP behavior; 8..63 bytes enables WPA2-PSK.
-    std::string ap_password;
-
     // Short exclusion around SSID persistence only, never the connection wait.
     std::function<bool()> config_commit_begin;
     std::function<void()> config_commit_end;
@@ -102,10 +91,10 @@ public:
     void StartConfigAp();  // Non-blocking, auto-stops station if active
     void StopConfigAp();   // Non-blocking
 
+    void ProcessConfigConnection(); // Existing application worker, never the HTTP task.
     bool IsConfigMode() const;
     std::string GetApSsid() const;
     std::string GetApWebUrl() const;
-    std::string GetApPassword() const;
 
     // ==================== Power ====================
 
@@ -131,6 +120,8 @@ private:
     std::unique_ptr<WifiConfigurationAp> config_ap_;
 
     mutable std::mutex mutex_;
+    esp_netif_t* ap_netif_ = nullptr;
+    esp_netif_t* sta_netif_ = nullptr;
     bool initialized_ = false;
     bool station_active_ = false;
     bool config_mode_active_ = false;

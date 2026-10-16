@@ -2,7 +2,7 @@
 
 当前支持 16 MB QIO ESP-VoCat V1.2（`vocat16`）与斑梨 ESP32-S3-Touch-LCD-1.28-BOX（`spotpear`）。32 MB 喵伴不支持。板型必须按设备实际型号/资料选择；ESP32-S3 ROM 的芯片与容量不能识别屏幕、音频和板级引脚。工具检查所选板型与产物匹配，不把 MAC 当作板型证明。
 
-当前真机验收尚未完成，状态只见[支持表](SUPPORT.md)。命令可执行不等于已在设备上执行；本候选不附带稳定固件附件。
+R12两板本轮必做真机检查已完成，低电跳过及斑梨已知告警等边界见[支持表](SUPPORT.md)。不能仅凭命令可执行判断设备已验收；仅安装与实际板型匹配、来自对应Release且校验值明确的附件。
 
 ## 构建与候选包
 
@@ -54,8 +54,16 @@ ESPTOOL_CFGFILE="$PWD/scripts/esptool-protected.cfg" .venv/bin/python -m esptool
 
 每次检查ROM芯片、容量、安全状态；在无stub模式下读/写/核验，禁止force跳过安全检查。备份、ROM身份和原始输出只在自动建立的 `private/install-runs/` 中。候选文件在本次运行内冻结，所有写入结果和保护区做实际读回核验。出错后只恢复本次已备份拟写范围并校验，停留ROM；恢复未知时明确 `RECOVERY_UNCONFIRMED`，不得报告原机已恢复或继续启动坏候选。结果见该次 `result.json`，不要把原始日志粘贴进公开Issue。
 
-成功写回与复位请求分别记录。S3软件强制下载位须清除，GPIO0须释放；使用工程内窄ROM return helper，请求一次watchdog reset，不写Flash/eFuse。`FLASH_VERIFIED` 与 `RESET_REQUESTED_BOOT_NOT_CONFIRMED` 均不是设备启动/真机验收PASS。复位后用原 `scripts/device.py --port <重新枚举应用端口> --command status --log private/...` 查看实际项目、板型和版本，再核对精确候选、录放与数据保持。应用失效或CDC不可用时不能依赖该应用的软件命令自救，应使用已核实的ROM入口及本次原写入区备份；没有可达ROM入口时暂停。
+成功写回与复位请求分别记录。S3软件强制下载位须清除，GPIO0须释放；使用工程内窄ROM return helper：斑梨在命令行句柄交接后重新确认官方 USB Serial/JTAG ROM 入口和同一实物，直接调用锁定 esptool 的 `hard_reset()`；喵伴保留经验证的 watchdog 返回路径，不写Flash/eFuse。返回异常只记 `RETURN_FAILED_BOOT_NOT_CONFIRMED`，不能由该标签断言实际仍在ROM。`FLASH_VERIFIED` 与 `RESET_REQUESTED_BOOT_NOT_CONFIRMED` 均不是设备启动/真机验收PASS。复位后用原 `scripts/device.py --port <重新枚举应用端口> --command status --log private/...` 查看实际项目、板型和版本，再核对精确候选、录放与数据保持。应用失效或CDC不可用时不能依赖该应用的软件命令自救，应使用已核实的ROM入口及本次原写入区备份；没有可达ROM入口时暂停。
 
 ## 主机测试
 
 `./scripts/test_firmware_install.sh` 执行实际installer/bundle/软件ROM请求及stdio/锁定SDK VFS测试，使用FakeSerial与合成16MB Flash；不会打开真实串口。成功构建和打包只证明产物/封装检查，不证明Flash、USB CDC/UAC、实听或恢复路径已实测。
+
+## 手机配置 Wi-Fi 与服务
+
+长按猫脸约3秒进入联网设置，在手机选择屏幕所示热点，然后用浏览器打开 `http://192.168.4.1`。热点为开放连接，不输入密码；采用手动浏览器页面，不再触发系统网络登录弹窗。若手机提示此网络没有互联网，请选择继续使用。热点不替手机提供互联网，服务地址及配对码可提前从管理页复制。
+
+网页分别显示 Wi-Fi 和服务状态。保存 Wi-Fi 后等待“已连接并保存”；已有保存网络会尝试自动连接，不必重新填写。保存服务设置后等待“服务已配对”；仅收到保存响应不代表配对完成。连接失败、保存未确认和配对失败分别在页面反馈。页面切出或重开不取消已提交操作，重新连接热点并打开原地址可查询当前结果；未提交的输入不要当作已保存。
+
+配置期间热点保持开启，完成后在网页点“完成并关闭配置热点”或设备点“退出配网”。普通更新保留已有配置和录音；历史热点密码键保持原样但不再使用。当前手机、两板及更新验收状态按支持表和 R12 证据记录。

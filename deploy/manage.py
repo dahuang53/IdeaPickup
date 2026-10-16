@@ -18,6 +18,9 @@ from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 PRIVATE = ROOT / "private"
+# Reuse the service URL contract; this module uses only Python standard libraries.
+sys.path.insert(0, str(ROOT / "server-relay"))
+from relay.identity import normalize_base_url, IdentityError
 IMAGE = re.compile(r"(?:[A-Za-z0-9][A-Za-z0-9._:/-]*@)?sha256:[0-9a-f]{64}\Z")
 KEYS = {"VOICE_MEMO_IMAGE", "VOICE_MEMO_PROJECT", "VOICE_MEMO_PUBLIC_URL", "VOICE_MEMO_PORT",
         "VOICE_MEMO_SUBNET", "VOICE_MEMO_GATEWAY", "VOICE_MEMO_RELAY_IP", "VOICE_MEMO_PROXY_IP",
@@ -60,12 +63,19 @@ def read_env(path):
 def validate_values(values):
     require(IMAGE.fullmatch(values.get("VOICE_MEMO_IMAGE", "")), "image must be an immutable sha256 ID or registry digest")
     require(re.fullmatch(r"[a-z][a-z0-9-]{0,39}", values.get("VOICE_MEMO_PROJECT", "voice-memo")), "invalid Compose project name")
-    parsed = urlsplit(values.get("VOICE_MEMO_PUBLIC_URL", ""))
-    require(parsed.scheme == "https" and parsed.hostname and not parsed.username and not parsed.password and not parsed.query and not parsed.fragment,
-            "public URL must be HTTPS without credentials, query or fragment")
-    require(len(values["VOICE_MEMO_PUBLIC_URL"].encode()) <= 240 and not parsed.path.endswith("/") and "\\" not in values["VOICE_MEMO_PUBLIC_URL"], "public URL must be normalized and at most 240 bytes")
+    try:
+        values["VOICE_MEMO_PUBLIC_URL"] = normalize_base_url(values.get("VOICE_MEMO_PUBLIC_URL", ""))
+    except IdentityError as error:
+        raise DeploymentError("use a private LAN IP or an HTTPS service address") from error
+    parsed = urlsplit(values["VOICE_MEMO_PUBLIC_URL"])
+    lan = parsed.scheme == "http"
+    if lan:
+        port = parsed.port or 80
+        require(str(values.get("VOICE_MEMO_PORT", port)).isdigit() and int(values.get("VOICE_MEMO_PORT", port)) == port, "LAN URL port must match the Docker published port")
+        values["VOICE_MEMO_PORT"] = str(port)
+        require(values.get("VOICE_MEMO_PROXY", "0") == "0", "LAN HTTP does not use the HTTPS proxy")
     for field, default in (("VOICE_MEMO_PORT", "8765"), ("VOICE_MEMO_HTTPS_PORT", "8443")):
-        require(values.get(field, default).isdigit() and 1024 <= int(values.get(field, default)) <= 65535, "invalid unprivileged port")
+        require(values.get(field, default).isdigit() and (1 if lan and field == "VOICE_MEMO_PORT" else 1024) <= int(values.get(field, default)) <= 65535, "invalid published port")
     subnet = ipaddress.ip_network(values.get("VOICE_MEMO_SUBNET", "172.30.86.0/24"))
     require(subnet.version == 4 and subnet.prefixlen == 24 and subnet.is_private, "dedicated private IPv4 /24 network required")
     addresses = [ipaddress.ip_address(values.get(key, default)) for key, default in (("VOICE_MEMO_GATEWAY", "172.30.86.1"), ("VOICE_MEMO_RELAY_IP", "172.30.86.2"), ("VOICE_MEMO_PROXY_IP", "172.30.86.3"))]
@@ -112,6 +122,8 @@ class Deployment:
         # Only validated deployment metadata, never plaintext provider/upload keys.
         environment = {key: value for key, value in os.environ.items() if not key.startswith("VOICE_MEMO_")}
         environment.update(configuration)
+        target = urlsplit(configuration["VOICE_MEMO_PUBLIC_URL"])
+        environment["VOICE_MEMO_BIND"] = target.hostname if target.scheme == "http" else "127.0.0.1"
         command = ["docker", "compose", "--project-directory", str(ROOT / "deploy"), "--env-file", "/dev/null", "-p", self.project,
                    "-f", str(ROOT / "deploy" / "compose.yaml")]
         if configuration.get("VOICE_MEMO_PROXY", "0") == "1":

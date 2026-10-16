@@ -16,6 +16,7 @@ static uint32_t frame[MEMO_UI_WIDTH * MEMO_UI_HEIGHT];
 static memo_cmd_t last_command;
 static uint32_t last_arg;
 static unsigned commands;
+static bool storage_view;
 static lv_indev_data_t pointer;
 static memo_network_status_t network;
 static memo_config_public_t service={.enabled=true};
@@ -38,7 +39,6 @@ static memo_power_status_t power = {
 #define NAV_Y 188
 #define NAV_UPPER_Y 149
 #define NAV_LOWER_Y 217
-#define PROVISION_EXIT_Y 202
 #else
 #define TAP_X 180
 #define TAP_Y 176
@@ -50,8 +50,9 @@ static memo_power_status_t power = {
 #define NAV_Y 253
 #define NAV_UPPER_Y 170
 #define NAV_LOWER_Y 265
-#define PROVISION_EXIT_Y 279
 #endif
+
+void app_storage_view(bool visible) {storage_view=visible;}
 
 bool app_command(memo_cmd_t command, uint32_t arg, const char *source)
 {
@@ -237,6 +238,35 @@ static bool contains_visible_label(lv_obj_t *obj, const char *text)
     return find_visible_label(obj,text)!=NULL;
 }
 
+static void check_provision_url(void)
+{
+    lv_obj_t *url = find_visible_label(lv_screen_active(), "打开 http://192.168.4.1");
+    lv_obj_t *ap = find_visible_label(lv_screen_active(), "热点 MeowInbox-D69C");
+    lv_obj_t *exit_text = find_visible_label(lv_screen_active(), "退出配网");
+    assert(url && ap && exit_text);
+    assert(!find_visible_label(lv_screen_active(), "无需密码"));
+    assert(!find_visible_label(lv_screen_active(), "密码"));
+    lv_area_t hint, ap_line, button;
+    lv_obj_get_coords(url, &hint);
+    lv_obj_get_coords(ap, &ap_line);
+    lv_obj_get_coords(lv_obj_get_parent(exit_text), &button);
+    int stride = hint.y1 - ap_line.y1;
+    int line_height = ap_line.y2 - ap_line.y1 + 1;
+    assert(stride >= line_height && stride < 2 * line_height);
+    assert(ap_line.x1 + ap_line.x2 == hint.x1 + hint.x2);
+#if !MEMO_UI_COMPACT
+    lv_obj_t *instruction = find_visible_label(lv_screen_active(), "手机连接下面的临时热点");
+    assert(instruction);
+    lv_area_t instruction_line;
+    lv_obj_get_coords(instruction, &instruction_line);
+    assert(stride == ap_line.y1 - instruction_line.y1);
+    assert(instruction_line.x1 + instruction_line.x2 == ap_line.x1 + ap_line.x2);
+#endif
+    assert(lv_color_eq(lv_obj_get_style_text_color(url, LV_PART_MAIN),
+                       lv_obj_get_style_text_color(ap, LV_PART_MAIN)));
+    assert(hint.y2 < button.y1);
+}
+
 static unsigned visible_label_count(lv_obj_t *obj)
 {
     if (lv_obj_has_flag(obj, LV_OBJ_FLAG_HIDDEN)) return 0;
@@ -245,6 +275,53 @@ static unsigned visible_label_count(lv_obj_t *obj)
         count += visible_label_count(lv_obj_get_child(obj, i));
     }
     return count;
+}
+
+static void storage_panel_cases(lv_indev_t *indev)
+{
+    memo_snapshot_t original=model;
+    unsigned before=commands;
+    assert(!storage_view);
+    click_ignored(indev,TAP_X,TAP_Y);
+    assert(storage_view);
+    // Demand probing completes after the first tap. Only media changes: the
+    // recording state remains IDLE, so the controls must stay open.
+    model.sd_ready=false;model.cardless=true;model.cardless_ready=false;
+    model.item_count=0;model.count=0;model.page_count=0;model.revision++;
+    tick(220);
+    assert(contains_visible_label(lv_screen_active(),"开始录音"));
+    assert(contains_visible_label(lv_screen_active(),"无卡"));
+    assert(storage_view);
+    model.cardless_ready=true;model.revision++;tick(220);
+    assert(contains_visible_label(lv_screen_active(),"开始录音") && storage_view);
+    // Existing inactivity timeout still ends the view demand.
+    tick(60100);assert(!storage_view && visible_label_count(lv_screen_active())==0);
+    click_ignored(indev,TAP_X,TAP_Y);
+    model=original;model.revision+=10;tick(220);
+    assert(contains_visible_label(lv_screen_active(),"开始录音") && storage_view);
+    assert(!contains_visible_label(lv_screen_active(),"无卡"));
+    // A real recording transition must still return to the cat immediately.
+    model.state=MEMO_RECORDING;model.revision++;tick(220);
+    assert(!storage_view && !contains_visible_label(lv_screen_active(),"停止录音"));
+    model=original;model.revision+=20;tick(220);
+    assert(!storage_view && visible_label_count(lv_screen_active())==0);
+    assert(commands==before);
+    puts("HOST_UI: first-tap media adoption preserves controls and demand; readiness, insertion, timeout and real state transition PASS");
+}
+
+static void panel_timeout_cases(lv_indev_t *indev)
+{
+    click_ignored(indev,TAP_X,TAP_Y);
+    tick(15100);
+    assert(storage_view && contains_visible_label(lv_screen_active(),"开始录音"));
+    tick(40000);
+    assert(storage_view); // Reading for55s no longer closes the page.
+    click(indev,NEXT_X,NAV_Y,CMD_NEXT,0); // A normal touch starts a fresh60s.
+    tick(55100);
+    assert(storage_view && contains_visible_label(lv_screen_active(),"开始录音"));
+    tick(5100);
+    assert(!storage_view && visible_label_count(lv_screen_active())==0);
+    puts("HOST_UI: controls stay at15s/55s, touch renews60s, timeout clears view demand PASS");
 }
 
 static void usb_voice_cases(lv_indev_t *indev)
@@ -434,9 +511,10 @@ static void cardless_cases(lv_indev_t *indev)
     click_ignored(indev,TAP_X,PRIMARY_Y);
     assert(contains_visible_label(lv_screen_active(),"无卡"));
     network.connected=true;model.cardless_ready=true;model.revision++;tick(220);
-    click_ignored(indev,TAP_X,TAP_Y); // Readiness transition may show the cat.
+    assert(contains_visible_label(lv_screen_active(),"开始录音"));
     model.cardless=false;model.sd_ready=true;model.revision++;tick(220);
-    click_ignored(indev,TAP_X,TAP_Y);save_frame("cardless-history-with-sd");
+    assert(contains_visible_label(lv_screen_active(),"开始录音"));
+    save_frame("cardless-history-with-sd");
     press(indev,ROW0_X,ROW0_Y,true);press(indev,ROW0_X,ROW0_Y,false);tick(220);
     assert(detail_job.id==cardless_id);
     save_frame("cardless-detail-with-sd");
@@ -498,6 +576,8 @@ int main(void)
     assert(visible_label_count(lv_screen_active()) == 0);
     ui_power_show_sleep();
     assert(cat_anim_test_state() == CAT_ANIM_IDLE);
+    storage_panel_cases(indev);
+    panel_timeout_cases(indev);
     click_ignored(indev, TAP_X, TAP_Y); // A first tap opens controls and sends no business command.
     save_frame("control-idle");
     assert(contains_visible_label(lv_screen_active(), "开始录音"));
@@ -660,7 +740,38 @@ int main(void)
 #endif
     press(indev,TAP_X,back_y,true);press(indev,TAP_X,back_y,false);tick(220);
     assert(detail_job.id==0);
-#if !MEMO_UI_COMPACT
+#if MEMO_UI_COMPACT
+    /* Bottom targets retain their width and extend through the last pixel. */
+    const int bottom_points[][2]={{69,226},{170,226},{120,239}};
+    for(unsigned i=0;i<sizeof(bottom_points)/sizeof(bottom_points[0]);i++) {
+        press(indev,bottom_points[i][0],bottom_points[i][1],true);
+        press(indev,bottom_points[i][0],bottom_points[i][1],false);tick(220);
+        assert(detail_job.id==8);
+        click_ignored(indev,69,220); // Outside the back button's left edge.
+        click_ignored(indev,170,220); // Outside its right edge.
+        click_ignored(indev,120,174); // Do not expand upward into the action gap.
+        assert(detail_job.id==8);
+        press(indev,120,239,true);press(indev,120,239,false);tick(220);
+        assert(detail_job.id==0);
+    }
+    click_ignored(indev,68,230);
+    click_ignored(indev,171,230);
+    click_ignored(indev,120,201);
+    assert(detail_job.id==0);
+    press(indev,120,188,true);press(indev,120,188,false);tick(220);
+    assert(detail_job.id==9); // The second row keeps its own target.
+    press(indev,70,220,true);press(indev,70,220,false);tick(220);
+    assert(detail_job.id==0);
+    model.item_count=2;model.revision++;tick(220);
+    click_ignored(indev,120,230);assert(detail_job.id==0); // Hidden third row.
+    model.item_count=3;model.sd_ready=false;model.revision++;tick(220);
+    if(!contains_visible_label(lv_screen_active(),"#8  00:11"))click_ignored(indev,TAP_X,TAP_Y);
+    assert(contains_visible_label(lv_screen_active(),"#8  00:11"));
+    click_ignored(indev,120,230);assert(detail_job.id==0); // Disabled without SD.
+    model.sd_ready=true;model.revision++;tick(220);
+    if(!contains_visible_label(lv_screen_active(),"开始录音"))click_ignored(indev,TAP_X,TAP_Y);
+    puts("HOST_UI: compact bottom-row/back downward targets, exact width, hidden/disabled and adjacent controls PASS");
+#else
     press(indev,84,ROW0_Y,true);press(indev,84,ROW0_Y,false);tick(220);
     assert(detail_job.id==10); // Card starts immediately after the left paw target.
     press(indev,TAP_X,back_y,true);press(indev,TAP_X,back_y,false);tick(220);
@@ -731,7 +842,7 @@ int main(void)
     click_ignored(indev, TAP_X, TAP_Y);
     tick(119000);
     assert(commands == before_idle + 1); // Opening controls reset the two-minute timer.
-    click_ignored(indev, TAP_X, TAP_Y); // The panel auto-hid after 15 seconds; reopen it.
+    click_ignored(indev, TAP_X, TAP_Y); // The panel auto-hid after 60 seconds; reopen it.
     click(indev, TAP_X, TAP_Y, CMD_START, 0);
     model.state = MEMO_PLAYING; model.elapsed_ms = 43000; model.level = 42; model.revision++;
     save_frame("cat-playing");
@@ -802,11 +913,11 @@ int main(void)
     assert(!contains_visible_label(lv_screen_active(), "开始录音"));
     click_ignored(indev, TAP_X, TAP_Y);
     assert(contains_visible_label(lv_screen_active(), "开始录音"));
-    lv_tick_inc(15100); lv_timer_handler(); lv_refr_now(NULL);
+    lv_tick_inc(60100); lv_timer_handler(); lv_refr_now(NULL);
     assert(!contains_visible_label(lv_screen_active(), "开始录音"));
     click_ignored(indev, TAP_X, TAP_Y);
     click(indev, TAP_X, TAP_Y, CMD_START, 0);
-    tick(15100); // Return from the unchanged host stub state to the cat view.
+    tick(60100); // Return from the unchanged host stub state to the cat view.
     network.configured = false;
     unsigned before_provision = commands;
     pointer.point.x = TAP_X; pointer.point.y = TAP_Y;
@@ -815,50 +926,80 @@ int main(void)
     assert(commands == before_provision + 1 && last_command == CMD_PROVISION);
     pointer.state = LV_INDEV_STATE_RELEASED; lv_indev_read(indev);
     assert(commands == before_provision + 1);
+    // Actual network errors on the recording controls, not only portal captions.
+    click_ignored(indev, TAP_X, TAP_Y);
+    const char *network_errors[] = {
+        "配对尚未完成，将自动重试；本地录音可用",
+        "网络时间同步失败，配对将自动重试",
+        "配对码无效、过期或设备已撤销，请重新配对",
+        "服务配置保存结果未确认，稍后自动读取恢复"
+    };
+    for(unsigned i=0;i<sizeof(network_errors)/sizeof(network_errors[0]);++i){
+        snprintf(network.error,sizeof(network.error),"%s",network_errors[i]);
+        service.pairing=i<2;
+        char frame[64];snprintf(frame,sizeof(frame),"control-network-error-%u",i);save_frame(frame);
+        const char *caption=service.pairing?(MEMO_UI_COMPACT?"配对中，录音可用":"正在配对，录音可用"):
+            (MEMO_UI_COMPACT?"待配对，录音可用":"服务待配对，录音可用");
+        lv_obj_t *notice=find_visible_label(lv_screen_active(),caption);assert(notice);
+        lv_area_t area;lv_obj_get_coords(notice,&area);
+        assert(area.y2 < (MEMO_UI_COMPACT?84:153)); // Primary button / first recording row.
+    }
+    network.error[0]='\0';service.pairing=false;
     network.provisioning = true;
     snprintf(network.ap_ssid, sizeof(network.ap_ssid), "MeowInbox-D69C");
-    snprintf(network.ap_password, sizeof(network.ap_password), "Miao1234");
     tick(220);
     save_frame("provisioning");
     assert(contains_visible_label(lv_screen_active(), "联网设置"));
     assert(contains_visible_label(lv_screen_active(), "热点 MeowInbox-D69C"));
-#if MEMO_UI_COMPACT
-    assert(contains_visible_label(lv_screen_active(), "打开 192.168.4.1"));
-#else
-    assert(contains_visible_label(lv_screen_active(), "连接热点后打开 192.168.4.1"));
-#endif
+    assert(!contains_visible_label(lv_screen_active(), "连上热点自动打开"));
+    assert(!contains_visible_label(lv_screen_active(), "连接热点后自动打开网页"));
+    check_provision_url();
     service.pairing=true;save_frame("provisioning-pairing");
-    assert(contains_visible_label(lv_screen_active(),MEMO_UI_COMPACT?"配对待联网，可关热点":"配对待联网，请关闭热点喵"));
+    assert(contains_visible_label(lv_screen_active(),network.connected?"正在配对，请稍候":"等待连接 Wi-Fi"));
+    check_provision_url();
+    network.connected=true;
+    snprintf(network.error,sizeof(network.error),"服务接口不兼容，请检查中继版本；更换配对码无法解决");
+    save_frame("provisioning-pairing-incompatible");
+    assert(contains_visible_label(lv_screen_active(),"配对未完成，请看网页"));
+    assert(!contains_visible_label(lv_screen_active(),"正在配对，请稍候"));
+    check_provision_url();
+    network.error[0]='\0';
     service.pairing=false;service.enabled=false;save_frame("provisioning-local");
     assert(contains_visible_label(lv_screen_active(),MEMO_UI_COMPACT?"仅本地，有卡录放可用":"仅本地，有卡录音回放可用喵"));
+    check_provision_url();
     service.result=MEMO_CONFIG_STORAGE_ERROR;save_frame("provisioning-save-failure");
     assert(contains_visible_label(lv_screen_active(),MEMO_UI_COMPACT?"设置未确认，网页重试":"设置未确认，请在网页重试喵"));
+    check_provision_url();
     service=(memo_config_public_t){.enabled=true};
     snprintf(network.error,sizeof(network.error),"配对码无效、过期或设备已撤销，请重新配对");
     save_frame("provisioning-pair-failure");
     assert(contains_visible_label(lv_screen_active(),MEMO_UI_COMPACT?"配对失败，网页重试":"服务未配对，请在网页重试喵"));
+    check_provision_url();
     network.error[0]='\0';
     network.configured = true;
     tick(220);
     save_frame("provisioning-enrolled");
 #if MEMO_UI_COMPACT
-    assert(contains_visible_label(lv_screen_active(), "服务已配对，待联网"));
+    assert(contains_visible_label(lv_screen_active(), "服务已配对"));
 #else
-    assert(contains_visible_label(lv_screen_active(), "服务已配对，网页完成后联网"));
+    assert(contains_visible_label(lv_screen_active(), "服务已配对"));
 #endif
-    click(indev, TAP_X, PROVISION_EXIT_Y, CMD_PROVISION, 0);
+    check_provision_url();
+    lv_area_t exit_area;
+    lv_obj_get_coords(lv_obj_get_parent(find_visible_label(lv_screen_active(), "退出配网")), &exit_area);
+    click(indev, (exit_area.x1 + exit_area.x2) / 2, (exit_area.y1 + exit_area.y2) / 2, CMD_PROVISION, 0);
     network.provisioning = false;
     tick(220);
     usb_voice_cases(indev);
     cardless_cases(indev);
     assert(children == lv_obj_get_child_count(lv_screen_active()));
-    printf("HOST_UI: %dx%d cat default, first tap opens controls without command, 15s return PASS\n",
+    printf("HOST_UI: %dx%d cat default, first tap opens controls without command, 60s return PASS\n",
            MEMO_UI_WIDTH, MEMO_UI_HEIGHT);
     puts("HOST_UI: saved and stopped-playback feedback slow-blinks, touch resets its two-minute sleep timer PASS");
     puts("HOST_UI: text-free cat recording/window/saving/saved/playing/error states PASS");
     puts("HOST_UI: held-pointer start/stop/play/paging, busy/SD gating, stable objects PASS");
     puts("HOST_UI: storage retry sends REFRESH not START; busy retry and stale list disabled; recovery to START PASS");
-    puts("HOST_UI: three-second cat hold opens provisioning, protected AP details fit, exit command PASS");
+    puts("HOST_UI: three-second cat hold opens provisioning, open AP details fit, exit command PASS");
     puts("HOST_UI: physical display/touch and listening remain NOT_RUN");
     lv_deinit();
     return 0;
