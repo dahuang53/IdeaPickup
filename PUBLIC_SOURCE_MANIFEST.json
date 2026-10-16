@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "tree_sha256": "40c8bb9c1715f86e3deb4177777cbb47b8ac496a90f41dc8e126debb4fb4f772",
+  "tree_sha256": "a8efc74d29d9d695e0294ccfac5791aaef784a1a1e900ffebd4d485896958a04",
   "files": [
     {
       "path": ".dockerignore",
@@ -1600,8 +1600,8 @@
     },
     {
       "path": "tests/test_sd_probe.py",
-      "sha256": "9372110fac4fae30368d0f8ece60145a1f729d484ec0feebe9517f36f3191f6b",
-      "size": 24134,
+      "sha256": "4b497a1165c15477ae936090d8bc7f05b2af3f23ddbe9bbef55fbe99417f12d3",
+      "size": 24148,
       "executable": false
     },
     {

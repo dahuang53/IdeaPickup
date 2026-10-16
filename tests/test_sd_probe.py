@@ -69,8 +69,12 @@ static bool memo_cardless_busy(void){return unique_audio;}
 static int xSemaphoreTake(int m,int t){(void)m;(void)t;if(!mutex_ok)return 0;assert(!sd_lock);sd_lock=true;return 1;}
 static void xSemaphoreGive(int m){(void)m;assert(sd_lock);sd_lock=false;}
 static bool network_sync_try_sd_probe(void){
- if(!gate_ok)return false;assert(sd_lock&&sd_probe_busy);claim=true;claims++;
- if(sleep_on_claim)power_listening=false;if(record_on_claim)snapshot.state=MEMO_RECORDING;return true;
+ if(!gate_ok){return false;}
+ assert(sd_lock&&sd_probe_busy);
+ claim=true;claims++;
+ if(sleep_on_claim){power_listening=false;}
+ if(record_on_claim){snapshot.state=MEMO_RECORDING;}
+ return true;
 }
 static void network_sync_sd_probe_done(void){assert(claim);claim=false;releases++;}
 static esp_err_t board_sd_check(void){assert((claim||audio_owned)&&sd_lock);checks++;return media_result;}
