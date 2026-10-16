@@ -1,6 +1,8 @@
 # 拾想 · IdeaPickup 转写中继
 
-当前为0.2.0rc1自管后端候选，支持千问转写、思源云端收集箱、WAV／Opus、管理配置和设备独立凭据。已验证范围只见[支持状态](../docs/SUPPORT.md)；首次使用面向新安装，不导入旧项目数据。
+当前推荐使用 [r12-20261016 配套镜像](../docs/PUBLIC_RELEASE.md#配套-docker-镜像)，运行时版本字段仍为 `0.2.0rc1`，请按完整镜像摘要区分。后端支持千问转写、思源云端收集箱、WAV／Opus、管理配置和设备独立凭据。已验证范围只见[支持状态](../docs/SUPPORT.md)；首次使用面向新安装，不导入旧项目数据。
+
+首次使用请先按[部署与后台配置](../docs/DEPLOYMENT.md)完成启动、管理员初始化、供应商配置和设备配对。本页面向开发与维护，不需要先搭建本地开发环境才能部署发布镜像。
 
 ## 本地开发与测试
 
@@ -32,9 +34,9 @@ node tests/test_admin_browser.cjs private/admin-browser-run
 
 ## 运行入口
 
-正式业务为非 root Linux 单 worker，使用 `python -m relay serve`。配置 broker 是无网络的 root-only 本地 helper，按其 RPC 契约限定 Unix peer 和秘密访问；不在生产提供测试 ownership 或 TLS 绕过开关。Docker / 自动卷与broker入口、HTTPS代理和普通版本更新见[部署说明](../docs/DEPLOYMENT.md)。空卷先初始化管理页，配置后readiness才表示可接收录音；已验证容器/TLS/供应商范围见支持表。
+正式业务为非 root Linux 单 worker，使用 `python -m relay serve`。配置 broker 是无网络的 root-only 本地 helper，按其 RPC 契约限定 Unix peer 和秘密访问；不在生产提供测试 ownership 或 TLS 绕过开关。Docker / 自动卷与broker入口、内网 HTTP、HTTPS代理和普通版本更新见[部署说明](../docs/DEPLOYMENT.md)。空卷先初始化管理页，配置后readiness才表示可接收录音；已验证容器/TLS/供应商范围见支持表。
 
-服务地址来自部署的 `VOICE_MEMO_PUBLIC_URL`，管理页的地址仅供查看。管理员在 HTTPS 管理页填写千问 API Key 和思源 Token，一次“保存并生效”；字段留空保留已有值，清除使用明确选项，已保存秘密不回填。当前千问接口 / 模型和思源云端收集箱协议固定，页面以只读字段展示。
+服务地址来自部署的 `VOICE_MEMO_PUBLIC_URL`，管理页的地址仅供查看。管理员在对应服务的管理页填写千问 API Key 和思源 Token，一次“保存并生效”；字段留空保留已有值，清除使用明确选项，已保存秘密不回填。当前千问接口 / 模型和思源云端收集箱协议固定，页面以只读字段展示。
 
 初始化码由部署主机的 `python -m relay bootstrap` 生成；应将输出重定向到本工程 `private/` 的仅本人可读文件，再由所有者在管理页设置口令。`reset` 撤销管理会话并签发新初始化码，不清录音任务或供应商配置。没有 API Key 时服务仍能进入初始化 / 配置页面；业务 readiness 会明确显示未配置。
 

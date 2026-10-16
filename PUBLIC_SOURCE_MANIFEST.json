@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "tree_sha256": "f19a2c69011cf45b337d18a734c559fdfa84aeebbbfe0aa025f062e36be984d4",
+  "tree_sha256": "a1b7fc4bd1d5ed4be30a237e0bebfc3c952c501e9b505343ef1ca7b603bb77cd",
   "files": [
     {
       "path": ".dockerignore",
@@ -40,8 +40,8 @@
     },
     {
       "path": "CONTRIBUTING.md",
-      "sha256": "93899c034ca397bb59636d091a257a95f0cbec0569cac0485ee41d09edb7a50f",
-      "size": 2255,
+      "sha256": "0b5d2c276b877ec1bb6ee456410adb6b9aeb1e7c0d764a5f17e199e6ef713784",
+      "size": 4966,
       "executable": false
     },
     {
@@ -52,8 +52,8 @@
     },
     {
       "path": "README.md",
-      "sha256": "4ce21779b6abc1ddff46e08a17a9d9b8ae1ca49c85372ebc6b9448fd046aca84",
-      "size": 4260,
+      "sha256": "6d8e117656123d8ff2859665c3334ec91d3400de4234a264044d8b269edecb82",
+      "size": 5411,
       "executable": false
     },
     {
@@ -310,14 +310,14 @@
     },
     {
       "path": "docs/DEPLOYMENT.md",
-      "sha256": "351dcb235b1715a8f9cc0a6138f80cc2b1dc1ac5567835ae7d78aaa27f1f372b",
-      "size": 10592,
+      "sha256": "34fdc3334627a5d81858515611e327d0038471c989875e817bb23f49dfa50950",
+      "size": 16084,
       "executable": false
     },
     {
       "path": "docs/DEVICE_INSTALL.md",
-      "sha256": "c15efbaa955281ecdf409d61fe103d4363bcb762c36fd4bfcc50f74d36372ae4",
-      "size": 7684,
+      "sha256": "ca080b66ef7cc80b33761b8890b3e3a5332eb64195be9ca3c80d8892e2364747",
+      "size": 12165,
       "executable": false
     },
     {
@@ -328,14 +328,14 @@
     },
     {
       "path": "docs/PUBLIC_RELEASE.md",
-      "sha256": "f08591966cc508dd9c3a85a01bdf87793324e50720af5411451b95b8b31008ce",
-      "size": 5389,
+      "sha256": "d77a4ae13bfb783ba0ff7c29744e0e6a9faedec727e607d607eb79173a1621b5",
+      "size": 4668,
       "executable": false
     },
     {
       "path": "docs/SUPPORT.md",
-      "sha256": "9ceeb0373bdde0ab2216ed1f87a19def1d02eee5f86893109c2b57c2f81eb919",
-      "size": 10164,
+      "sha256": "2e9fd05cc8765f5b0dd17427df8bb2aaf81784ea31b64ac27e6ff9c1bd6b702c",
+      "size": 23696,
       "executable": false
     },
     {
@@ -1168,8 +1168,8 @@
     },
     {
       "path": "server-relay/README.md",
-      "sha256": "5e68bd285e45b1b8eda659eeaba89ef76379979a301dcccaa0e3875747a253d6",
-      "size": 4745,
+      "sha256": "e08290e1f41e2329806c43e79d519326ebb0aa0ba21926ab61d0e6522e026415",
+      "size": 5137,
       "executable": false
     },
     {
