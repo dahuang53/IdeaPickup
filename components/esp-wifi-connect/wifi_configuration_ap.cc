@@ -454,32 +454,34 @@ bool WifiConfigurationAp::ConnectToWifi(const std::string &ssid, const std::stri
     esp_wifi_scan_stop();
     last_connected_channel_ = 0;
 
-    // Upper-level retry loop with delay between attempts.
-    //
-    // Background: in APSTA mode the browser session is on the AP
-    // beacon channel (typically 1), and the target home AP is on some
-    // other channel (e.g. 10). When ConnectToWifi triggers, esp-wifi
-    // performs a Channel Switch Announcement to move both AP and STA to
-    // the home AP's channel, then immediately issues an association
-    // request. The home AP frequently responds with "Association
-    // Response status=30 (Refused Temporarily)" + a Comeback Time in
-    // TUs (= ~1.1s for Buffalo routers, observed) because its own
-    // state hasn't settled yet for the new station.
-    //
-    // The ESP-IDF wifi driver's failure_retry_cnt issues re-association
-    // attempts back-to-back (within a few ms) and does not honor the
-    // 802.11 Comeback Time, so every driver-internal retry is refused
-    // the same way and the first ConnectToWifi() call returns failure.
-    // By the time the user clicks "submit" a second time (~8s later)
-    // the AP has fully settled and association succeeds on the first
-    // try — which is why users observe "it always fails the first
-    // time, then works".
-    //
-    // Fix: when an attempt fails, wait long enough for the comeback
-    // timer + AP state settle (~3s is safe), then retry once. This
-    // produces a single user-visible success path instead of forcing
-    // the user to resubmit. The driver-internal retries (set below
-    // via failure_retry_cnt) are kept as a secondary safety net.
+    // esp_wifi_disconnect queues its event on the default event loop. Consume
+    // that old-link event before starting another attempt, or it can be mistaken
+    // for the new attempt's failure while the driver is still connecting.
+    auto disconnect_station = [this]() {
+        wifi_ap_record_t previous = {};
+        const bool had_link = esp_wifi_sta_get_ap_info(&previous) == ESP_OK;
+        xEventGroupClearBits(event_group_, WIFI_CONNECTED_BIT | WIFI_FAIL_BIT);
+        connected_.store(false);
+        auto ret = esp_wifi_disconnect();
+        if (ret != ESP_OK) {
+            ESP_LOGW(TAG, "WiFi cancellation failed: %d", ret);
+            return false;
+        }
+        // An already idle station need not generate a disconnect event. Bound
+        // the drain in that case; an existing link must acknowledge disconnect.
+        EventBits_t bits = xEventGroupWaitBits(event_group_, WIFI_FAIL_BIT,
+            pdTRUE, pdFALSE, pdMS_TO_TICKS(1000));
+        xEventGroupClearBits(event_group_, WIFI_CONNECTED_BIT | WIFI_FAIL_BIT);
+        connected_.store(false);
+        if (had_link && !(bits & WIFI_FAIL_BIT)) {
+            ESP_LOGW(TAG, "WiFi disconnect event timed out");
+            return false;
+        }
+        return running_.load();
+    };
+    if (!disconnect_station()) return false;
+
+    // Retain the upstream bounded retry/backoff for temporary AP refusal.
     constexpr int kMaxAttempts = 2;
     constexpr int kRetryDelayMs = 3000;
     bool connected = false;
@@ -514,12 +516,21 @@ bool WifiConfigurationAp::ConnectToWifi(const std::string &ssid, const std::stri
         wifi_config.sta.scan_method = WIFI_ALL_CHANNEL_SCAN;
         wifi_config.sta.failure_retry_cnt = 1;
 
-        ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
-        auto ret = esp_wifi_connect();
+        auto ret = esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
+        if (ret != ESP_OK) {
+            // User-driven network changes can legitimately fail. Report failure
+            // through the existing portal status; never abort/reboot here.
+            ESP_LOGW(TAG, "esp_wifi_set_config failed: %d (attempt %d/%d)",
+                ret, attempt, kMaxAttempts);
+            if (!disconnect_station()) break;
+            continue;
+        }
+        ret = esp_wifi_connect();
         if (ret != ESP_OK) {
             ESP_LOGE(TAG,
                 "esp_wifi_connect failed: %d (attempt %d/%d)",
                 ret, attempt, kMaxAttempts);
+            if (!disconnect_station()) break;
             continue;
         }
         ESP_LOGI(TAG, "Connecting to WiFi %s (attempt %d/%d)",
@@ -542,22 +553,14 @@ bool WifiConfigurationAp::ConnectToWifi(const std::string &ssid, const std::stri
             connected = true;
         } else {
             const bool timed_out = (bits == 0);
-            if (timed_out) {
-                // Timeout — neither WIFI_CONNECTED_BIT nor WIFI_FAIL_BIT
-                // was set, so WIFI_EVENT_STA_DISCONNECTED has not fired
-                // and the driver may still be in `connecting` state.
-                // Cancel the in-flight attempt explicitly before the
-                // retry delay; without this the next esp_wifi_connect()
-                // can return ESP_ERR_WIFI_STATE on a connecting-state
-                // driver (per esp_wifi.h attention 3), making the retry
-                // a no-op on slow / event-dropping APs.
-                esp_wifi_disconnect();
-            }
             ESP_LOGW(TAG,
                 "Attempt %d/%d %s%s",
                 attempt, kMaxAttempts,
                 timed_out ? "timed out (driver may still be connecting)" : "failed",
                 attempt < kMaxAttempts ? " — will retry" : "");
+            // Also cancel after a failure notification: a delayed disconnect
+            // must not leave an in-flight connection alive across the retry.
+            if (!disconnect_station()) break;
         }
     }
     if (connected && running_.load()) {
@@ -615,8 +618,6 @@ void WifiConfigurationAp::ProcessConnection() {
       if (!running_.load() || !request_pending_) return;
       ssid = pending_ssid_; password = pending_password_; persist = persist_request_;
       request_pending_ = false; }
-    connected_.store(false);
-    esp_wifi_disconnect();
     bool connected = ConnectToWifi(ssid, password) && running_.load();
     bool saved = connected && (!persist || Save(ssid, password));
     if (!saved) { connected_.store(false); esp_wifi_disconnect(); }

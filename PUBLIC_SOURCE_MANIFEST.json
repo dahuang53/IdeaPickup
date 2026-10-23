@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "tree_sha256": "a1b7fc4bd1d5ed4be30a237e0bebfc3c952c501e9b505343ef1ca7b603bb77cd",
+  "tree_sha256": "ba89401f67bc54a458acc0144aed01400be9baae7067eecc3868e41559421106",
   "files": [
     {
       "path": ".dockerignore",
@@ -112,8 +112,8 @@
     },
     {
       "path": "components/esp-wifi-connect/VOICE_MEMO_PATCHES.md",
-      "sha256": "2669628616da72f9a19e465f9d0cd137397cc47dacb07eb4b6a7d38a9d37067f",
-      "size": 4590,
+      "sha256": "0fb497b96d9f4dd87ba7b3daa2ce6fdd764be3b8198b37d4406ed7b4aeeb47fe",
+      "size": 4884,
       "executable": false
     },
     {
@@ -166,8 +166,8 @@
     },
     {
       "path": "components/esp-wifi-connect/wifi_configuration_ap.cc",
-      "sha256": "2a24bc552852cd246f73b69641fbc9eda0ee339510dc0f9455430aee14cc6d81",
-      "size": 29826,
+      "sha256": "7b012512fca6690d5bcdbc3afd375ca8f54b07560c917e9996bd0f7c859730d3",
+      "size": 29587,
       "executable": false
     },
     {
@@ -1570,8 +1570,8 @@
     },
     {
       "path": "tests/test_provisioning.py",
-      "sha256": "af2352fbc7403b80fc53c044d8c9e62f6c9df2cb1f05ea74fbcfe4c549d3bb28",
-      "size": 16807,
+      "sha256": "dd571216e288f72b298c9dac9ddee89dff3e40558a001e7c994e0d0bb498da28",
+      "size": 19906,
       "executable": false
     },
     {

@@ -23,10 +23,13 @@ HARNESS = r'''
 #define ESP_ERR_NO_MEM 1
 #define ESP_ERR_INVALID_STATE 2
 #define ESP_ERR_TIMEOUT 3
+#define ESP_ERR_WIFI_STATE 0x3006
 #define ESP_ERROR_CHECK(x) assert((x)==0)
-#define ESP_LOGI(...) ((void)0)
-#define ESP_LOGE(...) ((void)0)
-#define ESP_LOGW(...) ((void)0)
+#define TAG "test"
+void log_stub(const char*,const char*,...){}
+#define ESP_LOGI(...) log_stub(__VA_ARGS__)
+#define ESP_LOGE(...) log_stub(__VA_ARGS__)
+#define ESP_LOGW(...) log_stub(__VA_ARGS__)
 #define BIT0 1
 #define BIT1 2
 #define BIT2 4
@@ -57,6 +60,8 @@ static esp_netif_t apnet,stanet;
 static unsigned wifi_starts,wifi_stops,scans,http_starts,http_stops,disconnects,saves;
 static std::atomic<unsigned> connects{0};
 static bool stop_joined=false,connect_failure=false,save_failure=false,hold_connection=false;
+static bool driver_connecting=false,driver_linked=false,late_disconnect=false,disconnect_pending=false,drop_disconnect=false;
+static int config_error=0;
 static wifi_config_t current;
 using Callback=void(*)(void*,esp_event_base_t,int32_t,void*);
 struct Handler {Callback fn=nullptr;void *ctx=nullptr;};static Handler wh,ih;
@@ -65,6 +70,7 @@ void vEventGroupDelete(EventGroupHandle_t p){delete p;}
 void xEventGroupClearBits(EventGroupHandle_t p,unsigned bits){std::lock_guard<std::mutex> lock(p->mutex);p->bits&=~bits;}
 void xEventGroupSetBits(EventGroupHandle_t p,unsigned bits){std::lock_guard<std::mutex> lock(p->mutex);p->bits|=bits;p->changed.notify_all();}
 unsigned xEventGroupWaitBits(EventGroupHandle_t p,unsigned bits,int clear,int,int){
+ if(disconnect_pending){disconnect_pending=false;wh.fn(wh.ctx,WIFI_EVENT,WIFI_EVENT_STA_DISCONNECTED,nullptr);}
  std::unique_lock<std::mutex> lock(p->mutex);p->changed.wait_for(lock,std::chrono::milliseconds(100),[&]{return (p->bits&bits)!=0;});
  unsigned out=p->bits&bits;if(clear)p->bits&=~bits;return out;
 }
@@ -75,13 +81,21 @@ int esp_event_handler_instance_register(int base,int,Callback fn,void *ctx,void 
 int esp_event_handler_instance_unregister(int,int,void *instance){auto *h=(Handler*)instance;assert(stop_joined);*h={};return 0;}
 int esp_read_mac(uint8_t *mac,int){memset(mac,0,6);mac[4]=0xd6;mac[5]=0x9c;return 0;}
 int esp_wifi_set_mode(int m){assert(m==WIFI_MODE_APSTA);return 0;}
-int esp_wifi_set_config(int mode,wifi_config_t *v){assert(mode==WIFI_IF_AP||mode==WIFI_IF_STA);if(mode==WIFI_IF_AP)current=*v;return 0;}
+int esp_wifi_set_config(int mode,wifi_config_t *v){assert(mode==WIFI_IF_AP||mode==WIFI_IF_STA);if(mode==WIFI_IF_AP)current=*v;else if(config_error||driver_connecting)return config_error?config_error:ESP_ERR_WIFI_STATE;return 0;}
 int esp_wifi_set_ps(int m){assert(m==WIFI_PS_NONE);return 0;}
 int esp_wifi_start(){++wifi_starts;stop_joined=false;apnet.up=apnet.dhcp=true;wh.fn(wh.ctx,WIFI_EVENT,WIFI_EVENT_AP_START,nullptr);return 0;}
 int esp_wifi_stop(){assert(http_stops==http_starts);++wifi_stops;apnet.up=apnet.dhcp=false;stop_joined=true;wh.fn(wh.ctx,WIFI_EVENT,WIFI_EVENT_AP_STOP,nullptr);return 0;}
-int esp_wifi_disconnect(){++disconnects;wh.fn(wh.ctx,WIFI_EVENT,WIFI_EVENT_STA_DISCONNECTED,nullptr);return 0;}
-int esp_wifi_connect(){++connects;if(hold_connection)return 0;if(connect_failure){wh.fn(wh.ctx,WIFI_EVENT,WIFI_EVENT_STA_DISCONNECTED,nullptr);return 0;}ip_event_got_ip_t ip{&stanet};ih.fn(ih.ctx,IP_EVENT,IP_EVENT_STA_GOT_IP,&ip);return 0;}
-int esp_wifi_sta_get_ap_info(wifi_ap_record_t *r){r->primary=6;return 0;}
+int esp_wifi_disconnect(){++disconnects;bool linked=driver_linked;driver_connecting=driver_linked=false;
+ if(drop_disconnect)return 0;
+ if(late_disconnect&&linked)disconnect_pending=true;else wh.fn(wh.ctx,WIFI_EVENT,WIFI_EVENT_STA_DISCONNECTED,nullptr);return 0;}
+int esp_wifi_connect(){++connects;driver_connecting=true;
+ // An old-link notification can arrive after the new connect has started.
+ if(disconnect_pending){disconnect_pending=false;wh.fn(wh.ctx,WIFI_EVENT,WIFI_EVENT_STA_DISCONNECTED,nullptr);return 0;}
+ if(hold_connection)return 0;
+ driver_connecting=false;
+ if(connect_failure){wh.fn(wh.ctx,WIFI_EVENT,WIFI_EVENT_STA_DISCONNECTED,nullptr);return 0;}
+ driver_linked=true;ip_event_got_ip_t ip{&stanet};ih.fn(ih.ctx,IP_EVENT,IP_EVENT_STA_GOT_IP,&ip);return 0;}
+int esp_wifi_sta_get_ap_info(wifi_ap_record_t *r){r->primary=6;return driver_linked?0:ESP_ERR_INVALID_STATE;}
 int esp_wifi_scan_start(void*,bool){++scans;wh.fn(wh.ctx,WIFI_EVENT,WIFI_EVENT_SCAN_DONE,nullptr);return 0;}
 int esp_wifi_scan_get_ap_num(uint16_t *n){*n=1;return 0;}
 int esp_wifi_scan_get_ap_records(uint16_t *n,wifi_ap_record_t *r){assert(*n==1);strcpy((char*)r->ssid,"quoted \\\" network");r->primary=6;return 0;}
@@ -128,6 +142,28 @@ int main(int argc,char **argv){
   connect_failure=false;save_failure=true;assert(ap.RequestConnection("home","secret"));ap.ProcessConnection();
   assert(ap.GetConnectionStatus().state=="save_failed"&&!ap.IsConnected()&&apnet.up);
   save_failure=false;assert(ap.RequestConnection("home","secret"));ap.ProcessConnection();assert(ap.IsConnected());
+ }else if(test=="switch-late-disconnect"){
+  ap.Start();assert(ap.RequestConnection("home","secret"));ap.ProcessConnection();assert(ap.IsConnected());
+  late_disconnect=true;assert(ap.RequestConnection("phone","new-secret"));ap.ProcessConnection();
+  assert(ap.IsConnected()&&ap.GetConnectionStatus().saved&&connects==2&&saves==2&&apnet.up);
+  assert(SsidManager::GetInstance().items.front().ssid=="phone");
+ }else if(test=="config-error"){
+  ap.Start();assert(ap.RequestConnection("home","secret"));ap.ProcessConnection();
+  for(int error:{ESP_ERR_WIFI_STATE,0x300b}){
+   config_error=error;assert(ap.RequestConnection("phone","new-secret"));ap.ProcessConnection();
+   assert(ap.GetConnectionStatus().state=="failed"&&!ap.IsConnected()&&saves==1&&apnet.up);
+   assert(SsidManager::GetInstance().items.front().ssid=="home");
+  }
+  config_error=0;assert(ap.RequestConnection("phone","new-secret"));ap.ProcessConnection();assert(ap.IsConnected()&&saves==2);
+ }else if(test=="disconnect-timeout"){
+  ap.Start();assert(ap.RequestConnection("home","secret"));ap.ProcessConnection();
+  drop_disconnect=true;assert(ap.RequestConnection("phone","new-secret"));ap.ProcessConnection();
+  assert(ap.GetConnectionStatus().state=="failed"&&connects==1&&saves==1&&apnet.up);
+  drop_disconnect=false;assert(ap.RequestConnection("phone","new-secret"));ap.ProcessConnection();assert(ap.IsConnected());
+ }else if(test=="connect-timeout"){
+  ap.Start();hold_connection=true;assert(ap.RequestConnection("phone","secret"));ap.ProcessConnection();
+  assert(ap.GetConnectionStatus().state=="failed"&&!driver_connecting&&saves==0&&apnet.up);
+  hold_connection=false;assert(ap.RequestConnection("phone","secret"));ap.ProcessConnection();assert(ap.IsConnected());
  }else if(test=="cancel"){
   ap.Start();hold_connection=true;assert(ap.RequestConnection("home","secret"));
   std::thread worker([&]{ap.ProcessConnection();});while(!connects.load())std::this_thread::yield();
@@ -162,6 +198,10 @@ class ProvisioningTests(unittest.TestCase):
     def test_async_commit_keeps_ap_and_sta_and_reopens_saved(self):self.run_case('connect')
     def test_failed_connection_or_save_never_reports_success(self):self.run_case('failure')
     def test_exit_joins_inflight_worker_and_can_reenter(self):self.run_case('cancel')
+    def test_old_disconnect_is_drained_before_switching_network(self):self.run_case('switch-late-disconnect')
+    def test_driver_config_errors_keep_page_and_saved_wifi(self):self.run_case('config-error')
+    def test_missing_disconnect_does_not_start_new_connection(self):self.run_case('disconnect-timeout')
+    def test_connection_timeout_cancels_and_allows_next_request(self):self.run_case('connect-timeout')
     def test_http_handler_capacity_covers_all_registered_routes(self):
         source=(ROOT/'components/esp-wifi-connect/wifi_configuration_ap.cc').read_text()
         capacity=int(re.search(r'config.max_uri_handlers = (\d+)',source)[1])

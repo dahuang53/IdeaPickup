@@ -24,6 +24,10 @@ Upstream: `78/esp-wifi-connect` 3.3.1, commit recorded in `UPSTREAM_COMMIT`.
   for these events before serving or returning from Stop. No manual DHCP restart.
   Wi-Fi save still waits for the actual STA DHCP address, not association.
 - Never print a received Wi-Fi password to the serial log.
+- Before switching networks, drain the old station disconnect event; cancel
+  failed or timed-out attempts before retrying. Treat station configuration
+  errors as connection failures rather than fatal assertions, preserving the
+  portal and previously saved Wi-Fi when a new connection fails.
 
 The upstream MIT license is retained in `LICENSE`.
 
