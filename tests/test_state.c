@@ -10,6 +10,7 @@ int main(void)
         assert(!memo_can_command(available[i], CMD_STOP));
         assert(memo_can_command(available[i], CMD_USB_OPEN));
         assert(memo_can_command(available[i], CMD_BOOTLOADER));
+        assert(memo_can_command(available[i], CMD_SYNC_MODE));
         assert(memo_can_command(available[i], CMD_VOICE_WAKE));
         assert(!memo_can_command(available[i], CMD_USB_UNMUTE));
     }
@@ -34,7 +35,7 @@ int main(void)
         assert(!memo_can_command(MEMO_SAVING,c));
     }
     assert(!memo_can_command(MEMO_IDLE,99));
-    for (int c=CMD_START;c<=CMD_BOOTLOADER;c++) {
+    for (int c=CMD_START;c<=CMD_SYNC_MODE;c++) {
         bool allowed = c==CMD_USB_CLOSE || c==CMD_USB_MUTE || c==CMD_USB_UNMUTE ||
                        c==CMD_VOICE_WAKE || c==CMD_VOICE_CANCEL;
         assert(memo_can_command(MEMO_USB_MIC,c)==allowed);
@@ -47,5 +48,9 @@ int main(void)
     assert(!memo_can_command(MEMO_PLAYING,CMD_BOOTLOADER));
     assert(!memo_can_command(MEMO_PAUSED,CMD_BOOTLOADER));
     assert(!memo_can_command(MEMO_SAVING,CMD_BOOTLOADER));
+    assert(!memo_can_command(MEMO_RECORDING,CMD_SYNC_MODE));
+    assert(!memo_can_command(MEMO_PLAYING,CMD_SYNC_MODE));
+    assert(!memo_can_command(MEMO_PAUSED,CMD_SYNC_MODE));
+    assert(!memo_can_command(MEMO_SAVING,CMD_SYNC_MODE));
     puts("PASS: playback pause/resume/stop gates and busy-state command isolation");
 }

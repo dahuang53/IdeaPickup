@@ -11,6 +11,11 @@ trap 'rm -rf -- "$suite_dir"' EXIT
  -fsanitize=address,undefined -I main main/memo_record_ids.c main/memo_cardless_record.c \
  tests/test_record_ids.c -o "$suite_dir/ids"
 "$suite_dir/ids"
+.venv-relay/bin/python tests/test_sync_metadata_lock.py
+.venv-relay/bin/python tests/test_network_worker.py
+.venv-relay/bin/python tests/test_detail_startup.py
+.venv-relay/bin/python tests/test_verified_audio.py
+.venv-relay/bin/python tests/test_http_deadline.py
 .venv-relay/bin/python tests/test_sync_pipeline.py
 .venv-relay/bin/python tests/test_cardless_runtime.py
 .venv-relay/bin/python tests/test_record_ids_nvs.py

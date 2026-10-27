@@ -728,7 +728,11 @@ static void handle_command(command_t *c) {
         s.state!=MEMO_ERROR))) {
         ESP_LOGW(TAG,"REJECT stale voice request");return;
     }
-    if (!memo_can_command(s.state,c->cmd)) {ESP_LOGW(TAG,"REJECT state=%d cmd=%d",s.state,c->cmd);return;}
+    if (!memo_can_command(s.state,c->cmd)) {
+        ESP_LOGW(TAG,"REJECT state=%d cmd=%d",s.state,c->cmd);
+        if(c->cmd==CMD_SYNC_MODE){printf("SYNC_MODE result=%d\n",(int)MEMO_CONFIG_BUSY);fflush(stdout);}
+        return;
+    }
     if(c->cmd>=CMD_NEXT && c->cmd<=CMD_REBOOT)voice_set_mode(VOICE_OFF);
     switch(c->cmd) {
         case CMD_VOICE_WAKE:
@@ -784,6 +788,15 @@ static void handle_command(command_t *c) {
         }
         case CMD_IDLE:state(MEMO_IDLE,NULL);break;
         case CMD_PROVISION:network_sync_toggle_provisioning();break;
+        case CMD_SYNC_MODE: {
+            // NVS save/readback runs on the existing 10 KiB worker, never on
+            // the 4 KiB console parser. The original commit/busy guards apply.
+            int result=c->arg<=1 && !s.recovering ?
+                (int)network_sync_set_local_only(c->arg!=0):(int)MEMO_CONFIG_BUSY;
+            printf("SYNC_MODE result=%d\nSYNC_MODE_STACK free=%u\n",result,
+                   (unsigned)(uxTaskGetStackHighWaterMark(NULL)*sizeof(StackType_t)));
+            fflush(stdout);break;
+        }
         case CMD_RECOVER_PENDING:
         case CMD_POWER_SHUTDOWN:break;
     }
@@ -1060,6 +1073,21 @@ static void console(void *arg) {
             fflush(stdout);continue;
         }
         if(!strcmp(verb,"status")||!strcmp(verb,"list")||!strcmp(verb,"net_status")){print_status();continue;}
+        if(!strcmp(verb,"memory")){
+            memory_checkpoint("serial");
+            printf("MEMORY_TASK detail_stack_free=%"PRIu32" http_stop_stack_free=%"PRIu32" reset_reason=%d\n",
+                   network_sync_detail_stack_free(),network_sync_http_stack_free(),(int)esp_reset_reason());
+            fflush(stdout);continue;
+        }
+        if(!strcmp(verb,"sync_mode")) {
+            char mode[12],extra;
+            bool valid=sscanf(line,"%*s %11s %c",mode,&extra)==1 &&
+                       (!strcmp(mode,"local") || !strcmp(mode,"service"));
+            if(!valid || !app_command(CMD_SYNC_MODE,!strcmp(mode,"local"),"serial")) {
+                printf("SYNC_MODE result=%d\n",valid?(int)MEMO_CONFIG_BUSY:-1);fflush(stdout);
+            }
+            continue;
+        }
         if(!strcmp(verb,"detail")){network_sync_select_record(val);print_status();continue;}
         if(!strcmp(verb,"retry_sync")){printf("RETRY_ACCEPTED %d\n",network_sync_retry_record(val));continue;}
         if(!strcmp(verb,"provision")){app_command(CMD_PROVISION,0,"serial");continue;}
@@ -1072,7 +1100,7 @@ static void console(void *arg) {
         if(!strcmp(verb,"resume")){app_command(CMD_RESUME,0,"serial");continue;}
         const char *names[]={"start","stop","play","next","prev","refresh","fault_write","fault_space","dump","partial","recover","discard","reboot"};
         bool found=false;for(unsigned i=0;i<sizeof(names)/sizeof(names[0]);i++)if(!strcmp(verb,names[i])){app_command((memo_cmd_t)i,val,"serial");found=true;break;}
-        if(!found)printf("HELP status list net_status gauge_diag provision start stop play ID pause resume usb_open usb_close usb_mute usb_unmute next prev refresh fault_write BYTES fault_space dump ID partial ID recover ID discard ID reboot bootloader cardless_test KIND VALUE\n");
+        if(!found)printf("HELP status list net_status gauge_diag memory sync_mode local|service provision start stop play ID pause resume usb_open usb_close usb_mute usb_unmute next prev refresh fault_write BYTES fault_space dump ID partial ID recover ID discard ID reboot bootloader cardless_test KIND VALUE\n");
     }
 }
 /* Healthy mounted cards need only CMD13; no FAT scan or write. The task

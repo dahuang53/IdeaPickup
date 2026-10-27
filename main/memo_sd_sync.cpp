@@ -41,12 +41,21 @@ extern "C" void memo_sd_sync_attempt(const char *wav,const char *cache,uint32_t 
  if(!out)return;
  *out={};out->state=MEMO_JOB_LOCAL;
  auto error=[out](const char *e){snprintf(out->error,sizeof(out->error),"%s",e);};
- if(!wav||!cache||!target||!io||!io->hash_file||!io->status||!io->upload||mode<0||mode>2){error("invalid_request");return;}
+ if(!wav||!cache||!target||!io||!io->hash_file||!io->status||!io->upload||mode<0||mode>3){error("invalid_request");return;}
  memo_record_t record{};memo_audio_identity_t audio{};memo_sync_entry_t e{};memo_cache_result_t r;
  {Reader reader(io);if(!reader.held){error("audio_busy");out->pending=true;return;}
  if(memo_store_validate(wav,&record)||record.id!=id||!io->hash_file(io->context,wav,&audio)||audio.bytes!=(uint64_t)record.data_bytes+44){error("recording_unreadable");return;}
  r=memo_sync_entry_read(cache,id,&e);
  if(r==MEMO_CACHE_IO_ERROR){error("sync_metadata_unreadable");return;}
+ if(mode==3){
+  // A local result read never contacts the server or changes durable intent.
+  if(r!=MEMO_CACHE_OK || !e.bound)return;
+  if(!memo_sync_audio_matches(&e.audio,&audio)){error("recording_changed");return;}
+  if(!memo_sync_target_matches(&e.target,target,false)){error("different_service");return;}
+  out->state=e.state;out->pending=e.automatic;
+  out->can_retry=e.state==MEMO_JOB_FAILED || e.state==MEMO_JOB_LOCAL;
+  return;
+ }
  if(mode==0&&(r!=MEMO_CACHE_OK||!e.automatic)){error("no_pending_intent");return;}
  if(r==MEMO_CACHE_OK&&e.bound&&!memo_sync_audio_matches(&e.audio,&audio)){e.automatic=e.manual=false;memo_sync_entry_write(cache,&e);error("recording_changed");return;}
  if(r==MEMO_CACHE_OK&&!memo_sync_target_matches(&e.target,target,!e.bound)){

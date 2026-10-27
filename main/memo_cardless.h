@@ -39,9 +39,11 @@ bool memo_cardless_ready(void);
  * max(persistent highwater, observed floor) before a cardless begin; there is no
  * second persistent counter here. Does not change records or schedule work. */
 esp_err_t memo_cardless_observe_id(uint32_t floor);
+/* Called only by the shared HTTP worker. Advances the existing stream state
+ * machine once; its HTTP operations retain the normal transport timeout. */
+void memo_cardless_network_step(void);
 /* Call after board audio and network initialization; only an interrupted active
- * marker starts the separate network worker. That worker remains lazy on an
- * idle SD-only boot; the encoder task was already reserved by init(). */
+ * stream needs an audio buffer. Status history uses the shared HTTP worker. */
 esp_err_t memo_cardless_start_pending(void);
 /* Before begin, the caller must hold its existing audio/network power guard.
  * floor is the highest visible SD/network ID; the persistent cardless counter
@@ -59,12 +61,18 @@ bool memo_cardless_should_stop(char *error, size_t capacity);
 uint32_t memo_cardless_elapsed_ms(void);
 void memo_cardless_error(char *error, size_t capacity);
 
-/* Snapshots only: no network or flash IO in UI getters. List newest first. */
+/* List fields and peek are RAM snapshots. History stays in NVS; get is a
+ * worker-only read-through operation, never call it from LVGL. Four detail
+ * slots are reused; active audio and the selected page are pinned. */
 size_t memo_cardless_count(void);
 size_t memo_cardless_list(size_t offset, memo_cardless_record_t *out, size_t capacity);
 bool memo_cardless_get(uint32_t id, memo_cardless_record_t *out);
+void memo_cardless_select(uint32_t id);
+bool memo_cardless_peek(uint32_t id, memo_cardless_record_t *out);
 uint32_t memo_cardless_revision(void);
 bool memo_cardless_request_status(uint32_t id);
+/* Only resume the active stream with retained audio; no completed-job retry. */
+bool memo_cardless_can_resume(uint32_t id);
 bool memo_cardless_retry(uint32_t id);
 
 /* Serial-only diagnostics. Control flags are RAM-only and cleared by reboot;

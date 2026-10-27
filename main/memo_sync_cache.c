@@ -3,6 +3,25 @@
 #include <unistd.h>
 #include <string.h>
 #include <errno.h>
+/* FatFs rejects a writer while another descriptor reads the same sidecar.
+ * Serialize only these tiny metadata operations, never WAV hashing or HTTP. */
+#ifdef ESP_PLATFORM
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+static StaticSemaphore_t metadata_mutex_storage;
+static SemaphoreHandle_t metadata_mutex;
+static portMUX_TYPE metadata_init_lock=portMUX_INITIALIZER_UNLOCKED;
+static bool metadata_lock(void){
+ portENTER_CRITICAL(&metadata_init_lock);
+ if(!metadata_mutex)metadata_mutex=xSemaphoreCreateMutexStatic(&metadata_mutex_storage);
+ portEXIT_CRITICAL(&metadata_init_lock);
+ return metadata_mutex && xSemaphoreTake(metadata_mutex,portMAX_DELAY)==pdTRUE;
+}
+static void metadata_unlock(void){xSemaphoreGive(metadata_mutex);}
+#else
+static bool metadata_lock(void){return true;}
+static void metadata_unlock(void){}
+#endif
 #define ENTRY_SIZE 164U
 static uint32_t crc(const uint8_t *p,size_t n){uint32_t c=UINT32_MAX;for(size_t i=0;i<n;i++){c^=p[i];for(unsigned b=0;b<8;b++)c=(c>>1)^(0xedb88320U&(0U-(c&1)));}return ~c;}
 static void put32(uint8_t *p,uint32_t v){for(unsigned i=0;i<4;i++)p[i]=(uint8_t)(v>>(8*i));}
@@ -48,11 +67,11 @@ static memo_cache_result_t winner(const char *p,uint32_t id,memo_sync_entry_t *e
  if(rb==MEMO_CACHE_OK){*e=b;*g=y;*which=1;return MEMO_CACHE_OK;}
  return ra==MEMO_CACHE_MISSING&&rb==MEMO_CACHE_MISSING?MEMO_CACHE_MISSING:MEMO_CACHE_INVALID;
 }
-memo_cache_result_t memo_sync_entry_read(const char *p,uint32_t id,memo_sync_entry_t *e){
+static memo_cache_result_t entry_read_unlocked(const char *p,uint32_t id,memo_sync_entry_t *e){
  if(!p||!e)return MEMO_CACHE_INVALID;
  memset(e,0,sizeof(*e));uint64_t g=0;unsigned which=0;return winner(p,id,e,&g,&which);
 }
-bool memo_sync_entry_write(const char *p,const memo_sync_entry_t *e){
+static bool entry_write_unlocked(const char *p,const memo_sync_entry_t *e){
  if(!p||!valid(e))return false;
  memo_sync_entry_t previous;uint64_t g=0;unsigned which=1;memo_cache_result_t r=winner(p,e->id,&previous,&g,&which);
  if(r==MEMO_CACHE_IO_ERROR||g==UINT64_MAX)return false;
@@ -65,4 +84,13 @@ bool memo_sync_entry_write(const char *p,const memo_sync_entry_t *e){
  memo_sync_entry_t actual;uint64_t generation=0;
  if(!ok||slot(p,next,e->id,&actual,&generation)!=MEMO_CACHE_OK||generation!=g+1)return false;
  uint8_t readback[ENTRY_SIZE];encode(readback,&actual,generation);return !memcmp(readback,bytes,sizeof(bytes));
+}
+
+memo_cache_result_t memo_sync_entry_read(const char *p,uint32_t id,memo_sync_entry_t *e){
+ if(!metadata_lock())return MEMO_CACHE_IO_ERROR;
+ memo_cache_result_t result=entry_read_unlocked(p,id,e);metadata_unlock();return result;
+}
+bool memo_sync_entry_write(const char *p,const memo_sync_entry_t *e){
+ if(!metadata_lock())return false;
+ bool result=entry_write_unlocked(p,e);metadata_unlock();return result;
 }

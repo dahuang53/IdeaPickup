@@ -13,7 +13,7 @@ typedef enum {
     CMD_DISCARD, CMD_REBOOT, CMD_IDLE, CMD_PROVISION,
     CMD_RECOVER_PENDING, CMD_POWER_SHUTDOWN, CMD_PAUSE, CMD_RESUME,
     CMD_USB_OPEN, CMD_USB_CLOSE, CMD_USB_MUTE, CMD_USB_UNMUTE,
-    CMD_VOICE_WAKE, CMD_VOICE_CANCEL, CMD_BOOTLOADER
+    CMD_VOICE_WAKE, CMD_VOICE_CANCEL, CMD_BOOTLOADER, CMD_SYNC_MODE
 } memo_cmd_t;
 typedef struct { uint32_t id; uint32_t duration_ms; uint32_t file_bytes; bool cardless; } memo_item_t;
 typedef struct {

@@ -230,6 +230,7 @@ static bool io_owned=false;
 static int begin_sd_io(void*){if(io_ok)io_owned=true;return io_ok;}
 static void end_sd_io(void*){assert(io_owned);io_owned=false;}
 static int board_sd_check(){assert(io_owned);return media_ok?0:1;}
+static void invalidate_audio_cache(){}
 static void xSemaphoreTake(int,int){}
 static void xSemaphoreGive(int){}
 static uint32_t memo_sd_sync_pending(const char*,const memo_sync_target_t*,uint32_t*,bool*manual,bool*complete){
@@ -272,6 +273,7 @@ class ScanErrorTests(unittest.TestCase):
 #include <cassert>
 #include <cerrno>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <dirent.h>
 #include <inttypes.h>
@@ -312,19 +314,26 @@ class PlaybackIdentityTests(unittest.TestCase):
 #include <cerrno>
 #include <climits>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <inttypes.h>
 #include "memo_sync_cache.h"
 #include "memo_store.h"
+static bool audio_owned,interrupt_hash,switch_selection;
+static std::atomic<uint32_t> selected_revision{0};
+static size_t hashed_bytes;
 /* Crypto backend shim: tests byte traversal/ownership, not SHA strength. */
 struct mbedtls_sha256_context {uint8_t sum;};
 static void mbedtls_sha256_init(mbedtls_sha256_context*c){c->sum=0;}
 static int mbedtls_sha256_starts(mbedtls_sha256_context*c,int){c->sum=0;return 0;}
-static int mbedtls_sha256_update(mbedtls_sha256_context*c,const uint8_t*p,size_t n){while(n--)c->sum^=*p++;return 0;}
+static int mbedtls_sha256_update(mbedtls_sha256_context*c,const uint8_t*p,size_t n){hashed_bytes+=n;while(n--)c->sum^=*p++;if(interrupt_hash)audio_owned=true;if(switch_selection)selected_revision.fetch_add(1);return 0;}
 static int mbedtls_sha256_finish(mbedtls_sha256_context*c,uint8_t*out){memset(out,c->sum,32);return 0;}
 static void mbedtls_sha256_free(mbedtls_sha256_context*){}
+#define MALLOC_CAP_INTERNAL 1
+#define MALLOC_CAP_DMA 2
+static void*heap_caps_malloc(size_t n,int){return malloc(n);}
+static void heap_caps_free(void*p){free(p);}
 static void taskYIELD(){}
-static bool audio_owned;
 static bool audio_busy(){return audio_owned;}
 #define MEMO_ACTIVITY_AUDIO 1
 static int activity_gate;
@@ -365,12 +374,26 @@ int main(int argc,char**argv){
  assert(!network_sync_hash_local_audio(wav_path,&identity));
  audio_owned=true;assert(network_sync_hash_local_audio(wav_path,&identity)&&identity.bytes==108);
  char hex[65];uint32_t bytes=0;assert(!sha256_file(wav_path,hex,&bytes));
+ audio_owned=false;interrupt_hash=true;bool interrupted=false;
+ assert(!sha256_file(wav_path,hex,&bytes,false,&interrupted)&&interrupted);
+ interrupt_hash=false;audio_owned=false;interrupted=false;switch_selection=true;
+ assert(!sha256_file(wav_path,hex,&bytes,false,&interrupted,selected_revision.load())&&interrupted&&!audio_owned);
+ switch_selection=false;interrupted=false;
+ assert(sha256_file(wav_path,hex,&bytes,false,&interrupted,selected_revision.load())&&!interrupted&&bytes==108);
+ audio_owned=true;
  file_read_active=true;assert(!network_sync_hash_local_audio(wav_path,&identity));file_read_active=false;
  play_identity=identity;audio_owned=false;
  playback_resume();assert(opened==1&&!failures&&state_value==MEMO_PLAYING&&playing);
  fclose(playing);playing=nullptr;network_sync_audio_done();
  FILE*f=fopen(wav_path,"r+b");assert(f);fseek(f,50,SEEK_SET);fputc(1,f);fclose(f);
  playback_resume();assert(opened==1&&failures==1&&!playing&&!audio_owned);
+ // More than one refill: cancel after the first block, but never cancel a
+ // normal identity/upload hash merely because the UI selection changed.
+ f=fopen(wav_path,"wb");assert(f);for(unsigned i=0;i<16384;++i)fputc(0,f);fclose(f);
+ switch_selection=true;interrupted=false;hashed_bytes=0;
+ assert(!sha256_file(wav_path,hex,&bytes,false,&interrupted,selected_revision.load()));
+ assert(interrupted&&hashed_bytes==512);
+ hashed_bytes=0;assert(sha256_file(wav_path,hex,&bytes)&&bytes==16384&&hashed_bytes==16384);
 }
 '''
   with tempfile.TemporaryDirectory(prefix='resume-identity-',dir=ROOT/'private') as d:

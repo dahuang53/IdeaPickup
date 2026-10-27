@@ -97,7 +97,9 @@ static SemaphoreHandle_t http_mutex=(void *)1,status_mutex=(void *)2;
 static void *sync_task_handle=nullptr;
 static std::atomic<bool> sd_scan_requested{true};
 static memo_config_activity_gate_t activity_gate{};
-static std::atomic<bool> file_read_active{false},stream_http_active{false};
+static std::atomic<uint32_t> file_read_active{0};
+static std::atomic<memo_job_state_t> active_state{MEMO_JOB_UNKNOWN};
+static std::atomic<bool> stream_http_active{false};
 static std::atomic<uint32_t> active_record{0};
 static bool unique_audio=false,other_http_owner=false;
 [[maybe_unused]] static std::atomic<bool> power_suspended{false},pairing_http_active{false};
@@ -229,6 +231,30 @@ int main(int argc,char **argv){
     assert(durable[2]==wifi_saved);
     memo_config_public_t view{};network_sync_get_service_config(&view);
     assert(view.pairing && !view.configured);
+    if(argc==2 && !strcmp(argv[1],"M")){
+        recover_pairing();
+        auto snapshot=[](){memo_config_snapshot_t s{};auto *c=memo_network_config_nvs_lock();
+            assert(memo_config_read_snapshot(c,&s)==MEMO_CONFIG_OK);memo_network_config_nvs_unlock();return s;};
+        const auto paired=snapshot();assert(paired.enabled && paired.phase==MEMO_SERVICE_PAIRED);
+        const auto unchanged=durable[1];unsigned saved_writes=writes;
+        other_http_owner=true;assert(network_sync_set_local_only(true)==MEMO_CONFIG_BUSY);other_http_owner=false;
+        for(int cut=0;cut<4;++cut){
+            file_read_active=cut==0;stream_http_active=cut==1;active_record=cut==2?1:0;unique_audio=cut==3;
+            assert(network_sync_set_local_only(true)==MEMO_CONFIG_BUSY);
+            file_read_active=0;stream_http_active=false;active_record=0;unique_audio=false;
+        }
+        assert(durable[1]==unchanged && writes==saved_writes && http_claims==0);
+        for(bool local:{true,false}){
+            assert(network_sync_set_local_only(local)==MEMO_CONFIG_OK);
+            auto now=snapshot();assert(now.enabled==!local && now.phase==paired.phase);
+            assert(!strcmp(now.base_url,paired.base_url) && !strcmp(now.token,paired.token));
+            assert(!strcmp(now.enrollment_id,paired.enrollment_id) && memo_config_uuid_equal(&now.instance,&paired.instance));
+            assert(durable[2]==wifi_saved && http_claims==0);
+            unsigned after=writes;assert(network_sync_set_local_only(local)==MEMO_CONFIG_OK);assert(writes==after);
+        }
+        // Pausing/resuming preserves pairing; neither command starts another enrollment.
+        assert(pair_runs==1);puts("PASS maintenance mode: preserved target/token/instance/Wi-Fi, busy guards, idempotent writes");return 0;
+    }
     if(argc==2 && !strcmp(argv[1],"F4")){
         assert(portal.Save("old-wifi","updated-synthetic-password"));
         auto &list=SsidManager::GetInstance().GetSsidList();
@@ -333,7 +359,9 @@ int main(int argc,char **argv){
     assert(network_sync_configure_service("https://two.example","23456789AB",false)==MEMO_CONFIG_BUSY);
     assert(!network_sync_power_busy());assert(!network_sync_power_suspend());
     network_sync_sd_probe_done();assert(!audio_busy());
-    assert(begin_sd_io(nullptr)&&file_read_active);assert(!network_sync_try_sd_probe());end_sd_io(nullptr);
+    assert(begin_sd_io(nullptr)&&file_read_active);assert(!network_sync_try_sd_probe());
+    assert(begin_sd_io(nullptr)&&file_read_active==2);end_sd_io(nullptr);
+    assert(file_read_active==1&&!network_sync_try_sd_probe());end_sd_io(nullptr);assert(!file_read_active);
     assert(writes==prior_writes && durable[1]==before && durable[2]==wifi_saved);
     for(int cut=0;cut<3;++cut){
         file_read_active=cut==0;power_suspended=cut==1;unique_audio=cut==2;
@@ -377,6 +405,37 @@ int main(int argc,char **argv){
 '''
 
 class RuntimeTests(unittest.TestCase):
+    def test_detail_selection_publishes_latest_request_atomically(self):
+        body=extract((ROOT/'main/network_sync.cpp').read_text(),'extern "C" void network_sync_select_record')
+        code=r'''#include <atomic>
+#include <cassert>
+#include <cstdint>
+#include <functional>
+static void *status_mutex=(void *)1,*detail_task_handle=(void *)2;
+static std::atomic<uint32_t> selected_cardless{0},selected_revision{0},inspect_id{0};
+static uint32_t pinned,detail_revision;static int lock_depth;static std::function<void()> on_unlock;
+struct Detail {uint32_t id;int state;};static Detail detail_value;
+#define MEMO_CARDLESS_ID_FLAG 0x80000000u
+#define MEMO_JOB_CHECKING 3
+#define portMAX_DELAY 0
+void memo_cardless_select(uint32_t id){pinned=id;}
+void xSemaphoreTake(void *,int){assert(lock_depth==0);++lock_depth;}
+void xSemaphoreGive(void *){assert(lock_depth==1);--lock_depth;if(on_unlock){auto fn=on_unlock;on_unlock={};fn();}}
+void xTaskNotifyGive(void *){}
+// BODY
+int main(){
+ on_unlock=[](){network_sync_select_record(0x8000002du);};network_sync_select_record(61);
+ assert(detail_value.id==0x8000002du && inspect_id==detail_value.id && pinned==detail_value.id && selected_cardless==detail_value.id);
+ on_unlock=[](){network_sync_select_record(0);};network_sync_select_record(61);
+ assert(detail_value.id==0 && inspect_id==0 && pinned==0 && selected_cardless==0);
+ assert(selected_revision==4 && detail_revision==4 && lock_depth==0);
+}
+'''.replace('// BODY',body)
+        with tempfile.TemporaryDirectory(prefix='detail-select-',dir=ROOT/'private/host-tests') as directory:
+            file=Path(directory)/'check.cpp';file.write_text(code);binary=Path(directory)/'check'
+            subprocess.run(['c++','-std=c++17','-Wall','-Wextra','-Werror','-fsanitize=address,undefined',str(file),'-o',str(binary)],check=True)
+            subprocess.run([str(binary)],check=True)
+
     def test_lan_transport_does_not_wait_for_internet_clock(self):
         body=extract((ROOT/'main/network_sync.cpp').read_text(),'bool ensure_clock')
         harness=r'''#include <cstring>
@@ -418,7 +477,7 @@ int main(){
             markers=['bool audio_busy','class HttpGuard','class ConfigGuard','class ConfigCommitGuard','bool current_service','void status_update','void set_error','void refresh_service_status',
                      'extern "C" void network_sync_get_status','extern "C" void network_sync_get_service_config',
                      'bool pairing_is_current','memo_config_result_t pairing_bind','void recover_pairing',
-                     'extern "C" memo_config_result_t network_sync_configure_service',
+                     'extern "C" memo_config_result_t network_sync_configure_service','extern "C" memo_config_result_t network_sync_set_local_only',
                      'extern "C" bool network_sync_prepare_audio','extern "C" void network_sync_audio_done',
                      'extern "C" bool network_sync_try_sd_probe','extern "C" void network_sync_sd_probe_done',
                      'extern "C" bool network_sync_power_busy','extern "C" bool network_sync_power_suspend',
@@ -440,7 +499,7 @@ int main(){
             binary=temp/'runtime'
             subprocess.run(['c++','-std=c++17','-g','-O1','-Wall','-Wextra','-Werror','-fsanitize=address,undefined','-DMEMO_HOST_TEST',*includes,str(file),str(ROOT/'components/esp-wifi-connect/ssid_manager.cc'),*objects,'-o',str(binary)],check=True)
             results={}
-            for scenario in ('','F1','F2','F3','F4','F5',*(f'P{i}' for i in range(8))):
+            for scenario in ('','M','F1','F2','F3','F4','F5',*(f'P{i}' for i in range(8))):
                 results[scenario or 'baseline']=subprocess.run([str(binary),*([scenario] if scenario else [])]).returncode
             self.assertEqual(results,{name:0 for name in results})
 

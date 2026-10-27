@@ -28,6 +28,7 @@ bool pairing_is_current(const memo_config_snapshot_t &p){return enabled && p.gen
 using esp_err_t=int;
 using esp_http_client_handle_t=void *;
 struct esp_http_client_config_t {const char *url;void (*crt_bundle_attach)();bool disable_auto_redirect;int timeout_ms,buffer_size;};
+struct MemoHttpTransport {explicit MemoHttpTransport(esp_http_client_config_t&){} bool ready(){return true;}};
 void esp_crt_bundle_attach(){}
 extern "C" memo_config_result_t memo_config_join_url(const char *base,const char *path,char *out,size_t capacity){
  return snprintf(out,capacity,"%s%s",base,path)<(int)capacity?MEMO_CONFIG_OK:MEMO_CONFIG_INVALID;

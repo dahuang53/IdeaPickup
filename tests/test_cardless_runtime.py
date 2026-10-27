@@ -73,6 +73,7 @@ struct Done {};
 static void xSemaphoreTake(void *,int){}
 static void xSemaphoreGive(void *){}
 static void xTaskNotifyGive(void *){}
+extern "C" void network_sync_wake(void){}
 static void ulTaskNotifyTake(int,int){if(!iterations--)throw Done{};now_us+=60000000;}
 static int64_t esp_timer_get_time(){return now_us;}
 static const char *esp_err_to_name(int){return "host-shim";}
@@ -100,7 +101,7 @@ static uint8_t pcm_memory[PCM_BUFFER_BYTES];
 static void *heap_caps_malloc(size_t,int){return pcm_memory;}
 static StreamBufferHandle_t xStreamBufferCreateStatic(size_t,int,uint8_t*,StaticStreamBuffer_t*){return (void*)8;}
 static void xStreamBufferReset(StreamBufferHandle_t){}
-static int ensure_network_task();
+static int ensure_network_buffer();
 extern "C" bool memo_record_ids_reserve(uint32_t floor,uint32_t *id){*id=floor+1;return true;}
 static memo_sync_target_t current{};
 static int (*transport)(const char*,const char*,uint32_t,const void*,size_t,const char*,const char*,char*,size_t);
@@ -118,6 +119,8 @@ static bool current_service(memo_config_snapshot_t &out){
  snprintf(out.base_url,sizeof(out.base_url),"%s",base_url.c_str());snprintf(out.token,sizeof(out.token),"%s",device_token.c_str());return true;
 }
 struct esp_http_client_config_t {const char *url;int (*crt_bundle_attach)(void*);bool disable_auto_redirect;int timeout_ms,buffer_size,buffer_size_tx;};
+// Network policy is tested in test_http_deadline; this harness isolates stream semantics.
+struct MemoHttpTransport {explicit MemoHttpTransport(esp_http_client_config_t&){} bool ready(){return true;} void write_window(){}};
 struct Http {std::string url,payload,response;std::map<std::string,std::string> headers;int method=0,code=0;size_t at=0;};
 using esp_http_client_handle_t=Http*;
 static const int HTTP_METHOD_GET=0,HTTP_METHOD_POST=1,HTTP_METHOD_PUT=2;
@@ -136,6 +139,7 @@ static int esp_http_client_fetch_headers(Http *h){
 }
 static int esp_http_client_get_status_code(Http *h){return h->code;}
 static int esp_http_client_read(Http *h,char *p,size_t n){n=std::min(n,h->response.size()-h->at);memcpy(p,h->response.data()+h->at,n);h->at+=n;return (int)n;}
+static bool esp_http_client_is_complete_data_received(Http *h){return h->at==h->response.size();}
 static void esp_http_client_close(Http*){}
 static void esp_http_client_cleanup(Http *h){delete h;}
 
@@ -146,38 +150,76 @@ extern "C" void network_sync_get_status(memo_network_status_t *out){*out={};out-
 WRAPPERS=r'''
 extern "C" void fixture_reset(uint32_t id,const memo_sync_target_t *target){
  durable.clear();pending.clear();fault=marker_fault=audio_flag_fault=0;audio_flag_write=false;active_read_fault=false;last_write.clear();reads=0;current=*target;now_us=0;power_ok=true;swap_before_transport=false;http_claims=0;stream_http_active=power_suspended=false;
- static memo_cardless_record_t memory[MAX_RECORDS];static uint8_t ring[AUDIO_BUFFER_BYTES],chunk[CHUNK_CAPACITY];
- memset(memory,0,sizeof(memory));records=memory;record_count=1;meta_mutex=buffer_mutex=task_mutex=(void*)1;metadata=1;network_chunk=chunk;packet_storage=ring;
- memo_cardless_buffer_init(&packets,ring,sizeof(ring));records[0].id=id;records[0].target=*target;records[0].state=MEMO_JOB_QUEUED;
+ static RecordIndex memory[MAX_RECORDS];static uint8_t ring[AUDIO_BUFFER_BYTES],chunk[CHUNK_CAPACITY];
+ transfer_state={};memset(memory,0,sizeof(memory));for(auto &slot:record_details)slot={};detail_clock=0;selected_detail=resume_request=0;records=memory;record_count=1;meta_mutex=buffer_mutex=task_mutex=(void*)1;metadata=1;network_chunk=chunk;packet_storage=ring;
+ memo_cardless_buffer_init(&packets,ring,sizeof(ring));memo_cardless_record_t initial{};initial.id=id;initial.target=*target;initial.state=MEMO_JOB_QUEUED;records[0]={id,0,0,MEMO_JOB_QUEUED};
  initialized=true;metadata_fault=false;remote_complete=false;transfer_blocked=false;active_id=id;capturing=false;encoder_done=true;recovery_mode=false;
  stop_requested=false;finish_requested=true;encode_abort=false;begin_in_progress=false;encoded_samples=0;input_samples=0;
  test_http_id=test_drop_put_id=test_drop_finish_id=test_finish_hold_id=test_put_401_id=test_ring_id=0;
  status_request=retry_request=0;global_error[0]=stop_reason[0]=query_notice[0]=0;query_notice_id=0;
- persist_locked(records[0]);nvs_set_u32(metadata,"active",id);nvs_commit(metadata);
+ persist_locked(initial);nvs_set_u32(metadata,"active",id);nvs_commit(metadata);
 }
 extern "C" void fixture_transport(decltype(transport) p,const char *base,const char *token){transport=p;base_url=base;device_token=token;}
 extern "C" void fixture_swap_before_transport(){swap_before_transport=true;}
 extern "C" int fixture_begin(int kind,uint32_t *id){
  durable.clear();pending.clear();record_count=0;active_id=0;counter=0;capturing=false;encoder_done=true;metadata_fault=false;begin_in_progress=false;
- network_task_handle=(void*)6;encoder_task_handle=(void*)5;marker_fault=kind;active_read_fault=false;*id=0;
+ encoder_task_handle=(void*)5;marker_fault=kind;active_read_fault=false;*id=0;
  return memo_cardless_begin(0,id);
 }
 extern "C" void fixture_restore_io(){marker_fault=audio_flag_fault=0;active_read_fault=false;}
 extern "C" void fixture_audio_flag_fault(int cut){audio_flag_fault=cut;}
 extern "C" int fixture_record_count(){return (int)record_count;}
-extern "C" int fixture_begin_next(uint32_t *id){encoder_task_handle=(void*)5;network_task_handle=(void*)6;return memo_cardless_begin(0,id);}
+extern "C" int fixture_begin_next(uint32_t *id){encoder_task_handle=(void*)5;return memo_cardless_begin(0,id);}
 
+
+extern "C" bool fixture_resume_is_queued(){
+ pause_transfer(records[0].id,"network_unavailable");
+ auto before=durable;int old_reads=reads;
+ if(!memo_cardless_retry(records[0].id))return false;
+ return before==durable && reads==old_reads && transfer_blocked && resume_request==records[0].id;
+}
+extern "C" int fixture_metadata_budget(){return sizeof(RecordIndex)*MAX_RECORDS+sizeof(record_details);}
+extern "C" bool fixture_metadata_eviction(){
+ active_id=records[0].id;auto *active=load_record_locked(0);if(!active)return false;
+ active->encoded_bytes=777; // not committed yet: must never be evicted
+ for(uint32_t n=2;n<=MAX_RECORDS;n++) {
+  memo_cardless_record_t r{};r.id=MEMO_CARDLESS_ID_FLAG|n;r.target=current;r.state=MEMO_JOB_SENT;
+  records[record_count++]={r.id,n,n*2,r.state};r.duration_ms=n;r.encoded_bytes=n*2;
+  if(!persist_locked(r))return false;
+ }
+ const auto before=durable;
+ selected_detail=records[1].id;
+ if(!load_record_locked(1))return false;
+ for(size_t n=2;n<record_count;n++) {
+  auto *r=load_record_locked(n);if(!r || r->id!=records[n].id || r->duration_ms!=n+1)return false;
+ }
+ if(load_record_locked(0,true)!=active || active->encoded_bytes!=777)return false;
+ if(!load_record_locked(1,true) || durable!=before)return false;
+ int old_reads=reads;memo_cardless_record_t snapshot{};
+ if(!memo_cardless_peek(records[1].id,&snapshot)||reads!=old_reads)return false;
+ if(memo_cardless_peek(records[2].id,&snapshot)||reads!=old_reads)return false;
+ for(size_t n=1;n<record_count;n++){auto *r=load_record_locked(n);if(!r||r->state!=MEMO_JOB_SENT)return false;}
+ return record_count==MAX_RECORDS;
+}
+extern "C" bool fixture_read_failure_preserves_cache(){
+ auto *r=load_record_locked(0);if(!r)return false;
+ selected_detail=0;active_id=0;
+ for(auto &slot:record_details)slot={};
+ auto before=durable;fault=3;
+ auto *bad=load_record_locked(0);
+ return !bad && metadata_fault && durable==before;
+}
 
 extern "C" bool fixture_push(const void *data,size_t n){
  const uint8_t *p=(const uint8_t*)data;size_t at=0;unsigned frames=0;
  while(at<n){if(at+2>n)return false;size_t size=p[at]|((size_t)p[at+1]<<8);at+=2;if(at+size>n||!memo_cardless_buffer_push(&packets,p+at,size))return false;at+=size;frames++;}
  encoded_samples+=frames*320;input_samples=encoded_samples.load();return true;
 }
-extern "C" void fixture_run(int steps){iterations=steps;try{transfer_task(nullptr);}catch(const Done&){} }
+extern "C" void fixture_run(int steps){iterations=steps;try{for(;;){ulTaskNotifyTake(1,250);transfer_step();}}catch(const Done&){} }
 extern "C" uint32_t fixture_active(){return active_id;}
 extern "C" size_t fixture_packets(){return packets.packets;}
 extern "C" int fixture_state(){return records[0].state;}
-extern "C" int fixture_can_retry(){return records[0].can_retry;}
+extern "C" int fixture_can_retry(){auto *r=load_record_locked(0);return r && r->can_retry;}
 extern "C" void fixture_query(bool retry){query_selected(records[0].id,retry);}
 extern "C" int fixture_faulted(){return metadata_fault;}
 extern "C" int fixture_reads(){return reads;}
@@ -187,7 +229,7 @@ extern "C" void fixture_power(bool ok){power_ok=ok;}
 extern "C" void fixture_target(const memo_sync_target_t *target){current=*target;}
 extern "C" int fixture_restore_marker();
 extern "C" bool fixture_reboot(){
- capturing=false;encoder_done=true;remote_complete=transfer_blocked=metadata_fault=false;stop_requested=false;
+ transfer_state={};capturing=false;encoder_done=true;remote_complete=transfer_blocked=metadata_fault=false;stop_requested=false;
  memo_cardless_buffer_init(&packets,packet_storage,AUDIO_BUFFER_BYTES);encoded_samples=input_samples=0;
  return fixture_restore_marker()==ESP_OK;
 }
@@ -204,10 +246,10 @@ class CardlessTests(SyncTests):
         network=(ROOT/'main/network_sync.cpp').read_text()
         parts=[PRELUDE,extract(network,'class HttpGuard')+';',extract(network,'esp_err_t read_http_body'),
                extract(network,'extern "C" int network_sync_stream_request'),initial,extract(source,'struct Reply')+';']
-        names=['Reply parse_reply','memo_job_state_t remote_state','void selected_notice','void clear_selected_notice','void accept_reply','bool active_marker_matches','bool clear_active_marker','bool mark_remote_audio','void release_active','esp_err_t restore_active_record','void make_path','int request','bool online','void sha_hex','int finish_remote','void query_selected','void transfer_task']
+        names=['Reply parse_reply','memo_job_state_t remote_state','void selected_notice','void clear_selected_notice','void accept_reply','bool active_marker_matches','bool clear_active_marker','bool mark_remote_audio','void release_active','esp_err_t restore_active_record','esp_err_t reconcile_orphan_records','extern "C" bool memo_cardless_can_resume','void make_path','int request','bool online','void sha_hex','int finish_remote','void query_selected','void transfer_step']
         parts += [extract(source,name) for name in names]
-        boot='extern "C" int fixture_restore_marker(){metadata_fault=false;active_id=0;recovery_mode=false;encoder_done=true;record_count=counter=0;for(auto &item:durable){if(item.first[0]==114){memo_cardless_record_t r{};if(!memo_cardless_record_decode(item.second.data(),item.second.size(),&r))return ESP_FAIL;records[record_count++]=r;counter=std::max(counter,MEMO_CARDLESS_DISPLAY_ID(r.id));}}return restore_active_record();}'
-        parts += [extract(source,'extern "C" bool memo_cardless_get'),'static int ensure_network_task(){return ESP_OK;}',
+        boot='extern "C" int fixture_restore_marker(){metadata_fault=false;active_id=0;recovery_mode=false;encoder_done=true;record_count=counter=0;for(auto &slot:record_details)slot={};selected_detail=resume_request=0;for(auto &item:durable){if(item.first[0]==114){memo_cardless_record_t r{};if(!memo_cardless_record_decode(item.second.data(),item.second.size(),&r))return ESP_FAIL;records[record_count++]={r.id,r.duration_ms,r.encoded_bytes,r.state};counter=std::max(counter,MEMO_CARDLESS_DISPLAY_ID(r.id));}}int e=restore_active_record();return e==ESP_OK?reconcile_orphan_records():e;}'
+        parts += [extract(source,'extern "C" bool memo_cardless_get'),extract(source,'extern "C" bool memo_cardless_peek'),extract(source,'extern "C" bool memo_cardless_retry'),'static int ensure_network_buffer(){return ESP_OK;}',
                   extract(source,'extern "C" esp_err_t memo_cardless_begin'),extract(source,'extern "C" bool memo_cardless_busy'),WRAPPERS,boot]
         cpp=cls.directory/'cardless-runtime.cpp';cpp.write_text('\n'.join(parts));obj=cls.directory/'cardless-runtime.o'
         crypto=ROOT/'.tools/esp-idf/components/mbedtls/mbedtls'
@@ -282,6 +324,51 @@ class CardlessTests(SyncTests):
         self.reboot_pairing_and_server();self.work();self.runtime_lib.fixture_query(False)
         self.assertEqual(self.runtime_lib.fixture_state(),9)
         self.assertEqual((len(self.asr),len(self.deliveries)),(1,1))
+    def test_background_tracks_completion_without_opening_details_then_stops(self):
+        for chunk in self.chunks:self.push(chunk)
+        self.tick();self.work();self.tick()
+        self.assertEqual(self.runtime_lib.fixture_state(),9)
+        before=list(self.calls);self.tick(100)
+        self.assertEqual(self.calls,before)
+        self.assertTrue(self.runtime_lib.fixture_reboot());self.tick(100)
+        self.assertEqual(self.calls,before)
+        self.assertEqual((len(self.asr),len(self.deliveries)),(1,1))
+
+    def test_uncertain_keeps_get_reconciliation_without_retriggering(self):
+        self.mode='uncertain'
+        for chunk in self.chunks:self.push(chunk)
+        self.tick();self.work();self.tick()
+        self.assertEqual(self.runtime_lib.fixture_state(),12)
+        before=len(self.calls);self.tick(4)
+        self.assertGreater(len(self.calls),before)
+        self.assertTrue(all(call[0]=='GET' for call in self.calls[before:]))
+        self.assertEqual(len(self.asr),1)
+
+    def test_resume_only_enqueues_without_flash_or_http_on_caller(self):
+        self.runtime_lib.fixture_resume_is_queued.restype=C.c_bool
+        self.assertTrue(self.runtime_lib.fixture_resume_is_queued())
+        self.assertEqual(self.calls,[])
+
+    def test_orphan_blob_without_active_marker_becomes_failed_at_boot(self):
+        value=C.c_uint32()
+        self.assertNotEqual(self.runtime_lib.fixture_begin(1,C.byref(value)),0)
+        self.runtime_lib.fixture_restore_io()
+        self.assertEqual(self.runtime_lib.fixture_restore_marker(),0)
+        self.assertEqual(self.runtime_lib.fixture_state(),10)
+        self.assertEqual(self.runtime_lib.fixture_active(),0)
+        self.assertEqual(self.calls,[])
+
+    def test_history_uses_fixed_cache_and_preserves_active_and_selected(self):
+        self.runtime_lib.fixture_metadata_eviction.restype=C.c_bool
+        self.assertLess(self.runtime_lib.fixture_metadata_budget(),18*1024)
+        self.assertTrue(self.runtime_lib.fixture_metadata_eviction())
+        self.assertEqual(self.calls,[])
+
+    def test_unreadable_history_fails_closed_without_deleting_records(self):
+        self.runtime_lib.fixture_read_failure_preserves_cache.restype=C.c_bool
+        self.assertTrue(self.runtime_lib.fixture_read_failure_preserves_cache())
+        self.assertEqual(self.calls,[])
+
     def test_cardless_create_ack_finish_real_R02(self):
         for chunk in self.chunks:self.push(chunk)
         self.tick();self.assertEqual(self.runtime_lib.fixture_active(),0);self.work()

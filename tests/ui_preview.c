@@ -484,11 +484,11 @@ static void cardless_cases(lv_indev_t *indev)
 #endif
     unsigned retries=retry_calls,queries=select_calls;
     press(indev,TAP_X,retry_y,true);press(indev,TAP_X,retry_y,false);tick(220);
-    assert(select_calls==queries+1 && retry_calls==retries); // Query is not an ASR retry.
+    assert(select_calls==queries && retry_calls==retries); // Saved state only; no query or ASR trigger.
     detail_job.state=MEMO_JOB_FAILED;detail_job.can_retry=true;
     snprintf(detail_job.error,sizeof(detail_job.error),"网络中断过久，录音已停止");
     save_frame("cardless-failed-retry");
-    assert(contains_visible_label(lv_screen_active(),"重试处理"));
+    assert(contains_visible_label(lv_screen_active(),"继续上传"));
     press(indev,TAP_X,retry_y,true);press(indev,TAP_X,retry_y,false);tick(220);
     assert(retry_calls==retries+1 && detail_job.id==cardless_id);
     detail_job.request_pending=false;detail_job.can_retry=false;detail_job.interrupted=true;
@@ -500,6 +500,10 @@ static void cardless_cases(lv_indev_t *indev)
     }
     detail_job.error[0]='\0';detail_job.state=MEMO_JOB_SENT;
     save_frame("cardless-interrupted-sent");
+    network.configured=false;network.connected=false;detail_job.state=MEMO_JOB_FAILED;
+    save_frame("cardless-saved-failure-offline");
+    assert(contains_visible_label(lv_screen_active(),MEMO_UI_COMPACT?"处理未完成":"处理未完成喵"));
+    network.configured=true;network.connected=true;
     for(int st=MEMO_JOB_UNKNOWN;st<=MEMO_JOB_UNCERTAIN;st++) {
         detail_job.state=(memo_job_state_t)st;
         save_frame("cardless-detail-status");
@@ -695,20 +699,26 @@ int main(void)
     assert(contains_visible_label(lv_screen_active(),MEMO_UI_COMPACT?"任务繁忙，请稍后重试":"任务繁忙，请稍后重试喵"));
     save_frame("record-detail-busy-feedback");tick(2200);retry_accept=true;
     detail_job.state=MEMO_JOB_FAILED;detail_job.can_retry=false;
-    tick(220);assert(contains_visible_label(lv_screen_active(),"刷新状态"));
+    tick(220);assert(!contains_visible_label(lv_screen_active(),"刷新状态"));
     unsigned old_queries=select_calls,old_retries=retry_calls;
     press(indev,retry_x,retry_y,true);press(indev,retry_x,retry_y,false);tick(220);
-    assert(select_calls==old_queries+1 && retry_calls==old_retries);
+    assert(select_calls==old_queries && retry_calls==old_retries);
     detail_job.state=MEMO_JOB_FAILED;detail_job.can_retry=true;
     tick(220);press(indev,retry_x,retry_y,true);press(indev,retry_x,retry_y,false);tick(220);
     assert(retry_calls==old_retries+1);
     detail_job.request_pending=false;detail_job.state=MEMO_JOB_UNCERTAIN;tick(220);
     old_retries=retry_calls;old_queries=select_calls;
     press(indev,retry_x,retry_y,true);press(indev,retry_x,retry_y,false);tick(220);
-    assert(retry_calls==old_retries && select_calls==old_queries+1);
+    assert(retry_calls==old_retries && select_calls==old_queries);
     network.connected=false;tick(220);old_retries=retry_calls;old_queries=select_calls;
     press(indev,retry_x,retry_y,true);press(indev,retry_x,retry_y,false);tick(220);
     assert(retry_calls==old_retries && select_calls==old_queries);
+    network.configured=false;detail_job.state=MEMO_JOB_FAILED;
+    save_frame("record-saved-failure-offline");
+    assert(contains_visible_label(lv_screen_active(),MEMO_UI_COMPACT?"处理失败":"同步失败，录音仍在本机喵"));
+    detail_job.state=MEMO_JOB_CHECKING;save_frame("record-local-identity-check");
+    assert(contains_visible_label(lv_screen_active(),MEMO_UI_COMPACT?"正在核对录音":"正在核对录音喵"));
+    network.configured=true;
     network.connected=true;detail_job.state=MEMO_JOB_LOCAL;tick(220);
     assert(contains_visible_label(lv_screen_active(),"开始同步"));
 #if !MEMO_UI_COMPACT

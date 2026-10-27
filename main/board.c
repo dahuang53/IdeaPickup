@@ -23,6 +23,7 @@
 #include "driver/ledc.h"
 #include "driver/sdmmc_host.h"
 #include "sdmmc_cmd.h"
+#include "memo_sd_session.h"
 #include "driver/spi_master.h"
 #include "esp_check.h"
 #include "esp_codec_dev_defaults.h"
@@ -279,6 +280,7 @@ static esp_err_t sd_presence_transaction(int slot, sdmmc_command_t *cmd)
 }
 bool board_sd_absent(void) { return s_sd_no_response; }
 esp_err_t board_sd_check(void) { return s_card?sdmmc_get_status(s_card):ESP_ERR_INVALID_STATE; }
+esp_err_t board_sd_verify_session(void) { return memo_sd_session_check(s_card); }
 
 esp_err_t board_sd_mount(void)
 {

@@ -24,6 +24,7 @@ typedef struct {
     uint32_t cursor_id;
     uint32_t last_uploaded_id;
     uint32_t active_sync_id;
+    memo_job_state_t active_sync_state;
     uint32_t queued_sync_id;
     bool queued_sync_manual;
     char device_id[40];
@@ -38,6 +39,13 @@ esp_err_t network_sync_init(uint32_t existing_latest_id);
  * OK means durable settings / queued pairing, not server-confirmed pairing. */
 memo_config_result_t network_sync_configure_service(const char *url, const char *pairing_code, bool local_only);
 void network_sync_get_service_config(memo_config_public_t *out);
+/* Maintenance transport: reuse current address/pairing, never expose credentials. */
+memo_config_result_t network_sync_set_local_only(bool local_only);
+/* Numeric maintenance measurement; minimum unused detail-task stack in bytes. */
+uint32_t network_sync_detail_stack_free(void);
+uint32_t network_sync_http_stack_free(void);
+/* Wake the single HTTP worker after cardless audio/state becomes available. */
+void network_sync_wake(void);
 void network_sync_get_status(memo_network_status_t *out);
 void network_sync_notify_record(uint32_t record_id);
 /* Called by the audio owner after an exact device ID reservation, before capture. */

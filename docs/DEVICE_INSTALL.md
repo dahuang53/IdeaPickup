@@ -132,12 +132,14 @@ MEMO_PORT='/dev/cu.usbmodem实际应用编号'
 <a id="updates"></a>
 ## 普通固件更新
 
-先保存“仅本地使用”，停止录放／同步，下载并校验同板型新包，解压到新的目录，再按上面的下载模式步骤进入 ROM。使用新包路径、将模式改为 `app-only`：
+先暂停同步，停止录放，下载并校验同板型新包，解压到新的目录，再按上面的下载模式步骤进入 ROM。使用新包路径、将模式改为 `app-only`：
 
 ```sh
 ./scripts/flash_vocat16.sh "$MEMO_ROM_PORT" private/downloads/vocat16/firmware/manifest.json app-only
 # 斑梨改用 flash_spotpear.sh 与自己的 spotpear manifest；不要两条都执行
 ```
+
+已包含本次同步修复的固件可由维护工具通过 USB 串口发送 `sync_mode local`，调用与网页相同的保存入口暂停同步，无需手动开网页；`SYNC_MODE result=0` 后还须用 `status` 确认任务空闲、服务停用。已有地址与配对保留。忙态不强制覆盖正在传输的唯一音频，先按现有 `provision` 暂停入口停止同步再核对；不把“发了命令”当作已停止。验证结束可用 `sync_mode service` 恢复原服务，先确认允许处理尚未完成任务。旧固件未支持该命令时不要假定生效。`memory` 仅输出 RAM 数值，不读录音正文或凭据。
 
 脚本先核对 bootloader／分区表／模型依赖并备份本次拟写扇区，只写 app，保留配置、编号、任务和 SD 录音。依赖不同会停止，不能为了通过而改用 `first-install`；先看新版本的兼容说明。更新后确认启动、原有录音和状态，准备好联网后再自行恢复转写服务。
 

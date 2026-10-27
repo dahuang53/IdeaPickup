@@ -28,6 +28,7 @@ esp_err_t board_sd_mount(void);
 bool board_sd_absent(void);
 /* One real CMD13 before opening an SD recording; free-space may be cached. */
 esp_err_t board_sd_check(void);
+esp_err_t board_sd_verify_session(void);
 /* Call only while no recording/playback/file operation is active. */
 esp_err_t board_sd_unmount(void);
 esp_err_t board_audio_init(void);

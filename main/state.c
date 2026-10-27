@@ -2,7 +2,7 @@
 bool memo_can_command(memo_state_t state, memo_cmd_t command)
 {
     bool available = state == MEMO_IDLE || state == MEMO_SAVED || state == MEMO_ERROR;
-    if (command == CMD_BOOTLOADER) return available;
+    if (command == CMD_BOOTLOADER || command == CMD_SYNC_MODE) return available;
     if (command == CMD_VOICE_WAKE || command == CMD_VOICE_CANCEL)
         return available || state == MEMO_RECORDING || state == MEMO_USB_MIC;
     if (command == CMD_USB_OPEN) return available;

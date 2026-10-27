@@ -265,6 +265,17 @@ class SyncTests(unittest.TestCase):
         self.target.instance.bytes[0]^=1;before=len(self.events)
         self.assertEqual(self.run_device().error,b'different_service');self.assertEqual(len(self.events),before)
         self.assertEqual(bytes(self.read_entry(1).target.instance.bytes),bytes(original.target.instance.bytes))
+    def test_local_detail_never_queries_or_retries_and_preserves_result(self):
+        self.run_device();self.work();self.run_device()
+        before=list(self.events);raw=[Path(str(self.cache(1))+f'.{n}').read_bytes() for n in (0,1)]
+        for _ in range(4):self.assertEqual(self.run_device(1,3).state,9)
+        self.assertEqual(self.events,before)
+        self.assertEqual(raw,[Path(str(self.cache(1))+f'.{n}').read_bytes() for n in (0,1)])
+        audio=self.path(1).read_bytes();self.path(1).write_bytes(audio[:-1]+bytes([audio[-1]^1]))
+        result=self.run_device(1,3)
+        self.assertEqual(result.error,b'recording_changed');self.assertNotEqual(result.state,9)
+        self.assertEqual(self.events,before)
+
     def test_no_auto_history_without_version_created_intent(self):
         self.make_wav(42);self.assertEqual(self.run_device(42).error,b'no_pending_intent');self.assertEqual(self.events,[])
     def test_device_retry_permission_and_terminal_rejection(self):

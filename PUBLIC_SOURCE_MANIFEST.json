@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "tree_sha256": "ba89401f67bc54a458acc0144aed01400be9baae7067eecc3868e41559421106",
+  "tree_sha256": "04625d3a60d68d7a3bf80739894ea2bd23102f6af5e0bb251ae586ff0dea7fc5",
   "files": [
     {
       "path": ".dockerignore",
@@ -316,14 +316,14 @@
     },
     {
       "path": "docs/DEVICE_INSTALL.md",
-      "sha256": "ca080b66ef7cc80b33761b8890b3e3a5332eb64195be9ca3c80d8892e2364747",
-      "size": 12165,
+      "sha256": "38a96eec24ff1657f1f5b4779c55d4d07f1cf93386023c59a813c0b242d5e661",
+      "size": 12791,
       "executable": false
     },
     {
       "path": "docs/FIRMWARE_STORAGE.md",
-      "sha256": "4710eb67aaceb16d2871010c99b4811b4755eecff5be049f0a7e2b867b124a1e",
-      "size": 1720,
+      "sha256": "7fa8b6c61cbcd1d4a167cf8599b7303faf6ffeb940e8d94d107b14427ddba380",
+      "size": 4634,
       "executable": false
     },
     {
@@ -334,14 +334,14 @@
     },
     {
       "path": "docs/SUPPORT.md",
-      "sha256": "2e9fd05cc8765f5b0dd17427df8bb2aaf81784ea31b64ac27e6ff9c1bd6b702c",
-      "size": 23696,
+      "sha256": "9d76cd59b39c4bb26b2c3285dc2496b77d785b5775501e871a4dde1ccc7243c9",
+      "size": 25428,
       "executable": false
     },
     {
       "path": "docs/TESTING.md",
-      "sha256": "de6ee251d6067307d14fb23a3c54f20ac8d04f1b4c1f7522c4bb1b8fa39b3133",
-      "size": 12022,
+      "sha256": "c6394fbd982e912dc63a842e1f92270060bcd15069e3b46b3ce1b212154010a7",
+      "size": 13561,
       "executable": false
     },
     {
@@ -370,8 +370,8 @@
     },
     {
       "path": "docs/contracts/firmware-tasks-v1.json",
-      "sha256": "d49b27a55bc53efd5059c9582452bee547b8af9b187c06ad6d65a43c74347cba",
-      "size": 8266,
+      "sha256": "8eca5ccf0cb6593082e07df83bb20d4114130c9a2b11abfd88b68126f670f90f",
+      "size": 9782,
       "executable": false
     },
     {
@@ -412,8 +412,8 @@
     },
     {
       "path": "main/CMakeLists.txt",
-      "sha256": "18b15ae3cda6d2948606221941b371ae89753205ceacc60357baba670a90ac7f",
-      "size": 2026,
+      "sha256": "e2189520426f139bd361e68290fe09fa9d0e26d05d3e754098d360c0b6b7307c",
+      "size": 2071,
       "executable": false
     },
     {
@@ -424,14 +424,14 @@
     },
     {
       "path": "main/app.c",
-      "sha256": "afe00e8b1ba4d4f998890a7c758ed6c2d58b000bf4ef942829ccd4d7e84bb82f",
-      "size": 61372,
+      "sha256": "9bc83edc5cd5ecbdd7bd3341760f26acf6bfa56fefa1adf7125e000a15cce022",
+      "size": 62849,
       "executable": false
     },
     {
       "path": "main/app.h",
-      "sha256": "012157729fc52c58fbabe78de8165188dbaa9c6ceb69efa6b1f7d69c75f4c846",
-      "size": 2292,
+      "sha256": "f16148198a4ab7fc57765be38d3c0e259fedc97b900b899616633bf4d86067d8",
+      "size": 2307,
       "executable": false
     },
     {
@@ -502,14 +502,14 @@
     },
     {
       "path": "main/board.c",
-      "sha256": "757a5f5369e546578419975e7f0d46063ac0429ce98d0b460ea1e55936f8ef1b",
-      "size": 34577,
+      "sha256": "7abbf98e487063bddf9a40b5db070df342d920ab8299f00fc5c3da7b897a9650",
+      "size": 34688,
       "executable": false
     },
     {
       "path": "main/board.h",
-      "sha256": "54d05bbd0ba9701af2d9f5d94c7ab77f4e4ce4756df5bd23623d7fab976bf197",
-      "size": 3847,
+      "sha256": "bc829732e97bdd76ceb0062ba45fe0d0b28d6cb8f7ec7ca63ef985ad8dfb2fae",
+      "size": 3888,
       "executable": false
     },
     {
@@ -520,8 +520,8 @@
     },
     {
       "path": "main/board_spotpear.c",
-      "sha256": "dfc88bf5742d2dcd7cc7e6d52d6e57913351ea41375d7ba7843b556d03edcd4f",
-      "size": 32596,
+      "sha256": "ceca5c186862e9b362e435d34dfac27f5d4d4c4b5926e015e3026222769175b8",
+      "size": 32707,
       "executable": false
     },
     {
@@ -544,14 +544,14 @@
     },
     {
       "path": "main/memo_cardless.cpp",
-      "sha256": "fe28a0a8d31f009d6dad3ed38ee854d5249f34d2163029b76b37d5aa806a5519",
-      "size": 55805,
+      "sha256": "3a1ba67e1a166fc7c1d7290ac325474b58c6a8501f5317d4df913823082e1644",
+      "size": 60123,
       "executable": false
     },
     {
       "path": "main/memo_cardless.h",
-      "sha256": "11f67316ac9b0a4cf00e363f38a4d5c9d3a3de817c91a2531d8b3b83a7f53e7d",
-      "size": 4651,
+      "sha256": "f39d8f7ca137ff612b0f5210d0b8d97b17e7980adb8bb9ce44f628300c7e7aae",
+      "size": 5147,
       "executable": false
     },
     {
@@ -627,6 +627,18 @@
       "executable": false
     },
     {
+      "path": "main/memo_http_transport.cpp",
+      "sha256": "cd9ef700b4c029568e49f57632a3e38f8c76028a9d76f72d48f08a23d84c8020",
+      "size": 7548,
+      "executable": false
+    },
+    {
+      "path": "main/memo_http_transport.h",
+      "sha256": "860de37756a5ef43da711fcfa524109bb37985a207de52dc6ae41f96d1a93b2c",
+      "size": 1229,
+      "executable": false
+    },
+    {
       "path": "main/memo_icons.c",
       "sha256": "c9e9a4d5cde232b60da8be875e72457fed67d0d60ebddde46cc07e530edc2d0f",
       "size": 66178,
@@ -681,15 +693,21 @@
       "executable": false
     },
     {
+      "path": "main/memo_sd_session.h",
+      "sha256": "f5ba2616563591fa64bd654b487197ff9faa5fc59865d0a6c40020cb2710fce2",
+      "size": 717,
+      "executable": false
+    },
+    {
       "path": "main/memo_sd_sync.cpp",
-      "sha256": "53ea54dbb791fdcd8fed65c3b0404272c586569bd3b98dc5e886e21b2db30d7c",
-      "size": 9505,
+      "sha256": "7ee3a42bc9350cf17f0a7c65c73fad62cf55e86b42529318b97a6ed773bdc331",
+      "size": 9945,
       "executable": false
     },
     {
       "path": "main/memo_sd_sync.h",
-      "sha256": "2d7e9ba080891aea98e6b3c5c74c5f817d37aaf40227d170c92186aea2f381ba",
-      "size": 1192,
+      "sha256": "bf5a6f72e7be3381e93ad90604d5138f435f93cdc6e0442f2caef39feb577514",
+      "size": 1233,
       "executable": false
     },
     {
@@ -724,8 +742,8 @@
     },
     {
       "path": "main/memo_sync_cache.c",
-      "sha256": "cc18071630e1f3b31d7a248de1163ffd6c436992640652d025a89e0afba5823c",
-      "size": 5361,
+      "sha256": "f82790760383251f5b3259145fa2ed29bc214178dc5c382f3a99bbca6708bbe2",
+      "size": 6626,
       "executable": false
     },
     {
@@ -784,14 +802,14 @@
     },
     {
       "path": "main/network_sync.cpp",
-      "sha256": "3fd3aaf15fcbc9a818d22c7279b91d871a44838778f063a3b4ff293adaecc0b6",
-      "size": 49685,
+      "sha256": "d6945ae511f1422f0b2d3c12341e8858bb7d0417ab205fb2ef2673215d7ab846",
+      "size": 55770,
       "executable": false
     },
     {
       "path": "main/network_sync.h",
-      "sha256": "3283d6197391e1413f6c9c8ef32736fafff265b205f23e92bb86bb074c37419a",
-      "size": 3791,
+      "sha256": "c5e9ba634c441c5a9a86babb0ca5eb703fdb34330e5b4d0190299a417e294d36",
+      "size": 4268,
       "executable": false
     },
     {
@@ -802,8 +820,8 @@
     },
     {
       "path": "main/network_sync_state.h",
-      "sha256": "43d936f25e8a92ebe17fab21f1fcbcb8bd858b41dce42a74f863aa9cb965e8b3",
-      "size": 2092,
+      "sha256": "a2c4e2e67ae28f21ff92cd5274f524284a42587c6ba73ef15d30e65700738a2f",
+      "size": 2100,
       "executable": false
     },
     {
@@ -844,14 +862,14 @@
     },
     {
       "path": "main/state.c",
-      "sha256": "343faf924bee496671161e113bccb28696f77f69af7bffadbb00214bb48092cf",
-      "size": 1280,
+      "sha256": "3967fa0b409917f42e0aeff00285d889ab4bbbbd9b148cdd802b28d84fcfa58b",
+      "size": 1308,
       "executable": false
     },
     {
       "path": "main/ui.c",
-      "sha256": "b80b7309729d12c24d7b557e8716fc6eaeaf11dde9c7140a5cd187c1c290b608",
-      "size": 73376,
+      "sha256": "3f9fe440fe87c31707123c90290d8f75e24230e9f29ea871b8e73a3e19121796",
+      "size": 74012,
       "executable": false
     },
     {
@@ -1126,8 +1144,8 @@
     },
     {
       "path": "scripts/test_sync_pipeline.sh",
-      "sha256": "d45ced690972e48987449ffe61399c2a0894967a97040cce6242d101c6534e27",
-      "size": 787,
+      "sha256": "a4f3bbc29f8df7da661ddd8172467962b29b8961fe74fec2238bc0c335f479bb",
+      "size": 1050,
       "executable": true
     },
     {
@@ -1138,20 +1156,20 @@
     },
     {
       "path": "sdkconfig.defaults",
-      "sha256": "575613c37d7b14bbbd73a6a3e54cbaca2c35524e7b0001dd4c6fa5c0e68c8ba3",
-      "size": 1727,
+      "sha256": "efcc072dbf8e8cfe1660346869ac07f84fa6ce595d39880619428ab1d8a819c0",
+      "size": 2066,
       "executable": false
     },
     {
       "path": "sdkconfig.spotpear.defaults",
-      "sha256": "2dbda1eda51d5e81c18d73dac4ee3ac30d20541a1f626dd1618b8d6c65a7dc6b",
-      "size": 1637,
+      "sha256": "cffc9f0ae8f250608b30bcdb88730371b57e32845557a1340fe1ee1fd012ee90",
+      "size": 1967,
       "executable": false
     },
     {
       "path": "sdkconfig.vocat16.defaults",
-      "sha256": "72e66a74a6bfcc5a5e94a30ae3df497520a9d1e9fdb57aa85f3149dab1825ba1",
-      "size": 1817,
+      "sha256": "6d00fdce7c1717e9c099d529e606aff54c0bed173e1333fce7e10f1c5f30c95e",
+      "size": 2147,
       "executable": false
     },
     {
@@ -1480,14 +1498,20 @@
     },
     {
       "path": "tests/test_cardless_runtime.py",
-      "sha256": "5c4e38f856fa2538c6dd1a03a2da34282d4b1c7015a846f86454bf70a4fac71b",
-      "size": 28084,
+      "sha256": "9bd84f8962353dc34dffb196e77b9a13a035d49f06c3c004361f3e915133ca23",
+      "size": 33199,
       "executable": false
     },
     {
       "path": "tests/test_cardless_state.c",
       "sha256": "61e217f65b00ceb92449fdc0a5dc4dfa35dc4b7b391be27ecd0d0984169e5636",
       "size": 3259,
+      "executable": false
+    },
+    {
+      "path": "tests/test_detail_startup.py",
+      "sha256": "1a8f63a1119da61ea54b05a4eb678c4069125a9e443cf32f75146ab3c7429dfd",
+      "size": 3008,
       "executable": false
     },
     {
@@ -1515,6 +1539,12 @@
       "executable": false
     },
     {
+      "path": "tests/test_http_deadline.py",
+      "sha256": "c2a46d115f4235ca3e1bd7b03d952f3500af49bb2b95f307a5451be5d3474227",
+      "size": 9704,
+      "executable": false
+    },
+    {
       "path": "tests/test_lan_admin_browser.cjs",
       "sha256": "56cdcffc6c4416c8753f75832497570d48edb25397bfb106d65a8b083deab698",
       "size": 3276,
@@ -1539,9 +1569,15 @@
       "executable": false
     },
     {
+      "path": "tests/test_network_worker.py",
+      "sha256": "d36b804fe9d27e68c045a7dce48d8084280491a3f92d87bdd53854571146837d",
+      "size": 4378,
+      "executable": false
+    },
+    {
       "path": "tests/test_pairing_request.py",
-      "sha256": "fa4ae110b11fb4274c541a9802fadc01e92225a8828bfde62846caf67bb0c578",
-      "size": 3836,
+      "sha256": "ebecec309567058862c37c619341a012dd07f6030d22fc508c47761e3dfd43eb",
+      "size": 3947,
       "executable": false
     },
     {
@@ -1600,8 +1636,8 @@
     },
     {
       "path": "tests/test_sd_probe.py",
-      "sha256": "4b497a1165c15477ae936090d8bc7f05b2af3f23ddbe9bbef55fbe99417f12d3",
-      "size": 24148,
+      "sha256": "8bbde3c17cb35244ab9a37f9c45af24d682e15702e01b1738de040bd65df0640",
+      "size": 25622,
       "executable": false
     },
     {
@@ -1618,14 +1654,14 @@
     },
     {
       "path": "tests/test_service_runtime.py",
-      "sha256": "0efbb1401cf2273d01d7268f72deeb78c5c9d7653f24d80be3d4dc3882332851",
-      "size": 24831,
+      "sha256": "34a67626436623d81571572b051fb3e2ce7cb5c12ebeb9f3ca62e4f683048274",
+      "size": 28831,
       "executable": false
     },
     {
       "path": "tests/test_state.c",
-      "sha256": "1ff87ee64d6fe02f1dc30cbb7afb9bda54235ff88b7ef3be3f4d4bd6364f576a",
-      "size": 2444,
+      "sha256": "d0e8e05500270176ddb3f81760e61a93e56833e8f41a9edc0c311cfb7690c336",
+      "size": 2742,
       "executable": false
     },
     {
@@ -1641,9 +1677,15 @@
       "executable": false
     },
     {
+      "path": "tests/test_sync_metadata_lock.py",
+      "sha256": "bf757c77b506c490545cf6e0969abd626bcb1997c72b430284466423e51513be",
+      "size": 4143,
+      "executable": false
+    },
+    {
       "path": "tests/test_sync_pipeline.py",
-      "sha256": "a5e3eb397f12ad0563d4122c9cf3efa7f9ac5f6736ffc8344c379e7d7d8d0817",
-      "size": 25785,
+      "sha256": "57afe4fb111d88eb23b0ca52a2e62535698a373da8a4606636291f70f21fdc6f",
+      "size": 26507,
       "executable": false
     },
     {
@@ -1665,6 +1707,12 @@
       "executable": false
     },
     {
+      "path": "tests/test_verified_audio.py",
+      "sha256": "f30710feadf13051acc94bfc9b750f905162041a74431af63cc87eddb4deb06f",
+      "size": 4846,
+      "executable": false
+    },
+    {
       "path": "tests/test_vocat16_power.c",
       "sha256": "c3f572c423b7f014850b0e8950ec1a250747bcaf086d570d3ffd2f6f38b79983",
       "size": 1510,
@@ -1678,8 +1726,8 @@
     },
     {
       "path": "tests/ui_preview.c",
-      "sha256": "76a482280fe6311b253f92ec7f1baa29ed0491fbdf4d0044fd6eca57055f3b3f",
-      "size": 49525,
+      "sha256": "237f270c0ae9caa870085352787afc4588fe7837ba0d187afd4610a149f34d49",
+      "size": 50301,
       "executable": false
     },
     {

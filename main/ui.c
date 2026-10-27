@@ -347,19 +347,12 @@ static void record_busy_feedback(void) {
 static void record_retry_clicked(lv_event_t *event) {
     (void)event;note_saved_activity();panel_activity_tick=lv_tick_get();
     memo_record_sync_t job;network_sync_record_status(&job);
-    if(selected_record.cardless) {
-        if(job.can_retry) {
-            if(!network_sync_retry_record(selected_record.id))
-                record_busy_feedback();
-        } else network_sync_select_record(selected_record.id);
+    if(selected_record.cardless){
+        if(job.can_retry && !network_sync_retry_record(selected_record.id))record_busy_feedback();
         return;
     }
-    if(job.state==MEMO_JOB_RECEIVED || job.state==MEMO_JOB_TRANSCRIBING ||
-       job.state==MEMO_JOB_DELIVERING || job.state==MEMO_JOB_WAITING ||
-       job.state==MEMO_JOB_UNKNOWN || (job.state==MEMO_JOB_FAILED && !job.can_retry) || job.state==MEMO_JOB_REJECTED || job.state==MEMO_JOB_UNCERTAIN)
-        network_sync_select_record(selected_record.id);
-    else if(!network_sync_retry_record(selected_record.id))
-        record_busy_feedback();
+    if((job.state==MEMO_JOB_LOCAL || (job.state==MEMO_JOB_FAILED && job.can_retry)) &&
+       !network_sync_retry_record(selected_record.id))record_busy_feedback();
 }
 static void format_record_time(char *out,size_t length,uint32_t ms) {
     uint32_t seconds=ms/1000;
@@ -440,7 +433,8 @@ static void refresh_cardless_record(const memo_snapshot_t *snapshot,
     if(job->error[0])snprintf(text,sizeof(text),"%s",job->error);
     else if(job->interrupted)snprintf(text,sizeof(text),DETAIL_COPY("录音曾中断\n仅处理已接收的部分","录音曾中断\n仅处理已接收的部分喵"));
     else snprintf(text,sizeof(text),DETAIL_COPY("无卡录音\n本机不保留音频","无卡录音\n音频不留在本机喵"));
-    if(job->state!=MEMO_JOB_SENT && (!network->configured || !network->connected)) {
+    if(job->state!=MEMO_JOB_SENT && job->state!=MEMO_JOB_FAILED &&
+       job->state!=MEMO_JOB_REJECTED && (!network->configured || !network->connected)) {
         action="等待联网";
         if(!job->error[0])snprintf(text,sizeof(text),DETAIL_COPY("网络离线\n联网后可查询状态","网络离线\n联网后可查询状态喵"));
     }
@@ -452,8 +446,11 @@ static void refresh_cardless_record(const memo_snapshot_t *snapshot,
     text_if_changed(record_retry_label,action);
     lv_obj_set_style_text_color(record_status_label,lv_color_hex(color),0);
     bool idle=snapshot->state==MEMO_IDLE || snapshot->state==MEMO_SAVED || snapshot->state==MEMO_ERROR;
-    enabled(record_retry,idle && network->configured && network->connected && !job->request_pending &&
-            job->state!=MEMO_JOB_CHECKING && job->state!=MEMO_JOB_SENT);
+    if(job->can_retry){
+        lv_obj_remove_flag(record_retry,LV_OBJ_FLAG_HIDDEN);
+        text_if_changed(record_retry_label,"继续上传");
+        enabled(record_retry,idle && network->configured && network->connected);
+    } else lv_obj_add_flag(record_retry,LV_OBJ_FLAG_HIDDEN);
 #if !MEMO_UI_COMPACT
     lv_obj_set_style_bg_color(record_status_dot,lv_color_hex(color),0);
     int text_width=lv_text_get_width(state,strlen(state),&memo_font20,0);
@@ -469,6 +466,7 @@ static void refresh_record(const memo_snapshot_t *snapshot,const memo_network_st
     for(size_t i=0;i<snapshot->item_count;i++) {
         if(snapshot->items[i].id==selected_record.id) {selected_record=snapshot->items[i];break;}
     }
+    if(!selected_record.cardless)lv_obj_remove_flag(record_retry,LV_OBJ_FLAG_HIDDEN);
     char text[128];
     snprintf(text,sizeof(text),selected_record.cardless?"无卡 #%" PRIu32:"录音 #%" PRIu32,
              display_record_id(selected_record.id));text_if_changed(record_title,text);
@@ -519,7 +517,7 @@ static void refresh_record(const memo_snapshot_t *snapshot,const memo_network_st
     switch(job.state) {
     case MEMO_JOB_LOCAL:state=DETAIL_COPY("仅本地保存","已在本机，尚未同步喵");action="开始同步";break;
     case MEMO_JOB_QUEUED:state=DETAIL_COPY("等待上传","等待上传喵");action="立即重试";break;
-    case MEMO_JOB_CHECKING:state=DETAIL_COPY("正在查询状态","正在确认状态喵");action=DETAIL_COPY("刷新状态","查询中");break;
+    case MEMO_JOB_CHECKING:state=DETAIL_COPY("正在核对录音","正在核对录音喵");action=DETAIL_COPY("刷新状态","查询中");break;
     case MEMO_JOB_UPLOADING:
         snprintf(text,sizeof(text),DETAIL_COPY("正在上传 %u%%","正在上传 %u%%喵"),job.upload_percent);
         state=text;action="上传中";break;
@@ -533,10 +531,11 @@ static void refresh_record(const memo_snapshot_t *snapshot,const memo_network_st
     case MEMO_JOB_UNCERTAIN:state=DETAIL_COPY("投递待核对","投递待核对喵");break;
     default:break;
     }
-    if(job.state!=MEMO_JOB_SENT && !network->configured) {
+    bool waiting_upload=job.state==MEMO_JOB_LOCAL || job.state==MEMO_JOB_QUEUED || job.state==MEMO_JOB_UNKNOWN;
+    if(waiting_upload && !network->configured) {
         state=DETAIL_COPY("仅本地，未配置同步","未配置同步，录音在本机喵");
         action=DETAIL_COPY("刷新状态","联网后同步");
-    } else if(job.state!=MEMO_JOB_SENT && !network->connected) {
+    } else if(waiting_upload && !network->connected) {
         state=DETAIL_COPY("网络离线，等待连接","网络离线，录音在本机喵");
         action=DETAIL_COPY("刷新状态","等待联网");
     } else if(job.request_pending && (job.state==MEMO_JOB_QUEUED || job.state==MEMO_JOB_UNKNOWN)) {
@@ -550,8 +549,10 @@ static void refresh_record(const memo_snapshot_t *snapshot,const memo_network_st
     text_if_changed(record_retry_label,action);
     bool idle=snapshot->state==MEMO_IDLE || snapshot->state==MEMO_SAVED;
     enabled(record_play,snapshot->sd_ready && (idle || active));
-    enabled(record_retry,idle && network->configured && network->connected && !job.request_pending &&
-        job.state!=MEMO_JOB_CHECKING && job.state!=MEMO_JOB_UPLOADING && job.state!=MEMO_JOB_SENT);
+    bool retryable=(job.state==MEMO_JOB_FAILED && job.can_retry) || job.state==MEMO_JOB_LOCAL;
+    if(retryable)lv_obj_remove_flag(record_retry,LV_OBJ_FLAG_HIDDEN);
+    else lv_obj_add_flag(record_retry,LV_OBJ_FLAG_HIDDEN);
+    enabled(record_retry,retryable && idle && network->configured && network->connected && !job.request_pending);
 #if !MEMO_UI_COMPACT
     lv_obj_set_style_bg_color(record_play,lv_color_hex(snapshot->state==MEMO_PLAYING?0xF4B7A8:MINT),0);
     unsigned icon_mode=snapshot->state==MEMO_PLAYING?1:snapshot->state==MEMO_PAUSED?2:0;
@@ -914,7 +915,17 @@ static void detail_text(const memo_snapshot_t *s, const memo_network_status_t *n
         snprintf(text, size, "正在保存，稍等喵");
 #endif
     } else if (network->syncing) {
-        snprintf(text, size, "正在送往思源喵");
+        const char *phase="正在确认状态喵";
+        switch(network->active_sync_state){
+        case MEMO_JOB_UPLOADING:phase="正在传送音频喵";break;
+        case MEMO_JOB_WAITING:phase="等待服务器确认喵";break;
+        case MEMO_JOB_RECEIVED:phase="服务器已收到喵";break;
+        case MEMO_JOB_TRANSCRIBING:phase="正在转写喵";break;
+        case MEMO_JOB_DELIVERING:phase="正在投递思源喵";break;
+        case MEMO_JOB_SENT:phase="已同步思源喵";break;
+        default:break;
+        }
+        snprintf(text,size,"%s",phase);
     } else if (network->error[0]) {
         // Network diagnostics belong on the web page, not over the recording cards.
         memo_config_public_t service; network_sync_get_service_config(&service);

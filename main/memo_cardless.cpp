@@ -42,7 +42,14 @@ SemaphoreHandle_t meta_mutex;
 SemaphoreHandle_t buffer_mutex;
 SemaphoreHandle_t task_mutex;
 nvs_handle_t metadata;
-memo_cardless_record_t *records;
+// Keep history in NVS; RAM contains only list fields and four reusable detail slots.
+struct RecordIndex { uint32_t id, duration_ms, encoded_bytes; memo_job_state_t state; };
+RecordIndex *records;
+struct RecordDetail { memo_cardless_record_t value{}; uint32_t age=0; };
+constexpr size_t DETAIL_SLOTS = 4;
+RecordDetail record_details[DETAIL_SLOTS];
+uint32_t detail_clock;
+std::atomic<uint32_t> selected_detail{0}, resume_request{0};
 size_t record_count;
 uint32_t counter;
 char global_error[80];
@@ -58,7 +65,13 @@ std::atomic<bool> encode_abort{false}, stop_requested{false}, recovery_mode{fals
 std::atomic<uint32_t> input_samples{0}, encoded_samples{0}, encoded_frames{0};
 std::atomic<uint32_t> status_request{0}, retry_request{0};
 TaskHandle_t encoder_task_handle;
-TaskHandle_t network_task_handle;
+// One network owner lives in network_sync.cpp. Audio state persists across
+// its steps without a second internal-RAM HTTP task stack.
+struct TransferState {
+    uint32_t working_id=0,seq=0,ack_frames=0,backoff_ms=1000,after_status=0;
+    bool created=false,finishing_uncertain=false;
+    int64_t retry_at=0,next_status_at=0;
+} transfer_state;
 StreamBufferHandle_t pcm_stream;
 StaticStreamBuffer_t pcm_stream_control;
 uint8_t *pcm_storage;
@@ -139,8 +152,8 @@ const char *friendly_error(const char *error)
         {"partial_sent", "录音有中断，已同步有效部分"},
         {"query_failed", "状态查询失败，请稍后重试"},
         {"query_credentials_invalid", "查询凭据失效，请重新配对"},
-        {"transcription_failed", "转写失败，可重试"},
-        {"delivery_failed", "思源投递失败，可重试"},
+        {"transcription_failed", "转写失败"},
+        {"delivery_failed", "思源投递失败"},
         {"delivery_uncertain", "思源投递结果待确认"},
         {"transcription_rejected", "转写未通过质量检查"},
     };
@@ -156,6 +169,37 @@ void set_error_locked(const char *error)
 {
     copy_text(global_error, sizeof(global_error), friendly_error(error));
     revision.fetch_add(1);
+}
+/* Caller holds meta_mutex. Active audio and the selected page are pinned;
+ * all other completed detail slots are overwritten on demand, never appended. */
+memo_cardless_record_t *load_record_locked(size_t at, bool cached_only=false)
+{
+    if (at >= record_count) return nullptr;
+    uint32_t id=records[at].id;
+    for (auto &slot:record_details) if(slot.value.id==id) {
+        slot.age=++detail_clock; return &slot.value;
+    }
+    if(cached_only)return nullptr;
+    RecordDetail *victim=nullptr;
+    for(auto &slot:record_details) {
+        if(slot.value.id && (slot.value.id==active_id.load() || slot.value.id==selected_detail.load()))continue;
+        if(!victim || !slot.value.id || slot.age<victim->age)victim=&slot;
+        if(!slot.value.id)break;
+    }
+    if(!victim)return nullptr;
+    char key[16];snprintf(key,sizeof(key),"r%08lx",(unsigned long)id);
+    uint8_t bytes[MEMO_CARDLESS_RECORD_SIZE];size_t size=sizeof(bytes);
+    memo_cardless_record_t value{};
+    if(nvs_get_blob(metadata,key,bytes,&size)!=ESP_OK ||
+       !memo_cardless_record_decode(bytes,size,&value) || value.id!=id) {
+        metadata_fault.store(true);set_error_locked("metadata_corrupt");return nullptr;
+    }
+    victim->value=value;victim->age=++detail_clock;return &victim->value;
+}
+void index_record_locked(const memo_cardless_record_t &record)
+{
+    size_t at=find_record(record.id);
+    if(at!=SIZE_MAX)records[at]={record.id,record.duration_ms,record.encoded_bytes,record.state};
 }
 bool persist_locked(const memo_cardless_record_t &record)
 {
@@ -183,25 +227,30 @@ bool persist_locked(const memo_cardless_record_t &record)
         ESP_LOGE(TAG, "Metadata write failed: %s", esp_err_to_name(result));
         return false;
     }
+    index_record_locked(record);
     return true;
 }
 void update_record(uint32_t id, memo_job_state_t state, const char *error,
                    bool can_retry, bool interrupted, uint64_t received = UINT64_MAX,
-                   bool force_persist = false, bool authoritative_interruption = false)
+                   bool force_persist = false, bool authoritative_interruption = false, uint32_t duration_ms = 0)
 {
     error = friendly_error(error);
     Lock lock(meta_mutex);
     size_t at = find_record(id);
     if (at == SIZE_MAX) return;
-    auto &r = records[at];
+    auto *loaded=load_record_locked(at);if(!loaded)return;
+    auto &r = *loaded;
     const bool next_interrupted = memo_cardless_interruption(r.interrupted, interrupted, authoritative_interruption);
     bool changed = r.state != state || r.can_retry != can_retry ||
-                   next_interrupted != r.interrupted || strcmp(r.error, error ? error : "");
+                   next_interrupted != r.interrupted || strcmp(r.error, error ? error : "") ||
+                   (received != UINT64_MAX && received != r.received_samples) ||
+                   (duration_ms && duration_ms != r.duration_ms);
     r.state = state;
     r.can_retry = can_retry;
     r.interrupted = next_interrupted;
     copy_text(r.error, sizeof(r.error), error);
     if (received != UINT64_MAX) r.received_samples = received;
+    if (duration_ms) r.duration_ms=duration_ms;
     if (id == active_id.load() && !recovery_mode.load() && state == MEMO_JOB_UPLOADING) {
         r.duration_ms = (encoder_done.load() ? encoded_samples.load() : input_samples.load()) / 16;
         /* Encoded bytes are accumulated by the encoder, independent of ACKs. */
@@ -223,8 +272,8 @@ void set_stop(const char *reason, bool abort_encoding)
         set_error_locked(reason);
         size_t at = find_record(active_id.load());
         if (at != SIZE_MAX) {
-            records[at].interrupted = true;
-            copy_text(records[at].error, sizeof(records[at].error), reason);
+            auto *record=load_record_locked(at);
+            if(record){record->interrupted=true;copy_text(record->error,sizeof(record->error),reason);}
         }
     }
     capturing.store(false);
@@ -248,10 +297,11 @@ void record_encoding_done(uint32_t id)
         Lock lock(meta_mutex);
         size_t at = find_record(id);
         if (at != SIZE_MAX) {
-            records[at].duration_ms = encoded_samples.load() / 16;
-            records[at].interrupted |= stop_requested.load();
-            if (stop_requested.load()) copy_text(records[at].error, sizeof(records[at].error), stop_reason);
-            persist_locked(records[at]);
+            auto *record=load_record_locked(at);if(!record)return;
+            record->duration_ms=encoded_samples.load()/16;
+            record->interrupted |= stop_requested.load();
+            if(stop_requested.load())copy_text(record->error,sizeof(record->error),stop_reason);
+            persist_locked(*record);
             revision.fetch_add(1);
         }
     }
@@ -307,7 +357,8 @@ void encode_task(void *)
             {
                 Lock lock(meta_mutex);
                 size_t at = find_record(id);
-                if (at != SIZE_MAX) records[at].encoded_bytes += out.encoded_bytes;
+                auto *record=load_record_locked(at);
+                if(record)record->encoded_bytes += out.encoded_bytes;
             }
             if (frames == 1 || frames % 3000 == 0) {
                 constexpr uint32_t internal_caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
@@ -323,7 +374,7 @@ void encode_task(void *)
                          heap_caps_get_minimum_free_size(internal_caps),
                          heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
             }
-            if (frames % CHUNK_FRAMES == 0 && network_task_handle) xTaskNotifyGive(network_task_handle);
+            if (frames % CHUNK_FRAMES == 0) network_sync_wake();
         }
         if (encoder) {
             esp_opus_enc_close(encoder);
@@ -335,7 +386,7 @@ void encode_task(void *)
          * may prepare another recording. Do not touch per-record state below.
          * A next begin notification arriving before the wait remains pending. */
         encoder_done.store(true);
-        if (network_task_handle) xTaskNotifyGive(network_task_handle);
+        network_sync_wake();
     }
 }
 
@@ -416,13 +467,8 @@ void accept_reply(uint32_t id, const Reply &reply, bool force = false)
     memo_cardless_record_t previous{};
     if (!error[0] && reply.interrupted && memo_cardless_get(id, &previous) && previous.interrupted)
         error = state == MEMO_JOB_SENT ? "partial_sent" : previous.error;
-    if (reply.duration_ms) {
-        Lock lock(meta_mutex);
-        size_t at = find_record(id);
-        if (at != SIZE_MAX) records[at].duration_ms = reply.duration_ms;
-    }
     update_record(id, state, error, reply.can_retry, reply.interrupted, reply.samples, force,
-                  state != MEMO_JOB_UPLOADING);
+                  state != MEMO_JOB_UPLOADING, reply.duration_ms);
 }
 bool active_marker_matches(uint32_t expected){
  nvs_handle_t h;if(nvs_open_from_partition(PARTITION,NAMESPACE,NVS_READONLY,&h)!=ESP_OK)return false;
@@ -442,7 +488,8 @@ bool mark_remote_audio(uint32_t id)
 {
     Lock lock(meta_mutex);size_t at=find_record(id);
     if(at==SIZE_MAX||metadata_fault.load())return false;
-    auto &r=records[at];
+    auto *record=load_record_locked(at);if(!record)return false;
+    auto &r=*record;
     if(r.may_have_remote_audio)return true;
     r.may_have_remote_audio=true;
     return persist_locked(r); // no audio PUT until this possibility is durable
@@ -455,7 +502,8 @@ void release_active(uint32_t id)
     {
         Lock lock(meta_mutex);
         size_t at = find_record(id);
-        if (at == SIZE_MAX || !persist_locked(records[at])) {
+        auto *record=load_record_locked(at);
+        if (!record || !persist_locked(*record)) {
             remote_complete.store(true);
             return;
         }
@@ -490,7 +538,8 @@ esp_err_t restore_active_record()
     if(result!=ESP_OK||find_record(id)==SIZE_MAX){copy_text(global_error,sizeof(global_error),friendly_error("metadata_corrupt"));return ESP_ERR_INVALID_STATE;}
     // A failed begin (or power loss before the first PUT) has no remote audio.
     // PSRAM is empty at boot; release this marker without needing its old target.
-    if(!records[find_record(id)].may_have_remote_audio){
+    auto *record=load_record_locked(find_record(id));if(!record)return ESP_FAIL;
+    if(!record->may_have_remote_audio){
         update_record(id,MEMO_JOB_FAILED,"audio_not_uploaded",false,true,0,true);
         if(metadata_fault.load())return ESP_FAIL;
         Lock lock(meta_mutex);return clear_active_marker()?ESP_OK:ESP_FAIL;
@@ -498,6 +547,18 @@ esp_err_t restore_active_record()
     active_id.store(id);recovery_mode.store(true);
     update_record(id,MEMO_JOB_CHECKING,"power_loss_pending",false,false,UINT64_MAX,true);
     return metadata_fault.load()?ESP_FAIL:ESP_OK;
+}
+
+esp_err_t reconcile_orphan_records()
+{
+    for(size_t i=0;i<record_count;i++) {
+        if(records[i].id==active_id.load() || records[i].state!=MEMO_JOB_QUEUED)continue;
+        auto *record=load_record_locked(i);if(!record)return ESP_FAIL;
+        if(record->may_have_remote_audio){metadata_fault.store(true);return ESP_FAIL;}
+        update_record(record->id,MEMO_JOB_FAILED,"audio_not_uploaded",false,true,0,true);
+        if(metadata_fault.load())return ESP_FAIL;
+    }
+    return ESP_OK;
 }
 
 void make_path(char *path, size_t cap, uint32_t id, const char *suffix = "")
@@ -658,201 +719,218 @@ void query_selected(uint32_t id, bool retry)
     }
 }
 
-void transfer_task(void *)
+void transfer_step()
 {
-    uint8_t *chunk = network_chunk;
-    uint32_t working_id = 0, seq = 0, ack_frames = 0;
-    bool created = false, finishing_uncertain = false;
-    uint32_t backoff_ms = 1000;
-    int64_t retry_at = 0;
-    for (;;) {
-        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(250));
-        uint32_t id = active_id.load();
-        if (!id) {
-            working_id = 0;
-            uint32_t requested = retry_request.exchange(0);
-            if (requested) query_selected(requested, true);
-            requested = status_request.exchange(0);
-            if (requested) query_selected(requested, false);
-            continue;
+    if(!initialized.load())return;
+    auto &working_id=transfer_state.working_id;
+    auto &seq=transfer_state.seq;auto &ack_frames=transfer_state.ack_frames;
+    auto &created=transfer_state.created;auto &finishing_uncertain=transfer_state.finishing_uncertain;
+    auto &backoff_ms=transfer_state.backoff_ms;auto &retry_at=transfer_state.retry_at;
+    auto &next_status_at=transfer_state.next_status_at;auto &after_status=transfer_state.after_status;
+    uint32_t id = active_id.load();
+    if (!id) {
+        working_id = 0;
+        uint32_t requested = retry_request.exchange(0);
+        if (requested) query_selected(requested, true);
+        requested = status_request.exchange(0);
+        if (requested) query_selected(requested, false);
+        if(online() && esp_timer_get_time()>=next_status_at) {
+            uint32_t first=0,next=0;
+            {Lock lock(meta_mutex);
+             for(size_t i=0;i<record_count;i++) {
+                const auto &r=records[i];
+                if(r.state!=MEMO_JOB_WAITING && r.state!=MEMO_JOB_RECEIVED &&
+                   r.state!=MEMO_JOB_TRANSCRIBING && r.state!=MEMO_JOB_DELIVERING && r.state!=MEMO_JOB_UNCERTAIN)continue;
+                if(!first)first=r.id;
+                if(r.id>after_status){next=r.id;break;}
+             }}
+            if(!next)next=first;
+            if(next){after_status=next;query_selected(next,false);}
+            next_status_at=esp_timer_get_time()+15000000;
         }
-        if (working_id != id) {
-            working_id = id;
-            seq = ack_frames = 0;
-            created = finishing_uncertain = false;
-            backoff_ms = 1000;
-            retry_at = 0;
+        return;
+    }
+    uint8_t *chunk;
+    {Lock lock(task_mutex);chunk=network_chunk;}
+    if(!chunk)return; // start_pending/begin allocate the bounded audio buffer first.
+    if (working_id != id) {
+        working_id = id;
+        seq = ack_frames = 0;
+        created = finishing_uncertain = false;
+        backoff_ms = 1000;
+        retry_at = 0;
+    }
+    uint32_t resume=resume_request.exchange(0);
+    if(resume==id && memo_cardless_can_resume(id) && online()) {
+        memo_cardless_record_t retained{};
+        if(memo_cardless_get(id,&retained)) {
+            update_record(id,MEMO_JOB_UPLOADING,retained.error,false,true,UINT64_MAX,true);
+            if(!metadata_fault.load())transfer_blocked.store(false);
         }
-        if (metadata_fault.load() && capturing.load()) set_stop("metadata_write_failed", false);
-        if (remote_complete.load() || transfer_blocked.load() || esp_timer_get_time() < retry_at || !online()) continue;
-        auto defer = [&]() {
-            retry_at = esp_timer_get_time() + (int64_t)backoff_ms * 1000;
-            backoff_ms = std::min(backoff_ms * 2, UINT32_C(30000));
-        };
-        auto reset_backoff = [&]() { backoff_ms = 1000; retry_at = 0; };
-        char path[160];
-        make_path(path, sizeof(path), id);
-        Reply reply;
-        if (recovery_mode.load()) {
-            if (!recovery_power_ready()) continue;
-            const bool power_loss = !stop_requested.load();
-            int status = request("GET", path, id, nullptr, 0, nullptr, nullptr, &reply);
-            if (status == 404 || status == 410) {
-                update_record(id, MEMO_JOB_FAILED, status == 404 ? (power_loss ? "power_loss_audio_lost" : "server_audio_lost") : "audio_expired",
-                              false, true, 0, true);
+    }
+    if (metadata_fault.load() && capturing.load()) set_stop("metadata_write_failed", false);
+    if (remote_complete.load() || transfer_blocked.load() || esp_timer_get_time() < retry_at || !online()) return;
+    auto defer = [&]() {
+        retry_at = esp_timer_get_time() + (int64_t)backoff_ms * 1000;
+        backoff_ms = std::min(backoff_ms * 2, UINT32_C(30000));
+    };
+    auto reset_backoff = [&]() { backoff_ms = 1000; retry_at = 0; };
+    char path[160];
+    make_path(path, sizeof(path), id);
+    Reply reply;
+    if (recovery_mode.load()) {
+        if (!recovery_power_ready()) return;
+        const bool power_loss = !stop_requested.load();
+        int status = request("GET", path, id, nullptr, 0, nullptr, nullptr, &reply);
+        if (status == 404 || status == 410) {
+            update_record(id, MEMO_JOB_FAILED, status == 404 ? (power_loss ? "power_loss_audio_lost" : "server_audio_lost") : "audio_expired",
+                          false, true, 0, true);
+            release_active(id);
+        } else if (status == 200 && reply.valid) {
+            if (remote_state(reply.status) != MEMO_JOB_UNKNOWN && strcmp(reply.status, "receiving")) {
+                accept_reply(id, reply, true);
                 release_active(id);
-            } else if (status == 200 && reply.valid) {
-                if (remote_state(reply.status) != MEMO_JOB_UNKNOWN && strcmp(reply.status, "receiving")) {
-                    accept_reply(id, reply, true);
-                    release_active(id);
-                } else if (reply.samples && reply.next_seq) {
-                    int finished = finish_remote(id, reply.next_seq, reply.samples, true, power_loss ? "power_loss" : stop_reason, &reply);
-                    if ((finished == 200 || finished == 202) && reply.valid && strcmp(reply.status, "receiving")) {
-                        update_record(id, remote_state(reply.status), power_loss ? "power_loss_partial" : stop_reason, reply.can_retry,
-                                      true, reply.samples, true);
-                        release_active(id);
-                    } else defer();
-                } else {
-                    update_record(id, MEMO_JOB_FAILED, power_loss ? "power_loss_audio_lost" : "server_audio_lost", false, true, 0, true);
-                    release_active(id);
-                }
-            } else if (status == 401 || status == 403) pause_transfer(id, "credentials_invalid");
-            else defer();
-            continue;
-        }
-        if (!created) {
-            const char *config = "{\"format\":\"opus\",\"sample_rate\":16000,\"channels\":1,\"frame_ms\":20,\"bitrate\":24000}";
-            int status = request("POST", "/v1/streams", id, config, strlen(config), "application/json", nullptr, &reply);
-            if ((status == 200 || status == 201) && reply.valid && !strcmp(reply.status, "receiving") && reply.next_seq == 0) {
-                created = true;
-                update_record(id, MEMO_JOB_UPLOADING, stop_requested.load() ? stop_reason : "", false,
-                              stop_requested.load());
-                reset_backoff();
-            } else if (status == 401 || status == 403) pause_transfer(id, "credentials_invalid");
-            else if (status == 503 || status == 404) pause_transfer(id, status == 503 ? "opus_unavailable" : "server_unsupported");
-            else if (status == 400 || status == 409 || status == 413 || status == 415) pause_transfer(id, "stream_create_rejected");
-            else defer();
-            continue;
-        }
-        if (finishing_uncertain) {
-            int status = request("GET", path, id, nullptr, 0, nullptr, nullptr, &reply);
-            if (status == 200 && reply.valid) {
-                if (remote_state(reply.status) != MEMO_JOB_UNKNOWN && strcmp(reply.status, "receiving")) {
-                    accept_reply(id, reply, true);
-                    release_active(id);
-                    continue;
-                }
-                if (reply.next_seq == seq) finishing_uncertain = false;
-                else {
-                    set_stop("stream_protocol_error", true);
-                    recovery_mode.store(true);
-                    finishing_uncertain = false;
-                    continue;
-                }
-            } else if (status == 410 || status == 404) {
-                update_record(id, MEMO_JOB_FAILED, status == 410 ? "audio_expired" : "server_audio_lost", false, true, UINT64_MAX, true);
-                release_active(id);
-                continue;
-            } else if (status == 401 || status == 403) {
-                pause_transfer(id, "credentials_invalid");
-                continue;
-            }
-            if (finishing_uncertain) { defer(); continue; }
-        }
-        size_t count = 0, length = 0, pending = 0;
-        {
-            Lock lock(buffer_mutex);
-            pending = packets.packets;
-            if (pending >= CHUNK_FRAMES || encoder_done.load()) {
-                length = memo_cardless_buffer_peek(&packets, chunk, CHUNK_CAPACITY, CHUNK_FRAMES, &count);
-            }
-        }
-        if (length) {
-            if(!mark_remote_audio(id)){pause_transfer(id,"metadata_write_failed");continue;}
-            char hash[65];
-            sha_hex(chunk, length, hash);
-            char suffix[48];
-            snprintf(suffix, sizeof(suffix), "/chunks/%lu", (unsigned long)seq);
-            make_path(path, sizeof(path), id, suffix);
-            int status = request("PUT", path, id, chunk, length, "application/octet-stream", hash, &reply);
-            if ((status == 200 || status == 201) && reply.valid && !strcmp(reply.status, "receiving") &&
-                reply.next_seq == seq + 1 && reply.samples == ((uint64_t)ack_frames + count) * FRAME_SAMPLES) {
-                {
-                    Lock lock(buffer_mutex);
-                    memo_cardless_buffer_ack(&packets, length, count);
-                }
-                ++seq;
-                ack_frames += count;
-                update_record(id, MEMO_JOB_UPLOADING, stop_requested.load() ? stop_reason : "", false,
-                              stop_requested.load(), reply.samples);
-                reset_backoff();
-                ESP_LOGI(TAG, "STREAM_ACK id=%lu seq=%lu samples=%llu", (unsigned long)id,
-                         (unsigned long)seq, (unsigned long long)reply.samples);
-            } else if (status == 401 || status == 403) {
-                pause_transfer(id, "credentials_invalid");
-            } else if (status == 404 && !ack_frames) {
-                created = false; // No released audio: same ID and retained first chunk can be recreated.
-                defer();
-            } else if (status == 404) {
-                set_stop("server_audio_lost", true);
-                if (encoder_done.load()) {
-                    update_record(id, MEMO_JOB_FAILED, "server_audio_lost", false, true, UINT64_MAX, true);
+            } else if (reply.samples && reply.next_seq) {
+                int finished = finish_remote(id, reply.next_seq, reply.samples, true, power_loss ? "power_loss" : stop_reason, &reply);
+                if ((finished == 200 || finished == 202) && reply.valid && strcmp(reply.status, "receiving")) {
+                    update_record(id, remote_state(reply.status), power_loss ? "power_loss_partial" : stop_reason, reply.can_retry,
+                                  true, reply.samples, true);
                     release_active(id);
                 } else defer();
-            } else if (status == 410) {
-                set_stop("audio_expired", true);
-                if (encoder_done.load()) {
-                    update_record(id, MEMO_JOB_FAILED, "audio_expired", false, true, reply.samples, true);
-                    release_active(id);
-                } else defer();
-            } else if (status == 409 || status == 400 || status == 413 || status == 415) {
-                /* A permanent protocol rejection cannot silently drop a chunk.
-                 * Stop capture and query/finalize only the confirmed prefix. */
+            } else {
+                update_record(id, MEMO_JOB_FAILED, power_loss ? "power_loss_audio_lost" : "server_audio_lost", false, true, 0, true);
+                release_active(id);
+            }
+        } else if (status == 401 || status == 403) pause_transfer(id, "credentials_invalid");
+        else defer();
+        return;
+    }
+    if (!created) {
+        const char *config = "{\"format\":\"opus\",\"sample_rate\":16000,\"channels\":1,\"frame_ms\":20,\"bitrate\":24000}";
+        int status = request("POST", "/v1/streams", id, config, strlen(config), "application/json", nullptr, &reply);
+        if ((status == 200 || status == 201) && reply.valid && !strcmp(reply.status, "receiving") && reply.next_seq == 0) {
+            created = true;
+            update_record(id, MEMO_JOB_UPLOADING, stop_requested.load() ? stop_reason : "", false,
+                          stop_requested.load());
+            reset_backoff();
+        } else if (status == 401 || status == 403) pause_transfer(id, "credentials_invalid");
+        else if (status == 503 || status == 404) pause_transfer(id, status == 503 ? "opus_unavailable" : "server_unsupported");
+        else if (status == 400 || status == 409 || status == 413 || status == 415) pause_transfer(id, "stream_create_rejected");
+        else defer();
+        return;
+    }
+    if (finishing_uncertain) {
+        int status = request("GET", path, id, nullptr, 0, nullptr, nullptr, &reply);
+        if (status == 200 && reply.valid) {
+            if (remote_state(reply.status) != MEMO_JOB_UNKNOWN && strcmp(reply.status, "receiving")) {
+                accept_reply(id, reply, true);
+                release_active(id);
+                return;
+            }
+            if (reply.next_seq == seq) finishing_uncertain = false;
+            else {
                 set_stop("stream_protocol_error", true);
-                if (encoder_done.load()) recovery_mode.store(true);
-                defer();
-            } else defer();
-            continue;
-        }
-        if (!encoder_done.load() || pending) continue;
-        uint64_t samples = std::min((uint64_t)encoded_samples.load(), (uint64_t)ack_frames * FRAME_SAMPLES);
-        if (!samples) {
-            update_record(id, MEMO_JOB_FAILED, "empty_recording", false, stop_requested.load(), 0, true);
-            release_active(id);
-            continue;
-        }
-        int status = finish_remote(id, seq, samples, stop_requested.load(), stop_requested.load() ? stop_reason : "", &reply);
-        if ((status == 200 || status == 202) && reply.valid && strcmp(reply.status, "receiving")) {
-            accept_reply(id, reply, true);
-            release_active(id);
-        } else if (status == 401 || status == 403) {
-            pause_transfer(id, "credentials_invalid");
+                recovery_mode.store(true);
+                finishing_uncertain = false;
+                return;
+            }
         } else if (status == 410 || status == 404) {
             update_record(id, MEMO_JOB_FAILED, status == 410 ? "audio_expired" : "server_audio_lost", false, true, UINT64_MAX, true);
             release_active(id);
-        } else if (status == 400) {
-            set_stop("stream_protocol_error", true);
-            recovery_mode.store(true);
-            defer();
-        } else {
-            finishing_uncertain = true;
-            update_record(id, MEMO_JOB_WAITING, stop_requested.load() ? stop_reason : "", false,
-                          stop_requested.load(), samples);
-            defer();
+            return;
+        } else if (status == 401 || status == 403) {
+            pause_transfer(id, "credentials_invalid");
+            return;
+        }
+        if (finishing_uncertain) { defer(); return; }
+    }
+    size_t count = 0, length = 0, pending = 0;
+    {
+        Lock lock(buffer_mutex);
+        pending = packets.packets;
+        if (pending >= CHUNK_FRAMES || encoder_done.load()) {
+            length = memo_cardless_buffer_peek(&packets, chunk, CHUNK_CAPACITY, CHUNK_FRAMES, &count);
         }
     }
+    if (length) {
+        if(!mark_remote_audio(id)){pause_transfer(id,"metadata_write_failed");return;}
+        char hash[65];
+        sha_hex(chunk, length, hash);
+        char suffix[48];
+        snprintf(suffix, sizeof(suffix), "/chunks/%lu", (unsigned long)seq);
+        make_path(path, sizeof(path), id, suffix);
+        int status = request("PUT", path, id, chunk, length, "application/octet-stream", hash, &reply);
+        if ((status == 200 || status == 201) && reply.valid && !strcmp(reply.status, "receiving") &&
+            reply.next_seq == seq + 1 && reply.samples == ((uint64_t)ack_frames + count) * FRAME_SAMPLES) {
+            {
+                Lock lock(buffer_mutex);
+                memo_cardless_buffer_ack(&packets, length, count);
+            }
+            ++seq;
+            ack_frames += count;
+            update_record(id, MEMO_JOB_UPLOADING, stop_requested.load() ? stop_reason : "", false,
+                          stop_requested.load(), reply.samples);
+            reset_backoff();
+            ESP_LOGI(TAG, "STREAM_ACK id=%lu seq=%lu samples=%llu", (unsigned long)id,
+                     (unsigned long)seq, (unsigned long long)reply.samples);
+        } else if (status == 401 || status == 403) {
+            pause_transfer(id, "credentials_invalid");
+        } else if (status == 404 && !ack_frames) {
+            created = false; // No released audio: same ID and retained first chunk can be recreated.
+            defer();
+        } else if (status == 404) {
+            set_stop("server_audio_lost", true);
+            if (encoder_done.load()) {
+                update_record(id, MEMO_JOB_FAILED, "server_audio_lost", false, true, UINT64_MAX, true);
+                release_active(id);
+            } else defer();
+        } else if (status == 410) {
+            set_stop("audio_expired", true);
+            if (encoder_done.load()) {
+                update_record(id, MEMO_JOB_FAILED, "audio_expired", false, true, reply.samples, true);
+                release_active(id);
+            } else defer();
+        } else if (status == 409 || status == 400 || status == 413 || status == 415) {
+            /* A permanent protocol rejection cannot silently drop a chunk.
+             * Stop capture and query/finalize only the confirmed prefix. */
+            set_stop("stream_protocol_error", true);
+            if (encoder_done.load()) recovery_mode.store(true);
+            defer();
+        } else defer();
+        return;
+    }
+    if (!encoder_done.load() || pending) return;
+    uint64_t samples = std::min((uint64_t)encoded_samples.load(), (uint64_t)ack_frames * FRAME_SAMPLES);
+    if (!samples) {
+        update_record(id, MEMO_JOB_FAILED, "empty_recording", false, stop_requested.load(), 0, true);
+        release_active(id);
+        return;
+    }
+    int status = finish_remote(id, seq, samples, stop_requested.load(), stop_requested.load() ? stop_reason : "", &reply);
+    if ((status == 200 || status == 202) && reply.valid && strcmp(reply.status, "receiving")) {
+        accept_reply(id, reply, true);
+        release_active(id);
+    } else if (status == 401 || status == 403) {
+        pause_transfer(id, "credentials_invalid");
+    } else if (status == 410 || status == 404) {
+        update_record(id, MEMO_JOB_FAILED, status == 410 ? "audio_expired" : "server_audio_lost", false, true, UINT64_MAX, true);
+        release_active(id);
+    } else if (status == 400) {
+        set_stop("stream_protocol_error", true);
+        recovery_mode.store(true);
+        defer();
+    } else {
+        finishing_uncertain = true;
+        update_record(id, MEMO_JOB_WAITING, stop_requested.load() ? stop_reason : "", false,
+                      stop_requested.load(), samples);
+        defer();
+    }
 }
-esp_err_t ensure_network_task()
+esp_err_t ensure_network_buffer()
 {
     Lock task_lock(task_mutex);
-    if (network_task_handle) return ESP_OK;
     if (!network_chunk) network_chunk = static_cast<uint8_t *>(heap_caps_malloc(CHUNK_CAPACITY, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-    if (!network_chunk) return ESP_ERR_NO_MEM;
-    if (xTaskCreatePinnedToCore(transfer_task, "memo_stream", 10240, nullptr, 2, &network_task_handle, 0) != pdPASS) {
-        network_task_handle = nullptr;
-        return ESP_ERR_NO_MEM;
-    }
-    return ESP_OK;
+    return network_chunk ? ESP_OK : ESP_ERR_NO_MEM;
 }
 } // namespace
 
@@ -871,7 +949,7 @@ extern "C" esp_err_t memo_cardless_init(void)
     }
     result = nvs_open_from_partition(PARTITION, NAMESPACE, NVS_READWRITE, &metadata);
     if (result != ESP_OK) return result;
-    records = static_cast<memo_cardless_record_t *>(heap_caps_calloc(MAX_RECORDS, sizeof(*records), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    records = static_cast<RecordIndex *>(heap_caps_calloc(MAX_RECORDS, sizeof(*records), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     if (!records) return ESP_ERR_NO_MEM;
     counter=0;
     nvs_iterator_t it = nullptr;
@@ -888,14 +966,16 @@ extern "C" esp_err_t memo_cardless_init(void)
             }
             snprintf(key,sizeof(key),"r%08lx",(unsigned long)r.id);
             if(strcmp(key,info.key)){nvs_release_iterator(it);return ESP_ERR_INVALID_STATE;}
-            records[record_count++]=r;counter=std::max(counter,MEMO_CARDLESS_DISPLAY_ID(r.id));
+            records[record_count++]={r.id,r.duration_ms,r.encoded_bytes,r.state};counter=std::max(counter,MEMO_CARDLESS_DISPLAY_ID(r.id));
         }
         result = nvs_entry_next(&it);
     }
     nvs_release_iterator(it);
     if (result != ESP_ERR_NVS_NOT_FOUND) return result;
-    std::sort(records, records + record_count, [](const memo_cardless_record_t &a, const memo_cardless_record_t &b) { return a.id < b.id; });
+    std::sort(records, records + record_count, [](const RecordIndex &a, const RecordIndex &b) { return a.id < b.id; });
     result=restore_active_record();
+    if(result!=ESP_OK)return result;
+    result=reconcile_orphan_records();
     if(result!=ESP_OK)return result;
     if (metadata_fault.load()) return ESP_FAIL;
     /* Reserve the large contiguous internal stack before audio and Wi-Fi can
@@ -930,11 +1010,14 @@ extern "C" esp_err_t memo_cardless_observe_id(uint32_t floor)
     counter = floor;
     return ESP_OK;
 }
+extern "C" void memo_cardless_network_step(void) { transfer_step(); }
 extern "C" esp_err_t memo_cardless_start_pending(void)
 {
     if (!initialized.load()) return ESP_ERR_INVALID_STATE;
-    esp_err_t result = active_id.load() ? ensure_network_task() : ESP_OK;
+    // Status-only history shares the existing HTTP worker and needs no audio buffer.
+    esp_err_t result = active_id.load() ? ensure_network_buffer() : ESP_OK;
     if (result != ESP_OK) { Lock lock(meta_mutex); set_error_locked("out_of_memory"); }
+    network_sync_wake();
     return result;
 }
 extern "C" esp_err_t memo_cardless_begin(uint32_t floor, uint32_t *out_id)
@@ -949,7 +1032,7 @@ extern "C" esp_err_t memo_cardless_begin(uint32_t floor, uint32_t *out_id)
         set_error_locked("network_unavailable");
         return ESP_ERR_INVALID_STATE;
     }
-    if (ensure_network_task() != ESP_OK) {
+    if (ensure_network_buffer() != ESP_OK) {
         Lock lock(meta_mutex); set_error_locked("out_of_memory"); return ESP_ERR_NO_MEM;
     }
     if (!packet_storage) packet_storage = static_cast<uint8_t *>(heap_caps_malloc(AUDIO_BUFFER_BYTES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
@@ -1036,7 +1119,7 @@ extern "C" esp_err_t memo_cardless_begin(uint32_t floor, uint32_t *out_id)
         }
         if(!active_marker_matches(id)){metadata_fault.store(true);esp_opus_enc_close(encoder);encoder=nullptr;set_error_locked("metadata_write_failed");return ESP_FAIL;}
         counter = MEMO_CARDLESS_DISPLAY_ID(id);
-        records[record_count++] = record;
+        records[record_count++] = {record.id,record.duration_ms,record.encoded_bytes,record.state};
         global_error[0] = stop_reason[0] = 0;
     }
     const uint32_t test_frames = test_next_ring_frames.exchange(0);
@@ -1064,7 +1147,7 @@ extern "C" esp_err_t memo_cardless_begin(uint32_t floor, uint32_t *out_id)
     *out_id = id;
     revision.fetch_add(1);
     xTaskNotifyGive(encoder_task_handle);
-    xTaskNotifyGive(network_task_handle);
+    network_sync_wake();
     ESP_LOGI(TAG, "STREAM_BEGIN id=%lu format=opus rate=16000 bitrate=24000", (unsigned long)id);
     return ESP_OK;
 }
@@ -1090,7 +1173,7 @@ extern "C" void memo_cardless_finish(bool interrupted, const char *reason)
     if (interrupted) set_stop(reason && reason[0] ? reason : "recording_interrupted", false);
     capturing.store(false);
     finish_requested.store(true);
-    if (network_task_handle) xTaskNotifyGive(network_task_handle);
+    network_sync_wake();
 }
 extern "C" bool memo_cardless_recording(void) { return capturing.load(); }
 extern "C" bool memo_cardless_busy(void)
@@ -1126,7 +1209,9 @@ extern "C" size_t memo_cardless_list(size_t offset, memo_cardless_record_t *out,
     Lock lock(meta_mutex);
     size_t count = 0;
     while (offset + count < record_count && count < capacity) {
-        out[count] = records[record_count - 1 - offset - count];
+        const auto &entry=records[record_count-1-offset-count];
+        out[count]={};out[count].id=entry.id;out[count].duration_ms=entry.duration_ms;
+        out[count].encoded_bytes=entry.encoded_bytes;out[count].state=entry.state;
         ++count;
     }
     return count;
@@ -1137,9 +1222,29 @@ extern "C" bool memo_cardless_get(uint32_t id, memo_cardless_record_t *out)
     Lock lock(meta_mutex);
     size_t at = find_record(id);
     if (at == SIZE_MAX) return false;
-    *out = records[at];
+    auto *record=load_record_locked(at);if(!record)return false;
+    *out = *record;
     if (id == query_notice_id) copy_text(out->error, sizeof(out->error), query_notice);
     if (id == active_id.load() && capturing.load()) out->duration_ms = input_samples.load() / 16;
+    return true;
+}
+extern "C" void memo_cardless_select(uint32_t id)
+{
+    selected_detail.store(id);
+}
+extern "C" bool memo_cardless_peek(uint32_t id,memo_cardless_record_t *out)
+{
+    if(!meta_mutex || !records || !out)return false;
+    Lock lock(meta_mutex);
+    auto *record=load_record_locked(find_record(id),true);
+    if(!record){
+        if(!metadata_fault.load())return false;
+        *out={};out->id=id;out->state=MEMO_JOB_FAILED;
+        copy_text(out->error,sizeof(out->error),global_error);return true;
+    }
+    *out=*record;
+    if(id==query_notice_id)copy_text(out->error,sizeof(out->error),query_notice);
+    if(id==active_id.load() && capturing.load())out->duration_ms=input_samples.load()/16;
     return true;
 }
 extern "C" uint32_t memo_cardless_revision(void) { return revision.load(); }
@@ -1147,27 +1252,20 @@ extern "C" bool memo_cardless_request_status(uint32_t id)
 {
     memo_cardless_record_t record{};
     if (!initialized.load() || !memo_cardless_get(id, &record)) return false;
-    if (ensure_network_task() != ESP_OK) return false;
     status_request.store(id);
-    xTaskNotifyGive(network_task_handle);
+    network_sync_wake();
     return true;
+}
+/* Resume only retained transport for the same unfinished stream. Never issue
+ * /retry for a completed recording or start another transcription task. */
+extern "C" bool memo_cardless_can_resume(uint32_t id)
+{
+    return id && id==active_id.load() && transfer_blocked.load() && !metadata_fault.load();
 }
 extern "C" bool memo_cardless_retry(uint32_t id)
 {
-    memo_cardless_record_t record{};
-    if (!initialized.load() || !memo_cardless_get(id, &record) || !record.can_retry) return false;
-    if (id == active_id.load()) {
-        if (!transfer_blocked.load() || metadata_fault.load() || !online()) return false;
-        transfer_blocked.store(false);
-        update_record(id, MEMO_JOB_UPLOADING, record.error, false, true, UINT64_MAX, true);
-        xTaskNotifyGive(network_task_handle);
-        return true;
-    }
-    if (ensure_network_task() != ESP_OK) return false;
-    uint32_t expected = 0;
-    if (!retry_request.compare_exchange_strong(expected, id)) return false;
-    xTaskNotifyGive(network_task_handle);
-    return true;
+    if(!memo_cardless_can_resume(id))return false;
+    resume_request.store(id);network_sync_wake();return true;
 }
 extern "C" bool memo_cardless_test_fault(unsigned kind, uint32_t value)
 {
