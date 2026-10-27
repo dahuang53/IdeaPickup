@@ -537,7 +537,9 @@ class RelayService:
             raise RelayError(400, "invalid_recording_id", "invalid recording ID")
         if int(recording_text) > 0xFFFFFFFF:
             raise RelayError(400, "invalid_recording_id", "recording ID must be uint32")
-        if not AUDIO_HASH.fullmatch(claimed_hash):
+        # New devices stream audio once; the receiver computes its identity.
+        # Keep validating a supplied digest for existing firmware clients.
+        if "X-Audio-SHA256" in headers and not AUDIO_HASH.fullmatch(claimed_hash):
             raise RelayError(400, "invalid_audio_hash", "invalid audio SHA-256")
         self.authorize(headers.get("Authorization"), device_id)
         return device_id, int(recording_text), claimed_hash
@@ -551,7 +553,7 @@ class RelayService:
     ) -> tuple[dict, int]:
         device_id, recording_id, claimed_hash = self.preflight_upload(headers)
         wav = validate_wav(source)
-        if actual_hash != claimed_hash:
+        if claimed_hash and actual_hash != claimed_hash:
             raise RelayError(400, "audio_hash_mismatch", "audio SHA-256 does not match body")
         now = now if now is not None else int(time.time() * 1000)
         created, row = self.store.create(device_id, recording_id, actual_hash, wav["duration_ms"], now)

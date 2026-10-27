@@ -266,8 +266,10 @@ class StreamService:
             state, error = memo["status"], memo["error"]
         if row["phase"] == "queued" and state not in TERMINAL | {"uncertain", "sending"}:
             state, error = "received", None
-        if row["phase"] == "audio_expired" and state not in {"sent", "transcription_rejected", "uncertain", "sending", "transcribed", "delivery_failed"}:
+        if row["phase"] == "audio_expired" and state not in {"sent", "transcription_rejected", "uncertain", "sending", "transcribed", "delivery_failed", "cancelled"}:
             state, error = "audio_expired", row["error"] or "audio_expired"
+        if row["phase"] == "cancelled":
+            state, error = "cancelled", None
         # A finished transcript can be re-delivered after audio expiration.
         retry_text = bool(memo and memo["status"] in {"transcribed", "delivery_failed"} and memo["cloud_content"])
         permanent_audio_error = any(marker in (error or "") for marker in
@@ -278,7 +280,7 @@ class StreamService:
         return {"device_id": row["device_id"], "recording_id": row["recording_id"],
                 "status": state, "next_seq": row["next_seq"], "received_samples": samples,
                 "duration_ms": round(samples * 1000 / 16000), "error": error,
-                "can_retry": bool((retry_text or retry_audio) and not busy),
+                "can_retry": bool((retry_text or retry_audio) and not busy and state != "cancelled"),
                 "interrupted": bool(row["interrupted"])}
 
     def authorize(self, authorization, device, recording):
@@ -319,10 +321,10 @@ class StreamService:
         if (headers.get("Content-Type") or "").split(";", 1)[0] != "application/octet-stream":
             raise StreamError(415, "unsupported_media_type", "expected application/octet-stream")
         claimed = headers.get("X-Chunk-SHA256", "")
-        if not re.fullmatch(r"[a-fA-F0-9]{64}", claimed):
-            raise StreamError(400, "invalid_chunk_hash", "SHA-256 header required")
+        if "X-Chunk-SHA256" in headers and not re.fullmatch(r"[a-fA-F0-9]{64}", claimed):
+            raise StreamError(400, "invalid_chunk_hash", "invalid optional SHA-256 header")
         digest = hashlib.sha256(body).hexdigest()
-        if claimed.lower() != digest:
+        if claimed and claimed.lower() != digest:
             raise StreamError(400, "chunk_hash_mismatch", "chunk SHA-256 does not match body")
         if self.opus is None:
             raise StreamError(503, "opus_unavailable", "system libopus is required")
@@ -383,6 +385,8 @@ class StreamService:
         with self._mutex:
             self._expire_locked()
             row = self._row(device, recording)
+            if row["phase"] == "cancelled":
+                return self._public(row), 200
             if row["phase"] == "audio_expired":
                 raise StreamError(410, "audio_expired", "temporary audio has expired")
             if row["final_samples"] is not None:
@@ -529,7 +533,7 @@ class StreamService:
             for row in rows:
                 key = row["device_id"], row["recording_id"]
                 memo = self.store.get(*key)
-                if row["phase"] in {"done", "audio_expired"} or (memo and memo["status"] in TERMINAL):
+                if row["phase"] in {"done", "audio_expired", "cancelled"} or (memo and memo["status"] in TERMINAL):
                     continue
                 corrupt = False
                 for name, digest in expected.get(key, {}).items():
@@ -583,6 +587,9 @@ class StreamService:
             # never kept merely because delivery requires human reconciliation.
                 self._remove_audio(row)
                 self._update(*key, phase="audio_expired", error="audio_expired", updated_at=self._now())
+                if row["phase"] == "cancelled" and not memo:
+                    with self.store.connect() as db:
+                        db.execute("INSERT OR IGNORE INTO memos(device_id,recording_id,audio_sha256,duration_ms,status,created_at,updated_at) VALUES(?,?,'',?,'cancelled',?,?)", (*key, round(row["received_samples"] / 16), row["created_at"], self._now()))
                 if memo and memo["status"] in {"received", "transcribing", "transcription_failed"}:
                     self.store.update(*key, status="audio_expired", error="audio_expired", updated_at=self._now())
             except OSError:
@@ -640,6 +647,16 @@ class StreamService:
                 self._completion_callback(key)
         return True
 
+    def _cancelled(self, key):
+        return self._row(*key)["phase"] == "cancelled"
+
+    def _begin_delivery(self, key):
+        with self._mutex:
+            if self._cancelled(key):
+                return False
+            self.store.update(*key, status="sending", error=None, updated_at=self._now())
+            return True
+
     def _process(self, key):
         row = self._row(*key)
         now = self._now()
@@ -648,6 +665,8 @@ class StreamService:
         title = f"喵伴无卡语音笔记 #{display_id}"
         progressed = False
         try:
+            if self._cancelled(key):
+                return
             relay = self._service_factory(key) if self._service_factory else self.relay
             memo = self.store.get(*key)
             if memo and memo["status"] in {"sent", "transcription_rejected"}:
@@ -657,13 +676,17 @@ class StreamService:
                 return
             if memo and memo["status"] in {"transcribed", "delivery_failed"} and memo["cloud_content"]:
                 progressed = True
-                relay._deliver(memo, now, title=title)
+                if self._begin_delivery(key):
+                    relay._deliver(memo, now, title=title)
                 return
-            if row["final_samples"] == 0:
-                with self.store.connect() as db:
-                    db.execute("INSERT OR IGNORE INTO memos(device_id,recording_id,audio_sha256,duration_ms,status,created_at,updated_at,error) "
-                               "VALUES(?,?,?,0,'transcription_rejected',?,?,?)", (*key, hashlib.sha256(b'').hexdigest(), now, now, "empty"))
-                return
+            with self._mutex:
+                if self._cancelled(key):
+                    return
+                if row["final_samples"] == 0:
+                    with self.store.connect() as db:
+                        db.execute("INSERT OR IGNORE INTO memos(device_id,recording_id,audio_sha256,duration_ms,status,created_at,updated_at,error) "
+                                   "VALUES(?,?,?,0,'transcription_rejected',?,?,?)", (*key, hashlib.sha256(b'').hexdigest(), now, now, "empty"))
+                    return
             if self.opus is None:
                 raise StreamError(503, "opus_unavailable", "system libopus is required")
             with self.store.connect() as db:
@@ -673,57 +696,67 @@ class StreamService:
             sources = [(self._path(*key) / f"{item['seq']:010d}.opus", item["sha256"]) for item in chunks]
             self.opus.decode(sources, wav_path, row["final_samples"])
             progressed = True
-            self._update(*key, updated_at=self._now(), expires_at=self._now() + RETENTION_MS)
             digest = hashlib.sha256()
             with wav_path.open("rb") as audio:
                 for block in iter(lambda: audio.read(MAX_CHUNK), b""):
                     digest.update(block)
             duration = round(row["final_samples"] * 1000 / 16000)
-            with self.store.connect() as db:
-                db.execute("INSERT OR IGNORE INTO memos(device_id,recording_id,audio_sha256,duration_ms,status,created_at,updated_at) "
-                           "VALUES(?,?,?,?,'received',?,?)", (*key, digest.hexdigest(), duration, now, now))
-            memo = self.store.get(*key)
-            if memo["audio_sha256"] == "" and memo["status"] == "transcription_failed":
+            with self._mutex:
+                if self._cancelled(key):
+                    return
+                self._update(*key, updated_at=self._now(), expires_at=self._now() + RETENTION_MS)
                 with self.store.connect() as db:
-                    db.execute("UPDATE memos SET audio_sha256=? WHERE device_id=? AND recording_id=? AND audio_sha256=''",
-                               (digest.hexdigest(), *key))
+                    db.execute("INSERT OR IGNORE INTO memos(device_id,recording_id,audio_sha256,duration_ms,status,created_at,updated_at) "
+                               "VALUES(?,?,?,?,'received',?,?)", (*key, digest.hexdigest(), duration, now, now))
                 memo = self.store.get(*key)
-            if memo["audio_sha256"] != digest.hexdigest():
-                raise StreamError(409, "recording_conflict", "ID already belongs to different audio")
-            self.store.update(*key, status="transcribing", error=None, updated_at=now)
+                if memo["audio_sha256"] == "" and memo["status"] == "transcription_failed":
+                    with self.store.connect() as db:
+                        db.execute("UPDATE memos SET audio_sha256=? WHERE device_id=? AND recording_id=? AND audio_sha256=''",
+                                   (digest.hexdigest(), *key))
+                    memo = self.store.get(*key)
+                if memo["audio_sha256"] != digest.hexdigest():
+                    raise StreamError(409, "recording_conflict", "ID already belongs to different audio")
+                self.store.update(*key, status="transcribing", error=None, updated_at=now)
             transcript, request_id = relay._transcribe_source(wav_path, duration)
             imported_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(row["created_at"] / 1000))
             note = " · 中断录音（仅已接收部分）" if row["interrupted"] else ""
             content = f"**喵伴无卡 #{display_id}** · 云端导入时间 {imported_at}{note}\n\n{transcript}"
-            memo = self.store.update(*key, status="transcribed", transcript=transcript, cloud_content=content,
-                                     transcript_sha256=hashlib.sha256(transcript.encode()).hexdigest(),
-                                     qwen_request_id=request_id, error=None, updated_at=self._now())
-            relay._deliver(memo, self._now(), title=title)
+            with self._mutex:
+                if self._cancelled(key):
+                    return
+                memo = self.store.update(*key, status="transcribed", transcript=transcript, cloud_content=content,
+                                         transcript_sha256=hashlib.sha256(transcript.encode()).hexdigest(),
+                                         qwen_request_id=request_id, error=None, updated_at=self._now())
+            if self._begin_delivery(key):
+                relay._deliver(memo, self._now(), title=title)
         except Exception as error:
-            memo = self.store.get(*key)
-            code = getattr(error, "code", "processing_failed")
-            detail = str(error)[:240] if hasattr(error, "code") else type(error).__name__
-            failure = f"{code}: {detail}"
-            if memo is None:
-                with self.store.connect() as db:
-                    db.execute("INSERT OR IGNORE INTO memos(device_id,recording_id,audio_sha256,duration_ms,status,created_at,updated_at,error) "
-                               "VALUES(?,?,?,?,'transcription_failed',?,?,?)",
-                               (*key, "", round(row["final_samples"] * 1000 / 16000), now, now, failure))
-            elif memo["status"] in {"received", "transcribing", "transcription_failed"}:
-                self.store.update(*key, status="transcription_rejected" if code == "transcript_rejected" else "transcription_failed",
-                                  error=failure, updated_at=self._now())
-            elif memo["status"] == "transcribed":
-                self.store.update(*key, status="delivery_failed", error=failure, updated_at=self._now())
-            elif memo["status"] == "sending":
-                # An unexpected exception may also happen after remote acceptance.
-                self.store.update(*key, status="uncertain", error=failure, updated_at=self._now())
-            # Only work that actually decoded audio or began durable-text
-            # delivery can end a processing interval. Merely failing to obtain
-            # configuration must not slide the audio's previous deadline.
-            fields = {"phase": "failed", "error": failure, "updated_at": self._now()}
-            if progressed:
-                fields["expires_at"] = self._now() + RETENTION_MS
-            self._update(*key, **fields)
+            with self._mutex:
+                if self._cancelled(key):
+                    return
+                memo = self.store.get(*key)
+                code = getattr(error, "code", "processing_failed")
+                detail = str(error)[:240] if hasattr(error, "code") else type(error).__name__
+                failure = f"{code}: {detail}"
+                if memo is None:
+                    with self.store.connect() as db:
+                        db.execute("INSERT OR IGNORE INTO memos(device_id,recording_id,audio_sha256,duration_ms,status,created_at,updated_at,error) "
+                                   "VALUES(?,?,?,?,'transcription_failed',?,?,?)",
+                                   (*key, "", round(row["final_samples"] * 1000 / 16000), now, now, failure))
+                elif memo["status"] in {"received", "transcribing", "transcription_failed"}:
+                    self.store.update(*key, status="transcription_rejected" if code == "transcript_rejected" else "transcription_failed",
+                                      error=failure, updated_at=self._now())
+                elif memo["status"] == "transcribed":
+                    self.store.update(*key, status="delivery_failed", error=failure, updated_at=self._now())
+                elif memo["status"] == "sending":
+                    # An unexpected exception may also happen after remote acceptance.
+                    self.store.update(*key, status="uncertain", error=failure, updated_at=self._now())
+                # Only work that actually decoded audio or began durable-text
+                # delivery can end a processing interval. Merely failing to obtain
+                # configuration must not slide the audio's previous deadline.
+                fields = {"phase": "failed", "error": failure, "updated_at": self._now()}
+                if progressed:
+                    fields["expires_at"] = self._now() + RETENTION_MS
+                self._update(*key, **fields)
         finally:
             memo = self.store.get(*key)
             if memo and memo["status"] in {"sent", "transcription_rejected"}:

@@ -67,12 +67,13 @@ void app_snapshot(memo_snapshot_t *out) { *out = model; }
 void network_sync_get_status(memo_network_status_t *out) { *out = network; }
 void network_sync_get_service_config(memo_config_public_t *out) { *out=service; }
 static memo_record_sync_t detail_job;
-static unsigned retry_calls;
+static unsigned retry_calls,cancel_calls;
 static bool retry_accept=true;
 static unsigned select_calls;
-void network_sync_select_record(uint32_t id) { select_calls++;detail_job=(memo_record_sync_t){.id=id,.state=MEMO_JOB_LOCAL,.cardless=(id&UINT32_C(0x80000000))!=0}; }
+void network_sync_select_record(uint32_t id) { select_calls++;detail_job=(memo_record_sync_t){.id=id,.state=MEMO_JOB_LOCAL,.cardless=(id&UINT32_C(0x80000000))!=0,.can_retry=(id&UINT32_C(0x80000000))==0}; }
 void network_sync_record_status(memo_record_sync_t *out) { *out=detail_job; }
 bool network_sync_retry_record(uint32_t id) { assert(id==detail_job.id);retry_calls++;if(retry_accept)detail_job.request_pending=true;return retry_accept; }
+bool network_sync_cancel_record(uint32_t id) { assert(id==detail_job.id);cancel_calls++;detail_job.can_cancel=false;detail_job.state=MEMO_JOB_CANCELLING;return true; }
 void power_policy_note_activity(const char *source) { (void)source; }
 void power_policy_get_status(memo_power_status_t *out) { *out = power; }
 
@@ -504,7 +505,7 @@ static void cardless_cases(lv_indev_t *indev)
     save_frame("cardless-saved-failure-offline");
     assert(contains_visible_label(lv_screen_active(),MEMO_UI_COMPACT?"处理未完成":"处理未完成喵"));
     network.configured=true;network.connected=true;
-    for(int st=MEMO_JOB_UNKNOWN;st<=MEMO_JOB_UNCERTAIN;st++) {
+    for(int st=MEMO_JOB_UNKNOWN;st<=MEMO_JOB_CANCELLING;st++) {
         detail_job.state=(memo_job_state_t)st;
         save_frame("cardless-detail-status");
     }
@@ -688,10 +689,21 @@ int main(void)
     press(indev,retry_x,retry_y,true);press(indev,retry_x,retry_y,false);tick(220);
     assert(retry_calls==1); // Busy request cannot be duplicated.
     detail_job.request_pending=false;
-    for(int st=MEMO_JOB_UNKNOWN;st<=MEMO_JOB_UNCERTAIN;st++) {
+    for(int st=MEMO_JOB_UNKNOWN;st<=MEMO_JOB_CANCELLING;st++) {
         detail_job.state=(memo_job_state_t)st;
         save_frame(st==MEMO_JOB_SENT?"record-detail-sent":"record-detail-status");
     }
+    detail_job.state=MEMO_JOB_RECEIVED;detail_job.can_retry=false;detail_job.can_cancel=true;tick(220);
+    assert(contains_visible_label(lv_screen_active(),"取消处理"));
+    unsigned prior_cancel=cancel_calls;
+    press(indev,retry_x,retry_y,true);press(indev,retry_x,retry_y,false);tick(220);
+    assert(cancel_calls==prior_cancel+1 && detail_job.state==MEMO_JOB_CANCELLING);
+    detail_job.state=MEMO_JOB_SENT;detail_job.can_retry=detail_job.can_cancel=false;tick(220);
+    assert(!contains_visible_label(lv_screen_active(),"提交处理")&&!contains_visible_label(lv_screen_active(),"取消处理"));
+    detail_job.state=MEMO_JOB_WAITING;tick(220);
+    assert(contains_visible_label(lv_screen_active(),MEMO_UI_COMPACT?"等待接收确认":"等待服务器确认喵"));
+    detail_job.state=MEMO_JOB_CANCELLED;detail_job.can_retry=true;tick(220);
+    assert(contains_visible_label(lv_screen_active(),"提交处理"));
     detail_job.state=MEMO_JOB_LOCAL;retry_accept=false;tick(220);
     unsigned rejected_count=retry_calls;
     press(indev,retry_x,retry_y,true);press(indev,retry_x,retry_y,false);tick(500);
@@ -720,7 +732,7 @@ int main(void)
     assert(contains_visible_label(lv_screen_active(),MEMO_UI_COMPACT?"正在核对录音":"正在核对录音喵"));
     network.configured=true;
     network.connected=true;detail_job.state=MEMO_JOB_LOCAL;tick(220);
-    assert(contains_visible_label(lv_screen_active(),"开始同步"));
+    assert(contains_visible_label(lv_screen_active(),"提交处理"));
 #if !MEMO_UI_COMPACT
     detail_job.state=MEMO_JOB_LOCAL;
     model.state=MEMO_PLAYING;model.active_id=10;model.elapsed_ms=63000;model.revision++;

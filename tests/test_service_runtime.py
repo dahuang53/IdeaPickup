@@ -412,7 +412,7 @@ class RuntimeTests(unittest.TestCase):
 #include <cstdint>
 #include <functional>
 static void *status_mutex=(void *)1,*detail_task_handle=(void *)2;
-static std::atomic<uint32_t> selected_cardless{0},selected_revision{0},inspect_id{0};
+static std::atomic<uint32_t> selected_cardless{0},inspect_id{0};
 static uint32_t pinned,detail_revision;static int lock_depth;static std::function<void()> on_unlock;
 struct Detail {uint32_t id;int state;};static Detail detail_value;
 #define MEMO_CARDLESS_ID_FLAG 0x80000000u
@@ -428,7 +428,7 @@ int main(){
  assert(detail_value.id==0x8000002du && inspect_id==detail_value.id && pinned==detail_value.id && selected_cardless==detail_value.id);
  on_unlock=[](){network_sync_select_record(0);};network_sync_select_record(61);
  assert(detail_value.id==0 && inspect_id==0 && pinned==0 && selected_cardless==0);
- assert(selected_revision==4 && detail_revision==4 && lock_depth==0);
+ assert(detail_revision==4 && lock_depth==0);
 }
 '''.replace('// BODY',body)
         with tempfile.TemporaryDirectory(prefix='detail-select-',dir=ROOT/'private/host-tests') as directory:

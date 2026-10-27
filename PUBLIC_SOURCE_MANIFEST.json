@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "tree_sha256": "04625d3a60d68d7a3bf80739894ea2bd23102f6af5e0bb251ae586ff0dea7fc5",
+  "tree_sha256": "559fcbb62521b8b1c96670e9b948bfbdbee7939e8e060a469d800c92ac0d2809",
   "files": [
     {
       "path": ".dockerignore",
@@ -310,8 +310,8 @@
     },
     {
       "path": "docs/DEPLOYMENT.md",
-      "sha256": "34fdc3334627a5d81858515611e327d0038471c989875e817bb23f49dfa50950",
-      "size": 16084,
+      "sha256": "9824c78bbf0f26c3009d3832912f4b304bcbef257a2a5ecd3cd0711f2b188a02",
+      "size": 16597,
       "executable": false
     },
     {
@@ -322,8 +322,8 @@
     },
     {
       "path": "docs/FIRMWARE_STORAGE.md",
-      "sha256": "7fa8b6c61cbcd1d4a167cf8599b7303faf6ffeb940e8d94d107b14427ddba380",
-      "size": 4634,
+      "sha256": "1408635b63a1348fd7eca06ec2c49aa613b9e07491331719f4976937a32d22d5",
+      "size": 5108,
       "executable": false
     },
     {
@@ -334,8 +334,8 @@
     },
     {
       "path": "docs/SUPPORT.md",
-      "sha256": "9d76cd59b39c4bb26b2c3285dc2496b77d785b5775501e871a4dde1ccc7243c9",
-      "size": 25428,
+      "sha256": "68a86c70377adbc77adb29da3b682c23ff396f7f5a77f1999bed330737b08e91",
+      "size": 25962,
       "executable": false
     },
     {
@@ -352,8 +352,8 @@
     },
     {
       "path": "docs/contracts/device-api-v2.json",
-      "sha256": "cec202d3a4162710b6fc977df118c098a29af9d25e4357f9909bd5a8fcc5f428",
-      "size": 10734,
+      "sha256": "0ee0add9828931501180fe3cb6ef87f0b1ed0e91a8cbdd0d1bf1ce564181d00e",
+      "size": 13691,
       "executable": false
     },
     {
@@ -370,8 +370,8 @@
     },
     {
       "path": "docs/contracts/firmware-tasks-v1.json",
-      "sha256": "8eca5ccf0cb6593082e07df83bb20d4114130c9a2b11abfd88b68126f670f90f",
-      "size": 9782,
+      "sha256": "6857db65278279df3bfd4078351aa159850d4021d630dfb09f2b0ed6e2c0419a",
+      "size": 10346,
       "executable": false
     },
     {
@@ -424,8 +424,8 @@
     },
     {
       "path": "main/app.c",
-      "sha256": "9bc83edc5cd5ecbdd7bd3341760f26acf6bfa56fefa1adf7125e000a15cce022",
-      "size": 62849,
+      "sha256": "05b45d3896df36a8bb7890e420d6d6be07b6af433125a72b6888d34090997d9c",
+      "size": 62569,
       "executable": false
     },
     {
@@ -502,14 +502,14 @@
     },
     {
       "path": "main/board.c",
-      "sha256": "7abbf98e487063bddf9a40b5db070df342d920ab8299f00fc5c3da7b897a9650",
-      "size": 34688,
+      "sha256": "757a5f5369e546578419975e7f0d46063ac0429ce98d0b460ea1e55936f8ef1b",
+      "size": 34577,
       "executable": false
     },
     {
       "path": "main/board.h",
-      "sha256": "bc829732e97bdd76ceb0062ba45fe0d0b28d6cb8f7ec7ca63ef985ad8dfb2fae",
-      "size": 3888,
+      "sha256": "54d05bbd0ba9701af2d9f5d94c7ab77f4e4ce4756df5bd23623d7fab976bf197",
+      "size": 3847,
       "executable": false
     },
     {
@@ -520,8 +520,8 @@
     },
     {
       "path": "main/board_spotpear.c",
-      "sha256": "ceca5c186862e9b362e435d34dfac27f5d4d4c4b5926e015e3026222769175b8",
-      "size": 32707,
+      "sha256": "dfc88bf5742d2dcd7cc7e6d52d6e57913351ea41375d7ba7843b556d03edcd4f",
+      "size": 32596,
       "executable": false
     },
     {
@@ -544,14 +544,14 @@
     },
     {
       "path": "main/memo_cardless.cpp",
-      "sha256": "3a1ba67e1a166fc7c1d7290ac325474b58c6a8501f5317d4df913823082e1644",
-      "size": 60123,
+      "sha256": "f392e2eecbab0ad697cb5fd5bf17d3a938690893ed921e38769afe7854bfb8d8",
+      "size": 63338,
       "executable": false
     },
     {
       "path": "main/memo_cardless.h",
-      "sha256": "f39d8f7ca137ff612b0f5210d0b8d97b17e7980adb8bb9ce44f628300c7e7aae",
-      "size": 5147,
+      "sha256": "3e9440afdd0aa80450a22b3e1018e13551c93f4b65d38705b20b50083bfac0a3",
+      "size": 5316,
       "executable": false
     },
     {
@@ -568,8 +568,8 @@
     },
     {
       "path": "main/memo_cardless_record.c",
-      "sha256": "bcec1e81beb24cbda1224a8635fdd4bcb1fcca57addf8eee72f23f42012b29f5",
-      "size": 2349,
+      "sha256": "86f1f7338552ab063b0eed36b00882eba98fcab3811bf39b5ca562c07f972b8a",
+      "size": 2350,
       "executable": false
     },
     {
@@ -592,14 +592,14 @@
     },
     {
       "path": "main/memo_font.c",
-      "sha256": "e16f59dff37451d2667544d986ab38ac9a00b86e801689211843aa2ed22dcfcd",
-      "size": 338311,
+      "sha256": "018a68a7cf6f891e235af758c4f4b9ac6c7ccbb103709370de11d2d6eb82b138",
+      "size": 342541,
       "executable": false
     },
     {
       "path": "main/memo_font20.c",
-      "sha256": "9afd568c57b1bc99fa33c2c83b1f58df315a6468a4c8e3498f9a5e8284050118",
-      "size": 396665,
+      "sha256": "b284985dc30f8a21435912816e12047733418687a3d79448f7a64f5cc218014c",
+      "size": 401592,
       "executable": false
     },
     {
@@ -693,21 +693,15 @@
       "executable": false
     },
     {
-      "path": "main/memo_sd_session.h",
-      "sha256": "f5ba2616563591fa64bd654b487197ff9faa5fc59865d0a6c40020cb2710fce2",
-      "size": 717,
-      "executable": false
-    },
-    {
       "path": "main/memo_sd_sync.cpp",
-      "sha256": "7ee3a42bc9350cf17f0a7c65c73fad62cf55e86b42529318b97a6ed773bdc331",
-      "size": 9945,
+      "sha256": "9ae5f24c9827c55f7d15caacba11c279998dccf0211bf9566fd5da99237cd7cc",
+      "size": 12981,
       "executable": false
     },
     {
       "path": "main/memo_sd_sync.h",
-      "sha256": "bf5a6f72e7be3381e93ad90604d5138f435f93cdc6e0442f2caef39feb577514",
-      "size": 1233,
+      "sha256": "3a600fec247e3ee58ad945d4c4c44eb8f39a2595e2df21dc5c53fc6bc9520ad6",
+      "size": 1187,
       "executable": false
     },
     {
@@ -742,14 +736,14 @@
     },
     {
       "path": "main/memo_sync_cache.c",
-      "sha256": "f82790760383251f5b3259145fa2ed29bc214178dc5c382f3a99bbca6708bbe2",
-      "size": 6626,
+      "sha256": "dc6e2781bf8eeb72564a4c79c28cd9b4c24f5b9eb7b1da28371ae3f02e2af303",
+      "size": 6938,
       "executable": false
     },
     {
       "path": "main/memo_sync_cache.h",
-      "sha256": "7d0d8aa4d6902f7c4ed6446537975f9c8921599fa8ccb75bda9b939b5701f226",
-      "size": 1478,
+      "sha256": "cbcdaff1ccfccf9cc7b6a28f46043e033c0d945bd7ffbc84509e33c198ee47cb",
+      "size": 1598,
       "executable": false
     },
     {
@@ -802,20 +796,20 @@
     },
     {
       "path": "main/network_sync.cpp",
-      "sha256": "d6945ae511f1422f0b2d3c12341e8858bb7d0417ab205fb2ef2673215d7ab846",
-      "size": 55770,
+      "sha256": "6ca67990c2632dda5dc0907aeac9c7966b1f7ad7f61cc37ef3772858c1dad1ae",
+      "size": 52800,
       "executable": false
     },
     {
       "path": "main/network_sync.h",
-      "sha256": "c5e9ba634c441c5a9a86babb0ca5eb703fdb34330e5b4d0190299a417e294d36",
-      "size": 4268,
+      "sha256": "97605ace7d67c549b071681c2bf8c9b0db0a2b98696a5f4821bd393e2589f397",
+      "size": 4178,
       "executable": false
     },
     {
       "path": "main/network_sync_state.c",
-      "sha256": "74fef5c3e0df543b1d5ea8a7fbdfa0dc42384b0c468568bb94fa33b74fe280ef",
-      "size": 3364,
+      "sha256": "99f651f346667d78ea6157a54690a7cc69fb7890131d4235b8c8e9f3bae5eb9f",
+      "size": 3434,
       "executable": false
     },
     {
@@ -868,8 +862,8 @@
     },
     {
       "path": "main/ui.c",
-      "sha256": "3f9fe440fe87c31707123c90290d8f75e24230e9f29ea871b8e73a3e19121796",
-      "size": 74012,
+      "sha256": "4a3d0dacb5d2c3355797777d4594917886c271e7969a194dbe14f7b2d531b7d2",
+      "size": 74680,
       "executable": false
     },
     {
@@ -1192,8 +1186,8 @@
     },
     {
       "path": "server-relay/app.py",
-      "sha256": "cf4abf6eee0a96742300552ef4707c9a937eb13404551713999ee0bac37b5ddd",
-      "size": 28271,
+      "sha256": "a0e18564c3f1f612fac421ae47c30e09eb3819e854fdc853ed222c3ad7f4587d",
+      "size": 28472,
       "executable": false
     },
     {
@@ -1294,14 +1288,14 @@
     },
     {
       "path": "server-relay/relay/identity.py",
-      "sha256": "d128e017f154b52d2f89deee84466de986927e13da5b395f59ad751dffb4a469",
-      "size": 23291,
+      "sha256": "d990b0b0704287f7cac67f6784d74fc4b783e0334a79fdb786fb5f5190d3ff0d",
+      "size": 23329,
       "executable": false
     },
     {
       "path": "server-relay/relay/jobs.py",
-      "sha256": "a853ef6a7fe602fa372f2a7bdc45d82b20b96d22fc1d1b463aaa996f84d92e40",
-      "size": 1545,
+      "sha256": "c933cda953f95ebbbf87472df6d1b4b8ba3595a63bb7c83e61010f5a1b565c89",
+      "size": 1795,
       "executable": false
     },
     {
@@ -1312,14 +1306,14 @@
     },
     {
       "path": "server-relay/relay/runtime.py",
-      "sha256": "fb7c8300610c7636e70dcddc2a87bcd3df6df2899a565e9bac61a114f5f2b71a",
-      "size": 46801,
+      "sha256": "4949c27de5bb476dc1efb435a8f697c6f441cc9854e5e0332026eff58c163650",
+      "size": 52823,
       "executable": false
     },
     {
       "path": "server-relay/relay/web.py",
-      "sha256": "d9f690845fd7ab94c2b71a42c396a6c7d881dfe503e4951faec85c3124b2b1f2",
-      "size": 19279,
+      "sha256": "4bc9f71bfa1724c752b0d902071be488b58848bc75bf46f6d0262bd5f59749c6",
+      "size": 19896,
       "executable": false
     },
     {
@@ -1342,8 +1336,8 @@
     },
     {
       "path": "server-relay/static/admin.js",
-      "sha256": "e6cbac775ff28135244fa58242a55a87a97bc03c4fd7367596274f6e589b9cf8",
-      "size": 17742,
+      "sha256": "ae837186ee9f6c80d5f4d1cf5266fdda81d8a8c63e130dd3f5b899754c512899",
+      "size": 17794,
       "executable": false
     },
     {
@@ -1354,8 +1348,8 @@
     },
     {
       "path": "server-relay/stream_service.py",
-      "sha256": "5325d2c1cfcb318890ccec4f75fcfd5d2e70efb519386c046c9b6ba3615ca077",
-      "size": 39659,
+      "sha256": "37c7fe1d3d5303da26444c50e0896d8ab1a73118621299b64a8e8734e7b9d954",
+      "size": 41363,
       "executable": false
     },
     {
@@ -1402,8 +1396,8 @@
     },
     {
       "path": "server-relay/test_runtime_http.py",
-      "sha256": "6122094146b3ef0ea189d6fb041771a90cfbf3163d28a4dab19336b0d8f46968",
-      "size": 42050,
+      "sha256": "3e8d4ece6f2d2a409aa08a09234ee016f00912a8a430f3f7d4fd02b99742c389",
+      "size": 60942,
       "executable": false
     },
     {
@@ -1498,8 +1492,8 @@
     },
     {
       "path": "tests/test_cardless_runtime.py",
-      "sha256": "9bd84f8962353dc34dffb196e77b9a13a035d49f06c3c004361f3e915133ca23",
-      "size": 33199,
+      "sha256": "35069d077adad8a926bc40566a6dbbe4a3fc68c1442893db1dc2a445bde22553",
+      "size": 36035,
       "executable": false
     },
     {
@@ -1570,8 +1564,8 @@
     },
     {
       "path": "tests/test_network_worker.py",
-      "sha256": "d36b804fe9d27e68c045a7dce48d8084280491a3f92d87bdd53854571146837d",
-      "size": 4378,
+      "sha256": "4b4c92da8ebd3f548e9b51fbd150a3f5e9cb03539c4bdc25716802c0b1ec2b9d",
+      "size": 5106,
       "executable": false
     },
     {
@@ -1636,8 +1630,8 @@
     },
     {
       "path": "tests/test_sd_probe.py",
-      "sha256": "8bbde3c17cb35244ab9a37f9c45af24d682e15702e01b1738de040bd65df0640",
-      "size": 25622,
+      "sha256": "df86dcfc62cf18ce51ed9cab72542e007b167553cadc52f27d56ac70d1e5408a",
+      "size": 22416,
       "executable": false
     },
     {
@@ -1654,8 +1648,8 @@
     },
     {
       "path": "tests/test_service_runtime.py",
-      "sha256": "34a67626436623d81571572b051fb3e2ce7cb5c12ebeb9f3ca62e4f683048274",
-      "size": 28831,
+      "sha256": "32dfdcba049c924c1d6e7e238b3698581a83c97bb16f2e14ebe61d76f7c53d82",
+      "size": 28786,
       "executable": false
     },
     {
@@ -1684,8 +1678,8 @@
     },
     {
       "path": "tests/test_sync_pipeline.py",
-      "sha256": "57afe4fb111d88eb23b0ca52a2e62535698a373da8a4606636291f70f21fdc6f",
-      "size": 26507,
+      "sha256": "e25eb561d5dac603899cc36960a62a7784c3d20196ea90f099fa671a71bc3673",
+      "size": 34087,
       "executable": false
     },
     {
@@ -1708,8 +1702,8 @@
     },
     {
       "path": "tests/test_verified_audio.py",
-      "sha256": "f30710feadf13051acc94bfc9b750f905162041a74431af63cc87eddb4deb06f",
-      "size": 4846,
+      "sha256": "21d483eda19b4c54959473de502cb587631a0ec049d80ea4b49d683eb83b6adc",
+      "size": 1581,
       "executable": false
     },
     {
@@ -1726,8 +1720,8 @@
     },
     {
       "path": "tests/ui_preview.c",
-      "sha256": "237f270c0ae9caa870085352787afc4588fe7837ba0d187afd4610a149f34d49",
-      "size": 50301,
+      "sha256": "51a28ac81c681e98f500c1147aa2a907b18f45ed5fee8331ace78c91c5a70cac",
+      "size": 51450,
       "executable": false
     },
     {

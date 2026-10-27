@@ -1,8 +1,8 @@
 """Current task ledger. No old-database import or historical rebinding tables."""
-RUNTIME_SCHEMA_VERSION = 2
-STORAGE_MANIFEST = {"runtime_schema_read": [2], "runtime_schema_write": 2,
+RUNTIME_SCHEMA_VERSION = 3
+STORAGE_MANIFEST = {"runtime_schema_read": [2, 3], "runtime_schema_write": 3,
                     "identity_schema_read": [2], "identity_schema_write": 2,
-                    "minimum_runtime_reader": 2}
+                    "minimum_runtime_reader": 3}
 
 
 def initialize_schema(store, owner):
@@ -22,6 +22,9 @@ def initialize_schema(store, owner):
         """)
         db.execute("INSERT OR IGNORE INTO relay_runtime_meta VALUES(1,?,?)", (RUNTIME_SCHEMA_VERSION, owner))
         row = db.execute("SELECT schema_version FROM relay_runtime_meta WHERE singleton=1").fetchone()
-        if row[0] != RUNTIME_SCHEMA_VERSION:
+        if row[0] not in (2, RUNTIME_SCHEMA_VERSION):
             raise RuntimeError("unsupported runtime schema")
-        db.execute("UPDATE relay_runtime_meta SET owner_generation=? WHERE singleton=1", (owner,))
+        columns = {r[1] for r in db.execute("PRAGMA table_info(relay_jobs)")}
+        if "cancel_token" not in columns:
+            db.execute("ALTER TABLE relay_jobs ADD COLUMN cancel_token TEXT")
+        db.execute("UPDATE relay_runtime_meta SET schema_version=?,owner_generation=? WHERE singleton=1", (RUNTIME_SCHEMA_VERSION, owner))

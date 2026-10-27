@@ -22,7 +22,6 @@ extern "C" {
 #include "freertos/semphr.h"
 #include "freertos/stream_buffer.h"
 #include "freertos/task.h"
-#include "mbedtls/sha256.h"
 #include "nvs.h"
 #include "nvs_flash.h"
 
@@ -49,7 +48,7 @@ struct RecordDetail { memo_cardless_record_t value{}; uint32_t age=0; };
 constexpr size_t DETAIL_SLOTS = 4;
 RecordDetail record_details[DETAIL_SLOTS];
 uint32_t detail_clock;
-std::atomic<uint32_t> selected_detail{0}, resume_request{0};
+std::atomic<uint32_t> selected_detail{0}, resume_request{0}, cancel_request{0};
 size_t record_count;
 uint32_t counter;
 char global_error[80];
@@ -434,6 +433,7 @@ memo_job_state_t remote_state(const char *status)
     if (!strcmp(status, "transcribing")) return MEMO_JOB_TRANSCRIBING;
     if (!strcmp(status, "transcribed") || !strcmp(status, "sending")) return MEMO_JOB_DELIVERING;
     if (!strcmp(status, "sent")) return MEMO_JOB_SENT;
+    if (!strcmp(status, "cancelled")) return MEMO_JOB_CANCELLED;
     if (!strcmp(status, "uncertain")) return MEMO_JOB_UNCERTAIN;
     if (!strcmp(status, "transcription_rejected")) return MEMO_JOB_REJECTED;
     if (!strcmp(status, "transcription_failed") || !strcmp(status, "delivery_failed") ||
@@ -539,6 +539,12 @@ esp_err_t restore_active_record()
     // A failed begin (or power loss before the first PUT) has no remote audio.
     // PSRAM is empty at boot; release this marker without needing its old target.
     auto *record=load_record_locked(find_record(id));if(!record)return ESP_FAIL;
+    if(record->state==MEMO_JOB_CANCELLING){
+        active_id.store(id);recovery_mode.store(true);return ESP_OK;
+    }
+    if(record->state==MEMO_JOB_CANCELLED){
+        Lock lock(meta_mutex);return clear_active_marker()?ESP_OK:ESP_FAIL;
+    }
     if(!record->may_have_remote_audio){
         update_record(id,MEMO_JOB_FAILED,"audio_not_uploaded",false,true,0,true);
         if(metadata_fault.load())return ESP_FAIL;
@@ -645,12 +651,6 @@ bool online()
     network_sync_get_status(&network);
     return network.initialized && network.configured && network.connected && !network.provisioning;
 }
-void sha_hex(const void *data, size_t size, char result[65])
-{
-    uint8_t digest[32];
-    mbedtls_sha256(static_cast<const unsigned char *>(data), size, digest, 0);
-    for (size_t i = 0; i < sizeof(digest); ++i) snprintf(result + i * 2, 3, "%02x", digest[i]);
-}
 int finish_remote(uint32_t id, uint32_t chunks, uint64_t samples, bool interrupted,
                   const char *reason, Reply *reply)
 {
@@ -719,6 +719,28 @@ void query_selected(uint32_t id, bool retry)
     }
 }
 
+void cancel_step(uint32_t id)
+{
+    memo_cardless_record_t saved{};
+    if(!memo_cardless_get(id,&saved))return;
+    if(saved.state!=MEMO_JOB_CANCELLING)return;
+    if(active_id.load()==id && !encoder_done.load())return;
+    if(!online())return;
+    char path[160];make_path(path,sizeof(path),id,"/cancel");Reply reply;
+    int code=request("POST",path,id,"{}",2,"application/json",nullptr,&reply);
+    if(code==200 && reply.valid && remote_state(reply.status)==MEMO_JOB_CANCELLED) {
+        update_record(id,MEMO_JOB_CANCELLED,"",false,saved.interrupted);
+        if(!metadata_fault.load())release_active(id);
+    } else if(code==409) {
+        make_path(path,sizeof(path),id);
+        code=request("GET",path,id,nullptr,0,nullptr,nullptr,&reply);
+        if(code==200 && reply.valid && remote_state(reply.status)!=MEMO_JOB_UNKNOWN && strcmp(reply.status,"receiving")) {
+            accept_reply(id,reply);
+            if(!metadata_fault.load())release_active(id);
+        }
+    }
+}
+
 void transfer_step()
 {
     if(!initialized.load())return;
@@ -727,7 +749,30 @@ void transfer_step()
     auto &created=transfer_state.created;auto &finishing_uncertain=transfer_state.finishing_uncertain;
     auto &backoff_ms=transfer_state.backoff_ms;auto &retry_at=transfer_state.retry_at;
     auto &next_status_at=transfer_state.next_status_at;auto &after_status=transfer_state.after_status;
+    uint32_t cancellation=cancel_request.load();
+    if(cancellation) {
+        memo_cardless_record_t saved{};
+        if(memo_cardless_get(cancellation,&saved)) {
+            if(saved.state==MEMO_JOB_SENT || saved.state==MEMO_JOB_UNCERTAIN ||
+               saved.state==MEMO_JOB_FAILED || saved.state==MEMO_JOB_REJECTED || saved.state==MEMO_JOB_CANCELLED) {
+                // An in-flight result may have completed after the user queued cancel.
+                cancel_request.compare_exchange_strong(cancellation,0);
+            }else{
+                update_record(cancellation,MEMO_JOB_CANCELLING,"",false,saved.interrupted);
+                if(!metadata_fault.load())cancel_request.compare_exchange_strong(cancellation,0);
+            }
+        }
+    }
     uint32_t id = active_id.load();
+    if(id) {
+        memo_cardless_record_t saved{};
+        if(memo_cardless_get(id,&saved) && saved.state==MEMO_JOB_CANCELLING) {
+            if(esp_timer_get_time()>=next_status_at) {
+                cancel_step(id);next_status_at=esp_timer_get_time()+15000000;
+            }
+            return;
+        }
+    }
     if (!id) {
         working_id = 0;
         uint32_t requested = retry_request.exchange(0);
@@ -740,12 +785,16 @@ void transfer_step()
              for(size_t i=0;i<record_count;i++) {
                 const auto &r=records[i];
                 if(r.state!=MEMO_JOB_WAITING && r.state!=MEMO_JOB_RECEIVED &&
-                   r.state!=MEMO_JOB_TRANSCRIBING && r.state!=MEMO_JOB_DELIVERING && r.state!=MEMO_JOB_UNCERTAIN)continue;
+                   r.state!=MEMO_JOB_TRANSCRIBING && r.state!=MEMO_JOB_DELIVERING && r.state!=MEMO_JOB_UNCERTAIN && r.state!=MEMO_JOB_CANCELLING)continue;
                 if(!first)first=r.id;
                 if(r.id>after_status){next=r.id;break;}
              }}
             if(!next)next=first;
-            if(next){after_status=next;query_selected(next,false);}
+            if(next){
+                after_status=next;memo_cardless_record_t saved{};
+                if(memo_cardless_get(next,&saved) && saved.state==MEMO_JOB_CANCELLING)cancel_step(next);
+                else query_selected(next,false);
+            }
             next_status_at=esp_timer_get_time()+15000000;
         }
         return;
@@ -854,12 +903,10 @@ void transfer_step()
     }
     if (length) {
         if(!mark_remote_audio(id)){pause_transfer(id,"metadata_write_failed");return;}
-        char hash[65];
-        sha_hex(chunk, length, hash);
         char suffix[48];
         snprintf(suffix, sizeof(suffix), "/chunks/%lu", (unsigned long)seq);
         make_path(path, sizeof(path), id, suffix);
-        int status = request("PUT", path, id, chunk, length, "application/octet-stream", hash, &reply);
+        int status = request("PUT", path, id, chunk, length, "application/octet-stream", nullptr, &reply);
         if ((status == 200 || status == 201) && reply.valid && !strcmp(reply.status, "receiving") &&
             reply.next_seq == seq + 1 && reply.samples == ((uint64_t)ack_frames + count) * FRAME_SAMPLES) {
             {
@@ -1260,7 +1307,24 @@ extern "C" bool memo_cardless_request_status(uint32_t id)
  * /retry for a completed recording or start another transcription task. */
 extern "C" bool memo_cardless_can_resume(uint32_t id)
 {
-    return id && id==active_id.load() && transfer_blocked.load() && !metadata_fault.load();
+    if(!id || id!=active_id.load() || !transfer_blocked.load() || metadata_fault.load() || !meta_mutex)return false;
+    Lock lock(meta_mutex);size_t at=find_record(id);
+    return at!=SIZE_MAX && records[at].state!=MEMO_JOB_CANCELLING && records[at].state!=MEMO_JOB_CANCELLED;
+}
+extern "C" bool memo_cardless_can_cancel(uint32_t id)
+{
+    if(!id || !meta_mutex || metadata_fault.load() || cancel_request.load()==id ||
+       (id==active_id.load() && capturing.load()))return false;
+    Lock lock(meta_mutex);size_t at=find_record(id);if(at==SIZE_MAX)return false;
+    auto state=records[at].state;
+    return state==MEMO_JOB_QUEUED || state==MEMO_JOB_CHECKING || state==MEMO_JOB_UPLOADING ||
+           state==MEMO_JOB_WAITING || state==MEMO_JOB_RECEIVED || state==MEMO_JOB_TRANSCRIBING || state==MEMO_JOB_DELIVERING;
+}
+extern "C" bool memo_cardless_cancel(uint32_t id)
+{
+    if(!memo_cardless_can_cancel(id))return false;
+    uint32_t empty=0;if(!cancel_request.compare_exchange_strong(empty,id))return false;
+    network_sync_wake();return true;
 }
 extern "C" bool memo_cardless_retry(uint32_t id)
 {

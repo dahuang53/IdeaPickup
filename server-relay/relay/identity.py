@@ -243,7 +243,7 @@ class IdentityStore:
     def info(self) -> dict:
         return {"service": "voice-memo-relay", "server_instance_uuid": self.server_instance_uuid,
                 "protocol_version": PROTOCOL_VERSION,
-                "capabilities": ["device-info", "enrollment-v2", "recoverable-enrollment-request"],
+                "capabilities": ["device-info", "enrollment-v2", "recoverable-enrollment-request", "server-audio-sha256", "task-cancel"],
                 "limits": {"base_url_bytes": MAX_BASE_URL_BYTES, "candidate_ttl_seconds": 900,
                            "wav_bytes": 2_147_483_646, "stream_chunk_bytes": 65536},
                 "audio_formats": {"wav": {"codec": "pcm_s16le", "sample_rate": 16000, "channels": 1},

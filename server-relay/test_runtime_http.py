@@ -7,6 +7,7 @@ from pathlib import Path
 import secrets
 import sqlite3
 import tempfile
+import threading
 import unittest
 import uuid
 from unittest import mock
@@ -96,11 +97,287 @@ class RuntimeHTTPTests(unittest.TestCase):
                                                 json={}, headers={'Authorization': 'Bearer ' + request['candidate_token']}).status_code, 200)
         return request
 
-    def wav(self, request, recording=1, data=None):
+    def wav(self, request, recording=1, data=None, with_hash=True, cancel_token=None):
         data = wav_bytes() if data is None else data
-        return self.client.post(self.prefix + '/v1/memos', content=data, headers={
+        headers = {
             'Authorization': 'Bearer ' + request['candidate_token'], 'X-Device-ID': request['device_id'],
-            'X-Recording-ID': str(recording), 'X-Audio-SHA256': hashlib.sha256(data).hexdigest(), 'Content-Type': 'audio/wav'})
+            'X-Recording-ID': str(recording), 'Content-Type': 'audio/wav'}
+        if cancel_token:headers['X-Cancel-Token']=cancel_token
+        if with_hash:
+            headers['X-Audio-SHA256'] = hashlib.sha256(data).hexdigest()
+        return self.client.post(self.prefix + '/v1/memos', content=data, headers=headers)
+
+    def cancel(self, device, recording=1, source='memos', cancel_token=None):
+        return self.client.post(f'/v1/{source}/{device["device_id"]}/{recording}/cancel', json={'cancel_token':cancel_token} if cancel_token else {},
+                                headers={'Authorization': 'Bearer ' + device['candidate_token']})
+
+    def test_cancel_queued_wav_is_durable_and_explicit_resubmission_uses_same_identity(self):
+        self.config(); device=self.pair()
+        self.assertEqual(self.wav(device, with_hash=False).status_code, 202)
+        self.assertEqual(self.cancel(device).json()['status'], 'cancelled')
+        self.runtime.run_pending_once()
+        self.assertEqual((self.asr, self.deliveries), ([], []))
+        self.assertEqual(self.status(device).json()['status'], 'cancelled')
+        cancellation=self.status(device).json()['cancel_token']
+        self.assertEqual(self.wav(device,with_hash=False).status_code,409)
+        self.assertEqual(self.wav(device,with_hash=False,cancel_token=cancellation).status_code,202)
+        self.runtime.run_pending_once()
+        self.assertEqual(self.status(device).json()['status'], 'sent')
+        self.assertEqual(self.cancel(device).status_code, 409)
+        self.assertEqual((len(self.asr),len(self.deliveries)), (1,1))
+
+    def test_cancel_during_wav_asr_blocks_delivery_but_does_not_claim_to_recall_provider(self):
+        self.config(); device=self.pair();self.wav(device, with_hash=False)
+        entered=threading.Event(); resume=threading.Event();factory=self.runtime._provider_factory
+        def wrapped(*args, **kwargs):
+            service=factory(*args,**kwargs); transcribe=service._transcribe_source
+            def hold(*args):
+                entered.set(); self.assertTrue(resume.wait(5));return transcribe(*args)
+            service._transcribe_source=hold;return service
+        self.runtime._provider_factory=wrapped
+        worker=threading.Thread(target=self.runtime.run_pending_once); worker.start()
+        try:
+            self.assertTrue(entered.wait(5))
+            self.assertEqual(self.cancel(device).json()['status'], 'cancelled')
+        finally:
+            resume.set();worker.join(5)
+        self.assertFalse(worker.is_alive());self.assertEqual(len(self.asr),1)
+        self.assertEqual(self.deliveries,[])
+        self.assertEqual(self.status(device).json()['status'],'cancelled')
+
+    def test_cancel_after_delivery_boundary_is_rejected(self):
+        self.config(); device=self.pair();self.wav(device)
+        entered=threading.Event(); resume=threading.Event();factory=self.runtime._provider_factory
+        def wrapped(*args, **kwargs):
+            service=factory(*args,**kwargs);send=service._siyuan_sender
+            def hold(*args):
+                entered.set(); self.assertTrue(resume.wait(5));return send(*args)
+            service._siyuan_sender=hold;return service
+        self.runtime._provider_factory=wrapped
+        worker=threading.Thread(target=self.runtime.run_pending_once);worker.start()
+        try:
+            self.assertTrue(entered.wait(5));self.assertEqual(self.cancel(device).status_code,409)
+        finally:
+            resume.set();worker.join(5)
+        self.assertEqual(self.status(device).json()['status'],'sent');self.assertEqual(len(self.deliveries),1)
+
+    def test_cancel_receiving_wav_prevents_late_ack_and_survives_restart(self):
+        self.config(); device=self.pair();data=wav_bytes()
+        headers={'Authorization':'Bearer '+device['candidate_token'],'X-Device-ID':device['device_id'],
+                 'X-Recording-ID':'1','Content-Type':'audio/wav'}
+        admission=self.runtime.admit_wav(headers,len(data));admission.path.write_bytes(data)
+        self.assertEqual(self.cancel(device).status_code,200)
+        with self.assertRaises(RelayError) as error:
+            self.runtime.upload_path(headers,admission.path,admission=admission)
+        self.assertEqual(error.exception.code,'task_cancelled')
+        self.runtime.release_admission(admission)
+        self.assertEqual(self.status(device).json()['status'],'cancelled')
+        self.runtime.close();self.runtime=self.make_runtime();self.client.close();self.open_client()
+        self.assertEqual(self.status(device).json()['status'],'cancelled')
+        self.assertFalse(self.runtime.run_pending_once())
+        self.assertEqual(self.cancel({**device,'candidate_token':'wrong'}).status_code,401)
+
+    def test_cancel_stream_after_finish_never_transcribes_and_expiry_is_not_extended(self):
+        self.config(); device=self.pair();rid=0x80000001
+        headers={'Authorization':'Bearer '+device['candidate_token'],'X-Device-ID':device['device_id'],'X-Recording-ID':str(rid)}
+        prefix=f'/v1/streams/{device["device_id"]}/{rid}'
+        self.assertEqual(self.client.post('/v1/streams',json=FORMAT,headers=headers).status_code,201)
+        data=synthetic_chunks(frequencies=(440,),frames=250)[0]
+        self.assertEqual(self.client.put(prefix+'/chunks/0',content=data,headers={**headers,'Content-Type':'application/octet-stream'}).status_code,201)
+        self.assertEqual(self.client.post(prefix+'/finish',json={'chunks':1,'samples':80000,'interrupted':False,'reason':''},headers=headers).status_code,202)
+        expiry=self.runtime.streams._row(device['device_id'],rid)['expires_at']
+        self.assertEqual(self.cancel(device,rid,'streams').json()['status'],'cancelled')
+        self.runtime.run_pending_once();self.assertEqual((self.asr,self.deliveries),([],[]))
+        self.assertEqual(self.runtime.streams._row(device['device_id'],rid)['expires_at'],expiry)
+        self.now=expiry+1;self.runtime.streams.expire()
+        self.assertEqual(self.client.get(prefix,headers=headers).json()['status'],'cancelled')
+        self.assertFalse(self.runtime.streams._path(device['device_id'],rid).exists())
+
+    def test_cancel_barrier_rejects_late_upload_through_incomplete_resubmission(self):
+        self.config();device=self.pair();data=wav_bytes()
+        first=self.cancel(device).json()['cancel_token']
+        self.assertEqual(self.cancel(device).json()['cancel_token'],first)
+        self.assertEqual(self.wav(device,with_hash=False).status_code,409)
+        headers={'Authorization':'Bearer '+device['candidate_token'],'X-Device-ID':device['device_id'],
+                 'X-Recording-ID':'1','Content-Type':'audio/wav','X-Cancel-Token':first}
+        admission=self.runtime.admit_wav(headers,len(data));self.runtime.release_admission(admission)
+        self.assertEqual(self.wav(device,with_hash=False).status_code,409)
+        self.assertEqual(self.status(device).json()['cancel_token'],first)
+        second=self.cancel(device,cancel_token=first).json()['cancel_token'];self.assertNotEqual(first,second)
+        self.assertEqual(self.wav(device,with_hash=False,cancel_token=first).status_code,409)
+        self.assertEqual(self.wav(device,with_hash=False,cancel_token=second).status_code,202)
+        self.runtime.run_pending_once();self.assertEqual(len(self.deliveries),1)
+
+    def test_cancelled_generation_rejects_late_retry_and_cancel_after_explicit_submit(self):
+        self.config();device=self.pair();self.modes['delivery']='fail'
+        self.assertEqual(self.wav(device).status_code,202);self.runtime.run_pending_once()
+        self.assertEqual(self.status(device).json()['status'],'delivery_failed')
+        token=self.cancel(device).json()['cancel_token']
+        self.assertEqual(self.wav(device,cancel_token=token).status_code,202)
+        # An old cancel cannot stop the later explicit resubmission.
+        self.assertEqual(self.cancel(device).status_code,409)
+        self.runtime.run_pending_once()
+        self.assertEqual(self.status(device).json()['status'],'delivery_failed')
+        headers={'Authorization':'Bearer '+device['candidate_token']}
+        retry=f'/v1/memos/{device["device_id"]}/1/retry'
+        self.modes['delivery']='ok'
+        self.assertEqual(self.client.post(retry,json={},headers=headers).status_code,409)
+        self.assertEqual(self.deliveries,[])
+        self.assertEqual(self.client.post(retry,json={'cancel_token':token},headers=headers).status_code,409)
+        token=self.cancel(device,cancel_token=token).json()['cancel_token']
+        self.assertEqual(self.client.post(retry,json={'cancel_token':token},headers=headers).status_code,202)
+        self.runtime.run_pending_once();self.assertEqual(len(self.deliveries),1)
+        self.assertEqual(len(self.asr),2)  # Initial upload + explicit reupload; delivery retry adds none.
+
+    def test_same_cancel_generation_cannot_repeat_a_completed_failed_attempt(self):
+        self.config();device=self.pair();self.modes['asr']='fail'
+        self.wav(device);self.runtime.run_pending_once()
+        token=self.cancel(device).json()['cancel_token']
+        self.assertEqual(self.wav(device,cancel_token=token).status_code,202);self.runtime.run_pending_once()
+        self.assertEqual(len(self.asr),2)
+        self.assertEqual(self.wav(device,cancel_token=token).status_code,409)
+        self.assertFalse(self.runtime.run_pending_once());self.assertEqual(len(self.asr),2)
+        self.modes['asr']='ok';self.modes['delivery']='fail'
+        token=self.cancel(device,cancel_token=token).json()['cancel_token']
+        self.wav(device,cancel_token=token);self.runtime.run_pending_once()
+        token=self.cancel(device,cancel_token=token).json()['cancel_token']
+        retry=f'/v1/memos/{device["device_id"]}/1/retry';headers={'Authorization':'Bearer '+device['candidate_token']}
+        self.assertEqual(self.client.post(retry,json={'cancel_token':token},headers=headers).status_code,202)
+        self.runtime.run_pending_once()
+        self.assertEqual(self.client.post(retry,json={'cancel_token':token},headers=headers).status_code,409)
+        self.assertFalse(self.runtime.run_pending_once());self.assertEqual(len(self.asr),3)
+
+    def test_cancel_receiving_stream_rejects_late_create_and_finish_even_after_restart(self):
+        self.config();device=self.pair();rid=0x80000001
+        headers={'Authorization':'Bearer '+device['candidate_token'],'X-Device-ID':device['device_id'],'X-Recording-ID':str(rid)}
+        self.assertEqual(self.cancel(device,rid,'streams').json()['status'],'cancelled')
+        self.assertEqual(self.client.post('/v1/streams',json=FORMAT,headers=headers).json()['status'],'cancelled')
+        value,code=self.runtime.streams.finish(headers['Authorization'],device['device_id'],rid,
+                 {'chunks':0,'samples':0,'interrupted':True,'reason':'power_loss'})
+        self.assertEqual((code,value['status']),(200,'cancelled'))
+        self.runtime.close();self.runtime=self.make_runtime();self.client.close();self.open_client()
+        self.runtime.cleanup_once()
+        self.assertEqual(self.runtime._job(device['device_id'],rid)['phase'],'cancelled')
+        self.assertFalse(self.runtime.run_pending_once());self.assertEqual((self.asr,self.deliveries),([],[]))
+
+    def test_cancel_during_stream_decode_or_empty_stream_prevents_first_result_write(self):
+        self.config();device=self.pair()
+        for index,empty in enumerate((False,True),start=1):
+            rid=0x80000000+index
+            headers={'Authorization':'Bearer '+device['candidate_token'],'X-Device-ID':device['device_id'],'X-Recording-ID':str(rid)}
+            prefix=f'/v1/streams/{device["device_id"]}/{rid}'
+            self.client.post('/v1/streams',json=FORMAT,headers=headers).raise_for_status()
+            if not empty:
+                self.client.put(prefix+'/chunks/0',content=synthetic_chunks(frequencies=(440,),frames=50)[0],headers={**headers,'Content-Type':'application/octet-stream'}).raise_for_status()
+            self.client.post(prefix+'/finish',json={'chunks':0 if empty else 1,'samples':0 if empty else 16000,'interrupted':empty,'reason':''},headers=headers).raise_for_status()
+            if empty:
+                original=self.runtime.streams._service_factory
+                def factory(key):
+                    service=original(key)
+                    self.assertEqual(self.cancel(device,rid,'streams').json()['status'],'cancelled')
+                    return service
+                with mock.patch.object(self.runtime.streams,'_service_factory',factory):self.runtime.run_pending_once()
+            else:
+                original=self.runtime.streams.opus.decode
+                def decode(*args):
+                    result=original(*args)
+                    self.assertEqual(self.cancel(device,rid,'streams').json()['status'],'cancelled')
+                    return result
+                with mock.patch.object(self.runtime.streams.opus,'decode',decode):self.runtime.run_pending_once()
+            self.runtime.cleanup_once()
+            self.assertEqual(self.runtime._job(device['device_id'],rid)['phase'],'cancelled')
+            self.assertEqual(self.client.get(prefix,headers=headers).json()['status'],'cancelled')
+        self.assertEqual((self.asr,self.deliveries),([],[]))
+
+    def test_cancel_then_asr_exception_preserves_cancelled_result(self):
+        self.config();device=self.pair();self.wav(device)
+        original=self.runtime._provider_factory
+        def factory(*args,**kwargs):
+            service=original(*args,**kwargs)
+            def transcribe(*args):
+                self.assertEqual(self.cancel(device).json()['status'],'cancelled')
+                raise RelayError(502,'qwen_rejected','synthetic failure after cancellation')
+            service._transcribe_source=transcribe;return service
+        self.runtime._provider_factory=factory;self.runtime.run_pending_once()
+        self.assertEqual(self.status(device).json()['status'],'cancelled')
+        self.assertEqual(self.runtime._job(device['device_id'],1)['phase'],'cancelled')
+        self.assertEqual(self.deliveries,[])
+
+    def test_schema_two_upgrade_preserves_existing_memo_and_credentials(self):
+        self.config();device=self.pair();self.wav(device);self.runtime.run_pending_once()
+        before=self.status(device).json();self.runtime.close();self.client.close()
+        with sqlite3.connect(self.root/'state.db') as db:
+            db.execute('ALTER TABLE relay_jobs DROP COLUMN cancel_token')
+            db.execute('UPDATE relay_runtime_meta SET schema_version=2')
+        self.runtime=self.make_runtime();self.open_client()
+        self.assertEqual(self.status(device).json(),before)
+        self.assertEqual(self.runtime.readiness()['schema_version'],3)
+
+    def test_server_hashes_wav_without_client_digest_and_never_requeues_received_job(self):
+        self.config(); device = self.pair(); data = wav_bytes()
+        first = self.wav(device, data=data, with_hash=False)
+        self.assertEqual(first.status_code, 202, first.text)
+        self.assertEqual(first.json()['audio_sha256'], hashlib.sha256(data).hexdigest())
+        self.assertEqual(first.json()['audio_bytes'], len(data))
+        self.assertEqual(self.wav(device, data=data, with_hash=False).status_code, 409)
+        self.assertTrue(self.runtime.run_pending_once())
+        self.assertEqual(self.status(device).json()['status'], 'sent')
+        self.assertEqual(self.wav(device, data=data, with_hash=False).status_code, 409)
+        self.assertFalse(self.runtime.run_pending_once())
+        self.assertEqual((len(self.asr), len(self.deliveries)), (1, 1))
+
+    def test_server_hash_still_rejects_changed_audio_on_explicit_failed_retry(self):
+        self.config(); device = self.pair(); data = wav_bytes()
+        self.modes['asr'] = 'fail'
+        self.assertEqual(self.wav(device, data=data, with_hash=False).status_code, 202)
+        self.assertTrue(self.runtime.run_pending_once())
+        changed = data[:-2] + bytes([data[-2] ^ 1, data[-1]])
+        response = self.wav(device, data=changed, with_hash=False)
+        self.assertEqual(response.status_code, 409, response.text)
+        self.assertEqual(response.json()['error'], 'recording_conflict')
+        self.assertEqual(len(self.asr), 1)
+        self.modes['asr'] = 'ok'
+        self.assertEqual(self.wav(device, data=data, with_hash=False).status_code, 202)
+        self.assertTrue(self.runtime.run_pending_once())
+        self.assertEqual((len(self.asr), len(self.deliveries)), (2, 1))
+
+    def test_optional_digest_headers_reject_explicit_empty_or_malformed_values(self):
+        self.config(); device = self.pair(); data = wav_bytes()
+        auth = {'Authorization': 'Bearer ' + device['candidate_token']}
+        for digest in ('', 'not-a-digest'):
+            response = self.client.post('/v1/memos', content=data, headers={
+                **auth, 'X-Device-ID': device['device_id'], 'X-Recording-ID': '1',
+                'Content-Type': 'audio/wav', 'X-Audio-SHA256': digest})
+            self.assertEqual(response.status_code, 400)
+            self.assertEqual(response.json()['error'], 'invalid_audio_hash')
+        recording = 0x80000001
+        self.assertEqual(self.client.post('/v1/streams', json=FORMAT, headers={
+            **auth, 'X-Device-ID': device['device_id'], 'X-Recording-ID': str(recording)}).status_code, 201)
+        path = '/v1/streams/' + device['device_id'] + '/' + str(recording) + '/chunks/0'
+        chunk = synthetic_chunks()[0]
+        for digest in ('', 'not-a-digest', 'f' * 64):
+            response = self.client.put(path, content=chunk, headers={
+                **auth, 'Content-Type': 'application/octet-stream', 'X-Chunk-SHA256': digest})
+            self.assertEqual(response.status_code, 400)
+        self.assertEqual(self.asr, [])
+
+    def test_server_hashes_stream_chunks_without_client_digest_and_checks_replays(self):
+        self.config(); device = self.pair(); recording = 0x80000001
+        auth = {'Authorization': 'Bearer ' + device['candidate_token']}
+        self.assertEqual(self.client.post('/v1/streams', json=FORMAT, headers={
+            **auth, 'X-Device-ID': device['device_id'], 'X-Recording-ID': str(recording)}).status_code, 201)
+        path = '/v1/streams/' + device['device_id'] + '/' + str(recording)
+        chunks = synthetic_chunks()
+        headers = {**auth, 'Content-Type': 'application/octet-stream'}
+        first = self.client.put(path + '/chunks/0', content=chunks[0], headers=headers)
+        self.assertEqual(first.status_code, 201, first.text)
+        repeated = self.client.put(path + '/chunks/0', content=chunks[0], headers=headers)
+        self.assertEqual(repeated.status_code, 200)
+        self.assertEqual(repeated.json()['received_samples'], first.json()['received_samples'])
+        conflict = self.client.put(path + '/chunks/0', content=chunks[1], headers=headers)
+        self.assertEqual(conflict.status_code, 409)
+        self.assertEqual(conflict.json()['error'], 'chunk_conflict')
+        self.assertEqual(self.asr, [])
 
     def status(self, request, recording=1):
         return self.client.get(self.prefix + '/v1/memos/' + request['device_id'] + '/' + str(recording),

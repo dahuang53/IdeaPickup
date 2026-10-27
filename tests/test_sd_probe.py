@@ -230,7 +230,6 @@ static bool io_owned=false;
 static int begin_sd_io(void*){if(io_ok)io_owned=true;return io_ok;}
 static void end_sd_io(void*){assert(io_owned);io_owned=false;}
 static int board_sd_check(){assert(io_owned);return media_ok?0:1;}
-static void invalidate_audio_cache(){}
 static void xSemaphoreTake(int,int){}
 static void xSemaphoreGive(int){}
 static uint32_t memo_sd_sync_pending(const char*,const memo_sync_target_t*,uint32_t*,bool*manual,bool*complete){
@@ -306,50 +305,25 @@ int main(int argc,char**argv){
    subprocess.run(['c++','-std=c++17','-Wall','-Wextra','-Werror','-g','-fsanitize=address,undefined','-I',str(ROOT/'main'),str(p/'scan.cpp'),'-o',str(p/'scan')],check=True)
    subprocess.run([str(p/'scan'),str(p)],check=True)
 class PlaybackIdentityTests(unittest.TestCase):
- def test_actual_resume_rejects_same_length_changed_audio_and_hash_owner(self):
-  app=(ROOT/'main/app.c').read_text();net=(ROOT/'main/network_sync.cpp').read_text()
-  prefix=r'''
-#include <cassert>
-#include <atomic>
+ def test_resume_checks_size_and_offset_without_audio_hash(self):
+  source=(ROOT/'main/app.c').read_text()
+  prefix=r'''#include <cassert>
+#include <cstdio>
+#include <cstring>
 #include <cerrno>
 #include <climits>
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
 #include <inttypes.h>
-#include "memo_sync_cache.h"
 #include "memo_store.h"
-static bool audio_owned,interrupt_hash,switch_selection;
-static std::atomic<uint32_t> selected_revision{0};
-static size_t hashed_bytes;
-/* Crypto backend shim: tests byte traversal/ownership, not SHA strength. */
-struct mbedtls_sha256_context {uint8_t sum;};
-static void mbedtls_sha256_init(mbedtls_sha256_context*c){c->sum=0;}
-static int mbedtls_sha256_starts(mbedtls_sha256_context*c,int){c->sum=0;return 0;}
-static int mbedtls_sha256_update(mbedtls_sha256_context*c,const uint8_t*p,size_t n){hashed_bytes+=n;while(n--)c->sum^=*p++;if(interrupt_hash)audio_owned=true;if(switch_selection)selected_revision.fetch_add(1);return 0;}
-static int mbedtls_sha256_finish(mbedtls_sha256_context*c,uint8_t*out){memset(out,c->sum,32);return 0;}
-static void mbedtls_sha256_free(mbedtls_sha256_context*){}
-#define MALLOC_CAP_INTERNAL 1
-#define MALLOC_CAP_DMA 2
-static void*heap_caps_malloc(size_t n,int){return malloc(n);}
-static void heap_caps_free(void*p){free(p);}
-static void taskYIELD(){}
-static bool audio_busy(){return audio_owned;}
-#define MEMO_ACTIVITY_AUDIO 1
-static int activity_gate;
-static int memo_config_activity(int*){return audio_owned?1:0;}
-static std::atomic<bool> file_read_active{false};
 static FILE*playing;
-static memo_audio_identity_t play_identity;
-static uint32_t play_bytes=32,play_remaining=32;
-static bool audio_ready=true,gate_ok=true;
+static uint32_t play_bytes=32,play_remaining=32,size=64;
+static bool audio_ready=true,gate_ok=true,owned=false;
 static int failures,opened,state_value,store,mutex;
-struct memo_snapshot_t {bool sd_ready;uint32_t active_id,revision;char error[96];};
+struct memo_snapshot_t{bool sd_ready;uint32_t active_id,revision;char error[96];};
 static memo_snapshot_t model{true,1,0,{}};
 static void app_snapshot(memo_snapshot_t*s){*s=model;}
 static void failure(const char*){failures++;}
-static bool network_sync_prepare_audio(int){if(gate_ok)audio_owned=true;return gate_ok;}
-static void network_sync_audio_done(){assert(audio_owned);audio_owned=false;}
+static bool network_sync_prepare_audio(int){if(gate_ok)owned=true;return gate_ok;}
+static void network_sync_audio_done(){assert(owned);owned=false;}
 static int board_sd_check(){return 0;}
 static int xSemaphoreTake(int,int){return 1;}
 static void xSemaphoreGive(int){}
@@ -361,45 +335,20 @@ static void state(int v,const char*){state_value=v;}
 #define portMAX_DELAY 0
 static int microphone_stop(){return 0;}
 static int board_play_open(){opened++;return 0;}
-static char wav_path[256];
-static int memo_store_path(int*,uint32_t,char*out,size_t cap){snprintf(out,cap,"%s",wav_path);return 0;}
-extern "C" int memo_store_validate(const char*,memo_record_t*out){out->data_bytes=64;return 0;}
+static int memo_store_path(int*,uint32_t,char*out,size_t cap){snprintf(out,cap,"audio.wav");return 0;}
+extern "C" int memo_store_validate(const char*,memo_record_t*out){out->data_bytes=size;return 0;}
 '''
-  bodies='\n'.join(function(net,n) for n in ['bool sha256_file(', 'bool file_audio_identity(', 'extern "C" bool network_sync_hash_local_audio('])
-  bodies+=function((ROOT/'main/memo_sync_cache.c').read_text(),'bool memo_sync_audio_matches(')+function(app,'static void playback_resume(').replace(chr(34)+'PRI',chr(34)+' PRI')
-  checks=r'''
-int main(int argc,char**argv){
- assert(argc==2);snprintf(wav_path,sizeof(wav_path),"%s",argv[1]);
- memo_audio_identity_t identity{};
- assert(!network_sync_hash_local_audio(wav_path,&identity));
- audio_owned=true;assert(network_sync_hash_local_audio(wav_path,&identity)&&identity.bytes==108);
- char hex[65];uint32_t bytes=0;assert(!sha256_file(wav_path,hex,&bytes));
- audio_owned=false;interrupt_hash=true;bool interrupted=false;
- assert(!sha256_file(wav_path,hex,&bytes,false,&interrupted)&&interrupted);
- interrupt_hash=false;audio_owned=false;interrupted=false;switch_selection=true;
- assert(!sha256_file(wav_path,hex,&bytes,false,&interrupted,selected_revision.load())&&interrupted&&!audio_owned);
- switch_selection=false;interrupted=false;
- assert(sha256_file(wav_path,hex,&bytes,false,&interrupted,selected_revision.load())&&!interrupted&&bytes==108);
- audio_owned=true;
- file_read_active=true;assert(!network_sync_hash_local_audio(wav_path,&identity));file_read_active=false;
- play_identity=identity;audio_owned=false;
- playback_resume();assert(opened==1&&!failures&&state_value==MEMO_PLAYING&&playing);
+  check=r'''int main(){
+ FILE*f=fopen("audio.wav","wb");assert(f);for(int n=0;n<108;n++)fputc(0,f);fclose(f);
+ playback_resume();assert(opened==1&&!failures&&playing&&ftell(playing)==76);
  fclose(playing);playing=nullptr;network_sync_audio_done();
- FILE*f=fopen(wav_path,"r+b");assert(f);fseek(f,50,SEEK_SET);fputc(1,f);fclose(f);
- playback_resume();assert(opened==1&&failures==1&&!playing&&!audio_owned);
- // More than one refill: cancel after the first block, but never cancel a
- // normal identity/upload hash merely because the UI selection changed.
- f=fopen(wav_path,"wb");assert(f);for(unsigned i=0;i<16384;++i)fputc(0,f);fclose(f);
- switch_selection=true;interrupted=false;hashed_bytes=0;
- assert(!sha256_file(wav_path,hex,&bytes,false,&interrupted,selected_revision.load()));
- assert(interrupted&&hashed_bytes==512);
- hashed_bytes=0;assert(sha256_file(wav_path,hex,&bytes)&&bytes==16384&&hashed_bytes==16384);
-}
-'''
-  with tempfile.TemporaryDirectory(prefix='resume-identity-',dir=ROOT/'private') as d:
-   p=Path(d);(p/'audio.wav').write_bytes(bytes(108));(p/'resume.cpp').write_text(prefix+bodies+checks)
+ size=66;playback_resume();assert(opened==1&&failures==1&&!playing&&!owned);
+ gate_ok=false;size=64;playback_resume();assert(!playing&&!owned&&model.error[0]);
+}'''
+  with tempfile.TemporaryDirectory() as directory:
+   p=Path(directory);(p/'resume.cpp').write_text(prefix+function(source,'static void playback_resume(').replace(chr(34)+'PRI',chr(34)+' PRI')+check)
    subprocess.run(['c++','-std=c++17','-Wall','-Wextra','-Werror','-g','-fsanitize=address,undefined','-I',str(ROOT/'main'),str(p/'resume.cpp'),'-o',str(p/'resume')],check=True)
-   subprocess.run([str(p/'resume'),str(p/'audio.wav')],check=True)
+   subprocess.run([str(p/'resume')],cwd=p,check=True)
 class StorageVisibilityTests(unittest.TestCase):
  def test_real_page_transitions_never_publish_stale_demand(self):
   source=(ROOT/'main/ui.c').read_text()

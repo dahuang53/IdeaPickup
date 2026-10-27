@@ -74,6 +74,9 @@ bool memo_cardless_request_status(uint32_t id);
 /* Only resume the active stream with retained audio; no completed-job retry. */
 bool memo_cardless_can_resume(uint32_t id);
 bool memo_cardless_retry(uint32_t id);
+/* RAM-only request; the network owner durably records and confirms cancellation. */
+bool memo_cardless_can_cancel(uint32_t id);
+bool memo_cardless_cancel(uint32_t id);
 
 /* Serial-only diagnostics. Control flags are RAM-only and cleared by reboot;
  * no SD records are targeted. Synthetic responses still pass through normal

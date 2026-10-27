@@ -66,7 +66,6 @@ static atomic_bool shutdown_failed;
 static atomic_bool recovery_deferred;
 static atomic_int_fast64_t recovery_retry_after_us;
 static FILE *playing;
-static memo_audio_identity_t play_identity;
 static uint32_t play_remaining, play_bytes;
 static int16_t pcm[512];
 static int64_t started_us;
@@ -476,12 +475,10 @@ static void playback_resume(void) {
         ESP_LOGW(TAG,"PLAY_RESUME_BUSY id=%"PRIu32,s.active_id);
         return;
     }
-    char path[MEMO_PATH_MAX];memo_record_t record;memo_audio_identity_t current_identity;
+    char path[MEMO_PATH_MAX];memo_record_t record;
     if(board_sd_check()!=ESP_OK || memo_store_path(&store,s.active_id,path,sizeof(path)) ||
        memo_store_validate(path,&record) ||
        record.data_bytes!=play_bytes+play_remaining ||
-       !network_sync_hash_local_audio(path,&current_identity) ||
-       !memo_sync_audio_matches(&play_identity,&current_identity) ||
        play_bytes>(uint32_t)(LONG_MAX-44L) ||
        (playing=fopen(path,"rb"))==NULL ||
        fseek(playing,44L+(long)play_bytes,SEEK_SET)!=0) {
@@ -559,8 +556,7 @@ static void start_play(uint32_t id) {
     app_snapshot(&s);
     if(!s.sd_ready) {network_sync_audio_done();failure("存储卡或音频未就绪");return;}
     char path[MEMO_PATH_MAX]; memo_record_t r;
-    if (memo_store_path(&store,id,path,sizeof(path)) || memo_store_validate(path,&r) ||
-        !network_sync_hash_local_audio(path,&play_identity)) {network_sync_audio_done();failure("录音文件无效");return;}
+    if (memo_store_path(&store,id,path,sizeof(path)) || memo_store_validate(path,&r)) {network_sync_audio_done();failure("录音文件无效");return;}
     playing=fopen(path,"rb");
     if (!playing || fseek(playing,44,SEEK_SET)) {if(playing)fclose(playing);playing=NULL;network_sync_audio_done();failure("无法读取录音");return;}
     voice_set_mode(VOICE_OFF);

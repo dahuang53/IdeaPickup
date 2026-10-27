@@ -52,7 +52,7 @@ SemaphoreHandle_t http_mutex;
 std::atomic<bool> stream_http_active{false};
 std::atomic<bool> pairing_http_active{false};
 std::atomic<uint32_t> selected_cardless{0};
-std::atomic<uint32_t> selected_revision{0};
+std::atomic<uint32_t> cancel_request{0};
 class HttpGuard {
 public:
     HttpGuard() { if(http_mutex)xSemaphoreTakeRecursive(http_mutex,portMAX_DELAY); }
@@ -271,48 +271,6 @@ void recover_pairing()
 }
 
 
-bool sha256_file(const char *path, char output[65], uint32_t *size_out, bool audio_owner=false, bool *interrupted=nullptr, uint32_t selection=0)
-{
-    FILE *file = fopen(path, "rb");
-    if (!file) return false;
-    // IDF SDMMC falls back to sector-at-a-time reads for PSRAM stdio buffers.
-    // A small DMA-capable refill buffer keeps multi-sector reads; allocation
-    // failure retains the original safe path. Freed after fclose on every exit.
-    char *dma_buffer=static_cast<char *>(heap_caps_malloc(4096,MALLOC_CAP_INTERNAL|MALLOC_CAP_DMA));
-    if(dma_buffer && setvbuf(file,dma_buffer,_IOFBF,4096)!=0){heap_caps_free(dma_buffer);dma_buffer=nullptr;}
-    mbedtls_sha256_context context;
-    mbedtls_sha256_init(&context);
-    bool good = mbedtls_sha256_starts(&context, 0) == 0;
-    // stdio still refills 4 KiB at a time. A sector-sized hashing block avoids
-    // retaining a second 4 KiB internal buffer on each caller's task stack.
-    uint8_t block[512];
-    uint32_t total = 0;
-    auto cancelled=[&](){return !audio_owner && (audio_busy() ||
-        (interrupted && selected_revision.load()!=selection));};
-    while (good && !cancelled()) {
-        size_t count = fread(block, 1, sizeof(block), file);
-        if (count) {
-            good = mbedtls_sha256_update(&context, block, count) == 0;
-            total += count;
-        }
-        if (count < sizeof(block)) {
-            if (ferror(file)) good = false;
-            break;
-        }
-        taskYIELD();
-    }
-    if (cancelled()) {good=false;if(interrupted)*interrupted=true;}
-    uint8_t digest[32];
-    if (good) good = mbedtls_sha256_finish(&context, digest) == 0;
-    mbedtls_sha256_free(&context);
-    fclose(file);
-    heap_caps_free(dma_buffer);
-    if (!good) return false;
-    for (unsigned i = 0; i < sizeof(digest); ++i) snprintf(output + i * 2, 3, "%02x", digest[i]);
-    *size_out = total;
-    return true;
-}
-
 int remote_status(uint32_t record_id, std::string &body)
 {
     HttpGuard guard;
@@ -344,7 +302,7 @@ int remote_status(uint32_t record_id, std::string &body)
     return code;
 }
 
-int upload_file(const memo_record_t &record, const char *hash, uint32_t file_size, std::string &body)
+int upload_file(const memo_record_t &record, uint32_t file_size, const char *cancel_token, std::string &body)
 {
     HttpGuard guard;
     memo_config_snapshot_t service{};char url[1024];
@@ -379,16 +337,16 @@ int upload_file(const memo_record_t &record, const char *hash, uint32_t file_siz
     esp_http_client_set_method(client, HTTP_METHOD_POST);
     esp_http_client_set_header(client, "Authorization", authorization.c_str());
     esp_http_client_set_header(client, "Content-Type", "audio/wav");
+    if(cancel_token && cancel_token[0])esp_http_client_set_header(client,"X-Cancel-Token",cancel_token);
     esp_http_client_set_header(client, "X-Device-ID", service.device_id);
     esp_http_client_set_header(client, "X-Recording-ID", recording_id);
-    esp_http_client_set_header(client, "X-Audio-SHA256", hash);
     esp_http_client_set_header(client, "User-Agent", "MeowVoiceMemoDevice/0.2");
     esp_err_t result = esp_http_client_open(client, file_size);
     char *dma_buffer=static_cast<char *>(heap_caps_malloc(4096,MALLOC_CAP_INTERNAL|MALLOC_CAP_DMA));
     if(dma_buffer && setvbuf(file,dma_buffer,_IOFBF,4096)!=0){heap_caps_free(dma_buffer);dma_buffer=nullptr;}
     uint8_t block[4096];
     uint32_t sent = 0;
-    while (result == ESP_OK && sent < file_size && !audio_busy()) {
+    while (result == ESP_OK && sent < file_size && !audio_busy() && cancel_request.load()!=record.id) {
         size_t want = file_size - sent > sizeof(block) ? sizeof(block) : file_size - sent;
         size_t count = fread(block, 1, want, file);
         transport.write_window();
@@ -406,7 +364,7 @@ int upload_file(const memo_record_t &record, const char *hash, uint32_t file_siz
     heap_caps_free(dma_buffer);
     file_read_active.fetch_sub(1);
     int code = 0;
-    if (result == ESP_OK && sent == file_size && !audio_busy()) {
+    if (result == ESP_OK && sent == file_size && !audio_busy() && cancel_request.load()!=record.id) {
         job_state(record.id,MEMO_JOB_WAITING,100);
         if(esp_http_client_fetch_headers(client)>=0)code = esp_http_client_get_status_code(client);
         if (read_http_body(client, body) != ESP_OK) code = 0;
@@ -418,105 +376,54 @@ int upload_file(const memo_record_t &record, const char *hash, uint32_t file_siz
 
 bool begin_sd_io(void *) {file_read_active.fetch_add(1);if(memo_config_activity(&activity_gate)!=MEMO_ACTIVITY_IDLE){file_read_active.fetch_sub(1);return false;}return true;}
 void end_sd_io(void *) {file_read_active.fetch_sub(1);}
-bool file_audio_identity(const char *path,memo_audio_identity_t *out,bool audio_owner,bool *interrupted=nullptr,uint32_t selection=0){
- char hex[65];uint32_t length=0;if(!sha256_file(path,hex,&length,audio_owner,interrupted,selection))return false;
- for(unsigned i=0;i<32;i++){unsigned v=0;if(sscanf(hex+i*2,"%2x",&v)!=1)return false;out->sha256[i]=(uint8_t)v;}
- out->bytes=length;return true;
-}
-// Final WAVs are immutable while mounted. Reuse only identities computed in
-// this mount; never seed from a sidecar or trust FAT timestamps across mounts.
-// Every reuse also sends CMD13 to the mounted card: a removed/reinserted card
-// must reinitialize before it can answer for that RCA. No idle polling is added.
-struct VerifiedAudio {
- char path[MEMO_PATH_MAX];
- struct stat stamp;
- memo_audio_identity_t audio;
- uint32_t epoch;
- bool valid;
-};
-VerifiedAudio verified_audio[4]{};
-uint32_t verified_audio_epoch=1, verified_audio_next;
-portMUX_TYPE verified_audio_lock=portMUX_INITIALIZER_UNLOCKED;
-void invalidate_audio_cache() {
- portENTER_CRITICAL(&verified_audio_lock);
- ++verified_audio_epoch;
- for(auto &slot:verified_audio)slot.valid=false;
- portEXIT_CRITICAL(&verified_audio_lock);
-}
-bool same_file_stamp(const struct stat &a,const struct stat &b) {
- return a.st_size==b.st_size && a.st_mtime==b.st_mtime && a.st_ctime==b.st_ctime && a.st_ino==b.st_ino;
-}
-struct SDReadContext {bool interrupted=false;uint32_t selection=0;};
-bool hash_audio(void *context,const char *path,memo_audio_identity_t *out){
- auto *read=static_cast<SDReadContext *>(context);
- auto cancelled=[&](){bool stop=audio_busy() || (read && selected_revision.load()!=read->selection);
-  if(stop && read)read->interrupted=true;
-  return stop;
- };
- if(cancelled())return false;
- struct stat before{},after{};
- if(board_sd_verify_session()!=ESP_OK || stat(path,&before) || !S_ISREG(before.st_mode)){
-  invalidate_audio_cache();return false;
- }
- uint32_t epoch;bool hit=false;
- portENTER_CRITICAL(&verified_audio_lock);
- epoch=verified_audio_epoch;
- for(const auto &slot:verified_audio) {
-  if(slot.valid && slot.epoch==epoch && !strcmp(slot.path,path) && same_file_stamp(slot.stamp,before)){
-   *out=slot.audio;hit=true;break;
-  }
- }
- portEXIT_CRITICAL(&verified_audio_lock);
- if(hit)return !cancelled();
- if(!file_audio_identity(path,out,false,read?&read->interrupted:nullptr,read?read->selection:0)){
-  invalidate_audio_cache();return false;
- }
- if(cancelled() || board_sd_verify_session()!=ESP_OK || stat(path,&after) || !same_file_stamp(before,after) ||
-    out->bytes!=(uint64_t)after.st_size){invalidate_audio_cache();return false;}
- portENTER_CRITICAL(&verified_audio_lock);
- bool current=epoch==verified_audio_epoch;
- if(current){
-  auto &slot=verified_audio[verified_audio_next++%4];
-  snprintf(slot.path,sizeof(slot.path),"%s",path);slot.stamp=after;slot.audio=*out;slot.epoch=epoch;slot.valid=true;
- }
- portEXIT_CRITICAL(&verified_audio_lock);
- return current;
-}
 int sd_status(void *,uint32_t id,char *out,size_t capacity){job_state(id,MEMO_JOB_CHECKING);memo_config_snapshot_t service{};if(!current_service(service)||!ensure_clock(service.base_url))return 0;std::string body;int code=remote_status(id,body);if(body.size()>=capacity)return 0;snprintf(out,capacity,"%s",body.c_str());return code;}
-int sd_upload(void *,const memo_record_t *record,const memo_audio_identity_t *audio,char *out,size_t capacity){
+int sd_upload(void *,const memo_record_t *record,const char *cancel_token,char *out,size_t capacity){
  job_state(record->id,MEMO_JOB_UPLOADING);
  memo_config_snapshot_t service{};if(!current_service(service)||!ensure_clock(service.base_url))return 0;
- char hex[65];for(unsigned i=0;i<32;i++)snprintf(hex+i*2,3,"%02x",audio->sha256[i]);
- std::string body;int code=upload_file(*record,hex,(uint32_t)audio->bytes,body);if(body.size()>=capacity)return 0;snprintf(out,capacity,"%s",body.c_str());return code;
+ std::string body;int code=upload_file(*record,record->data_bytes+44,cancel_token,body);if(body.size()>=capacity)return 0;snprintf(out,capacity,"%s",body.c_str());return code;
 }
-int sd_retry(void *,uint32_t id,char *out,size_t capacity){
+int sd_retry(void *,uint32_t id,const char *cancel_token,char *out,size_t capacity){
  memo_config_snapshot_t service{};if(!current_service(service)||!ensure_clock(service.base_url))return 0;
  char path[160];snprintf(path,sizeof(path),"/v1/memos/%s/%" PRIu32 "/retry",service.device_id,id);
- return pairing_request(nullptr,service.base_url,"POST",path,service.token,"{}",out,capacity);
+ char payload[80];snprintf(payload,sizeof(payload),"{\"cancel_token\":\"%s\"}",cancel_token?cancel_token:"");
+ return pairing_request(nullptr,service.base_url,"POST",path,service.token,payload,out,capacity);
+}
+int sd_cancel(void *,uint32_t id,const char *cancel_token,char *out,size_t capacity){
+ memo_network_status_t network{};network_sync_get_status(&network);
+ memo_config_snapshot_t service{};
+ if(!network.connected||!current_service(service)||!ensure_clock(service.base_url))return 0;
+ char path[160];snprintf(path,sizeof(path),"/v1/memos/%s/%" PRIu32 "/cancel",service.device_id,id);
+ char payload[80];snprintf(payload,sizeof(payload),"{\"cancel_token\":\"%s\"}",cancel_token?cancel_token:"");
+ return pairing_request(nullptr,service.base_url,"POST",path,service.token,payload,out,capacity);
 }
 const char *sync_error(const char *s){
  if(!strcmp(s,"credentials_invalid"))return "设备凭据失效，请重新配对";
  if(!strcmp(s,"recording_changed")||!strcmp(s,"audio_identity_mismatch"))return "录音内容已变化，未复用同步结果";
+ if(!strcmp(s,"cancel_pending"))return "正在取消，等待联网确认";
+ if(!strcmp(s,"cancel_too_late"))return "已经开始投递，请等待处理结果";
+ if(!strcmp(s,"server_task_missing"))return "服务器任务未找到，请查看后台";
  if(!strcmp(s,"different_service"))return "当前服务尚未同步此录音";
  if(!strcmp(s,"sync_metadata_write_failed")||!strcmp(s,"sync_metadata_unreadable"))return "同步状态保存失败，录音仍在本地";
  if(!strcmp(s,"recording_unreadable"))return "录音文件不可读，请检查存储卡";
  if(!strcmp(s,"audio_busy")||!strcmp(s,"no_pending_intent"))return "";
  return s[0]?"同步未完成，稍后重试":"";
 }
-void sync_one(uint32_t id,bool manual=false,bool inspect=false){
+bool sync_one(uint32_t id,bool manual=false,bool inspect=false,bool cancel=false){
  HttpGuard guard;memo_sync_target_t target{};
- if(!network_sync_current_target(&target))return;
+ if(!network_sync_current_target(&target)&&!cancel)return false;
  char wav[MEMO_PATH_MAX],cache[160];snprintf(wav,sizeof(wav),"/sdcard/memos/memo_%010" PRIu32 ".wav",id);cache_path(cache,sizeof(cache),id);
- memo_sd_sync_io_t io{nullptr,begin_sd_io,end_sd_io,hash_audio,sd_status,sd_upload,sd_retry};memo_sd_sync_result_t result{};
- memo_sd_sync_attempt(wav,cache,id,&target,inspect?2:manual?1:0,&io,&result);
+ memo_sd_sync_io_t io{nullptr,begin_sd_io,end_sd_io,sd_status,sd_upload,sd_retry,sd_cancel};memo_sd_sync_result_t result{};
+ memo_sd_sync_attempt(wav,cache,id,&target,cancel?4:inspect?2:manual?1:0,&io,&result);
  memo_job_state_t presented=result.state;
  if(result.error[0]&&strcmp(result.error,"audio_busy")&&result.state==MEMO_JOB_LOCAL)presented=MEMO_JOB_FAILED;
  job_state(id,presented);
  xSemaphoreTake(status_mutex,portMAX_DELAY);
- if(detail_value.id==id){detail_value.can_retry=result.can_retry;snprintf(detail_value.error,sizeof(detail_value.error),"%s",sync_error(result.error));}
+ if(detail_value.id==id){detail_value.can_retry=result.can_retry;detail_value.can_cancel=result.can_cancel;snprintf(detail_value.error,sizeof(detail_value.error),"%s",sync_error(result.error));}
  if(result.state==MEMO_JOB_SENT && id>status_value.last_uploaded_id)status_value.last_uploaded_id=id;
  xSemaphoreGive(status_mutex);
  set_error(sync_error(result.error));
+ return !cancel || !strcmp(result.error,"cancel_too_late") || result.state==MEMO_JOB_CANCELLING || result.state==MEMO_JOB_CANCELLED || result.state==MEMO_JOB_SENT || result.state==MEMO_JOB_UNCERTAIN ||
+        (!result.pending && (result.state==MEMO_JOB_REJECTED || result.state==MEMO_JOB_FAILED));
 }
 void defer_detail(uint32_t id) {
  xSemaphoreTake(status_mutex,portMAX_DELAY);
@@ -526,25 +433,25 @@ void defer_detail(uint32_t id) {
 void inspect_record(uint32_t id){
  if(id & MEMO_CARDLESS_ID_FLAG){memo_cardless_record_t local{};memo_cardless_get(id,&local);return;}
  if(!storage_available.load())return;
- SDReadContext read{};uint32_t revision;
+ uint32_t revision;
  {xSemaphoreTake(status_mutex,portMAX_DELAY);
   if(detail_value.id!=id){xSemaphoreGive(status_mutex);return;}
-  revision=detail_revision;read.selection=selected_revision.load();xSemaphoreGive(status_mutex);}
+  revision=detail_revision;xSemaphoreGive(status_mutex);}
  if(!begin_sd_io(nullptr)){
   defer_detail(id);return;
  }
  memo_sync_target_t target{};network_sync_current_target(&target);
  char wav[MEMO_PATH_MAX],cache[160];snprintf(wav,sizeof(wav),"/sdcard/memos/memo_%010" PRIu32 ".wav",id);cache_path(cache,sizeof(cache),id);
- memo_sd_sync_io_t io{&read,begin_sd_io,end_sd_io,hash_audio,sd_status,sd_upload,sd_retry};memo_sd_sync_result_t result{};
+ memo_sd_sync_io_t io{nullptr,begin_sd_io,end_sd_io,sd_status,sd_upload,sd_retry,sd_cancel};memo_sd_sync_result_t result{};
  memo_sd_sync_attempt(wav,cache,id,&target,3,&io,&result);
  end_sd_io(nullptr);
- if(read.interrupted || !strcmp(result.error,"audio_busy")){
+ if(!strcmp(result.error,"audio_busy")){
   defer_detail(id);return;
  }
  xSemaphoreTake(status_mutex,portMAX_DELAY);
  if(detail_value.id==id && detail_revision==revision){
   bool active=active_record.load()==id;
-  detail_value.state=active?active_state.load():result.state;detail_value.can_retry=!active && result.can_retry;
+  detail_value.state=active?active_state.load():result.state;detail_value.can_retry=!active && result.can_retry;detail_value.can_cancel=result.can_cancel;
   if(!active)snprintf(detail_value.error,sizeof(detail_value.error),"%s",sync_error(result.error));
  }
  xSemaphoreGive(status_mutex);
@@ -561,7 +468,6 @@ bool pending_record(const memo_sync_target_t &target,bool &manual,uint32_t &next
  static uint32_t after=0;manual=false;next=0;
  if(!begin_sd_io(nullptr))return false;
  bool healthy=board_sd_check()==ESP_OK;
- if(!healthy)invalidate_audio_cache();
  if(healthy) {
   sd_directory_scans.fetch_add(1);
   next=memo_sd_sync_pending("/sdcard/memos",&target,&after,&manual,&healthy);
@@ -585,16 +491,17 @@ bool discover_sd_work(const memo_sync_target_t &target) {
 bool persist_manual(uint32_t id){
  if(!id)return true;
  if(!begin_sd_io(nullptr))return false;
- memo_sync_target_t target{};memo_audio_identity_t audio{};memo_record_t record{};memo_sync_entry_t e{};
+ memo_sync_target_t target{};memo_record_t record{};memo_sync_entry_t e{};
  char wav[MEMO_PATH_MAX],cache[160];snprintf(wav,sizeof(wav),"/sdcard/memos/memo_%010" PRIu32 ".wav",id);cache_path(cache,sizeof(cache),id);
- bool ok=network_sync_current_target(&target)&&memo_record_ids_observe(id)&&!memo_store_validate(wav,&record)&&hash_audio(nullptr,wav,&audio);
+ bool ok=network_sync_current_target(&target)&&memo_record_ids_observe(id)&&!memo_store_validate(wav,&record);
  memo_cache_result_t r=ok?memo_sync_entry_read(cache,id,&e):MEMO_CACHE_IO_ERROR;
- if(r==MEMO_CACHE_IO_ERROR|| (r==MEMO_CACHE_OK&&e.bound&&!memo_sync_audio_matches(&e.audio,&audio)))ok=false;
+ if(r==MEMO_CACHE_IO_ERROR)ok=false;
+ if(ok && r==MEMO_CACHE_OK && (e.state==MEMO_JOB_SENT||e.state==MEMO_JOB_UNCERTAIN))ok=false;
  if(ok){
-  if(r!=MEMO_CACHE_OK||!e.bound||!memo_sync_target_matches(&e.target,&target,false)){e={};e.id=id;e.target=target;e.audio=audio;e.bound=true;e.state=MEMO_JOB_LOCAL;}
-  e.manual=true;
-  e.automatic=e.state!=MEMO_JOB_SENT&&e.state!=MEMO_JOB_REJECTED&&e.state!=MEMO_JOB_UNCERTAIN;
-  ok=memo_sync_entry_write(cache,&e);
+  if(r!=MEMO_CACHE_OK||!memo_sync_target_matches(&e.target,&target,!e.bound)){
+   e={};e.id=id;e.target=target;e.state=MEMO_JOB_LOCAL;
+  }
+  e.manual=e.automatic=true;ok=memo_sync_entry_write(cache,&e);
  }
  end_sd_io(nullptr);return ok;
 }
@@ -611,6 +518,18 @@ void sync_task(void *)
         if (now >= next_pairing_us) {
             recover_pairing();
             next_pairing_us = esp_timer_get_time() + RETRY_DELAY_MS * 1000LL;
+        }
+        uint32_t cancelled=cancel_request.load();
+        if(cancelled && storage_available.load() && !audio_busy() && !wifi.IsConfigMode() &&
+           !power_suspended.load() && !memo_cardless_busy()) {
+            if(sync_one(cancelled,false,false,true)) {
+                xSemaphoreTake(status_mutex,portMAX_DELAY);
+                if(sync_queue.active_id==cancelled)memo_sync_queue_finish(&sync_queue,cancelled);
+                if(sync_queue.pending_id==cancelled){sync_queue.pending_id=0;sync_queue.pending_manual=sync_queue.pending_persisted=false;}
+                xSemaphoreGive(status_mutex);
+                cancel_request.compare_exchange_strong(cancelled,0);
+                sd_scan_requested.store(true);
+            }
         }
         memo_cardless_network_step(); // Shared HTTP owner; independent of SD presence.
         memo_network_status_t snapshot;network_sync_get_status(&snapshot);
@@ -866,7 +785,6 @@ extern "C" void network_sync_select_record(uint32_t id) {
     selected_cardless.store((id & MEMO_CARDLESS_ID_FLAG)?id:0);
     memo_cardless_select((id & MEMO_CARDLESS_ID_FLAG)?id:0);
     detail_value={};detail_value.id=id;detail_value.state=MEMO_JOB_CHECKING;++detail_revision;
-    selected_revision.fetch_add(1);
     inspect_id.store(id);
     xSemaphoreGive(status_mutex);
     if(detail_task_handle)xTaskNotifyGive(detail_task_handle);
@@ -879,7 +797,7 @@ extern "C" void network_sync_record_status(memo_record_sync_t *out) {
         out->id=cardless_id;out->cardless=true;out->state=MEMO_JOB_CHECKING;
         if(memo_cardless_peek(cardless_id,&record)) {
             out->state=record.state;out->can_retry=memo_cardless_can_resume(cardless_id);
-            out->interrupted=record.interrupted;
+            out->interrupted=record.interrupted;out->can_cancel=memo_cardless_can_cancel(cardless_id);
             snprintf(out->error,sizeof(out->error),"%s",record.error);
 
         }
@@ -889,13 +807,12 @@ extern "C" void network_sync_record_status(memo_record_sync_t *out) {
     xSemaphoreTake(status_mutex,portMAX_DELAY);
     *out=detail_value;
     out->request_pending=memo_sync_queue_contains(&sync_queue,out->id);
+    if(out->id && cancel_request.load()==out->id){out->state=MEMO_JOB_CANCELLING;out->can_cancel=out->can_retry=false;}
+    else if(out->request_pending && out->state!=MEMO_JOB_CANCELLING)out->can_cancel=true;
     xSemaphoreGive(status_mutex);
 }
 extern "C" bool network_sync_retry_record(uint32_t id) {
     if(id & MEMO_CARDLESS_ID_FLAG)return memo_cardless_retry(id);
-    if(!http_mutex||xSemaphoreTakeRecursive(http_mutex,0)!=pdTRUE)return false;
-    struct ReleaseHTTP {~ReleaseHTTP(){xSemaphoreGiveRecursive(http_mutex);}} release;
-
     memo_network_status_t snapshot;network_sync_get_status(&snapshot);
     if(!storage_available.load() || !id || id>latest_id.load() || !snapshot.configured || audio_busy() || !status_mutex)return false;
     xSemaphoreTake(status_mutex,portMAX_DELAY);
@@ -907,8 +824,15 @@ extern "C" bool network_sync_retry_record(uint32_t id) {
     return true;
 }
 
+extern "C" bool network_sync_cancel_record(uint32_t id) {
+ if(id & MEMO_CARDLESS_ID_FLAG)return memo_cardless_cancel(id);
+ if(!id||!status_mutex||!storage_available.load())return false;
+ uint32_t empty=0;if(!cancel_request.compare_exchange_strong(empty,id))return empty==id;
+ if(sync_task_handle)xTaskNotifyGive(sync_task_handle);
+ return true;
+}
+
 extern "C" void network_sync_set_storage_available(bool available) {
-    invalidate_audio_cache(); // Mount/remount notification, including an unchanged ready value.
     storage_available.store(available);
     if(available)sd_scan_requested.store(true);
     if(sync_task_handle)xTaskNotifyGive(sync_task_handle);
@@ -926,7 +850,6 @@ extern "C" bool network_sync_current_target(memo_sync_target_t *out){
  return mbedtls_sha256((const unsigned char *)service.base_url,strlen(service.base_url),out->url_hash,0)==0;
 }
 extern "C" bool network_sync_track_record(uint32_t id){
- invalidate_audio_cache(); // Finalize/recovery is the only in-device WAV creation path.
  memo_sync_entry_t e{};e.id=id;e.state=MEMO_JOB_QUEUED;e.automatic=true;
  {ConfigGuard guard;memo_config_snapshot_t service{};
   if(guard.value&&memo_config_read_snapshot(guard.value,&service)==MEMO_CONFIG_OK&&service.base_url[0]){
@@ -996,10 +919,7 @@ extern "C" void network_sync_sd_probe_done(void)
 
 /* Reuse the existing streaming hash under the caller's offline AUDIO claim.
  * No network connection, configuration or remote operation is involved. */
-extern "C" bool network_sync_hash_local_audio(const char *path,memo_audio_identity_t *out) {
-    return path && out && memo_config_activity(&activity_gate)==MEMO_ACTIVITY_AUDIO &&
-        !file_read_active.load() && file_audio_identity(path,out,true);
-}
+
 
 extern "C" bool network_sync_sd_work_pending(void) {
     memo_network_status_t s;network_sync_get_status(&s);

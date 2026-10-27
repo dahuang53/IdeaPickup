@@ -160,6 +160,9 @@ docker compose --env-file private/deploy/relay.env -f deploy/compose.yaml exec -
 ./scripts/relay_deploy.sh upgrade 'registry/name:version@sha256:实际的64位摘要'
 ```
 
+任务取消版本将运行数据库从 schema 2 升到 3，在原任务表增加取消标记，保留录音、任务、配对和凭据。先升级后端，再升级固件。升级前按下文停止服务并备份项目持久卷和部署配置；旧后端拒绝读取 schema 3，因此回退必须恢复对应的升级前数据备份，不能只换回旧镜像。设备取消状态也需要新版固件读取，固件回退应使用对应的 Flash／状态备份，详见 [存储说明](FIRMWARE_STORAGE.md)。
+
+
 管理器先排空在途工作、停止唯一写入服务并检查当前数据库，再启动候选；超时或不兼容会停止更新。不要用直接 `start` 覆盖运行镜像，也不要用旧数据库覆盖新状态。详细恢复边界见下文。
 
 需要临时停止时，先让设备停止录音／上传，确认后台无在途任务，然后使用：

@@ -27,7 +27,7 @@ from .providers import ConfiguredService, probe_config, target_id
 from .auth import UploadAuthorization
 
 TERMINAL = {"sent", "transcription_rejected", "audio_expired"}
-STOPPED = TERMINAL | {"uncertain", "transcription_failed", "delivery_failed", "awaiting_audio"}
+STOPPED = TERMINAL | {"uncertain", "transcription_failed", "delivery_failed", "awaiting_audio", "cancelled"}
 MAX_RECEIVERS = 2
 MIN_FREE_BYTES = 64 * 1024 * 1024
 
@@ -129,7 +129,7 @@ class Runtime:
             tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
             if "relay_runtime_meta" in tables:
                 row = db.execute("SELECT schema_version FROM relay_runtime_meta WHERE singleton=1").fetchone()
-                return {"compatible": bool(row and row[0] == RUNTIME_SCHEMA_VERSION)}
+                return {"compatible": bool(row and row[0] in (2, RUNTIME_SCHEMA_VERSION))}
             # Empty tables made during first-owner initialization are allowed.
             # Audio/task rows without our ledger are not imported as new work.
             for table in ("memos", "streams"):
@@ -174,7 +174,9 @@ class Runtime:
             if job["source"] == "stream" and self._discard_unstarted_stream(key):
                 continue
             memo = self.store.get(*key)
-            if memo and memo["status"] == "sending":
+            if job["phase"] == "cancelled":
+                self._update_job(*key, wav_name=None, owner_generation=None)
+            elif memo and memo["status"] == "sending":
                 self.store.update(*key, status="uncertain", error="restart_during_delivery", updated_at=self._now())
                 self._update_job(*key, phase="uncertain", wav_name=None, owner_generation=None)
             elif job["source"] == "wav" and (not memo or memo["status"] in {"received", "transcribing"}):
@@ -356,7 +358,11 @@ class Runtime:
             if key in self._admissions or len(self._admissions) >= MAX_RECEIVERS or key == self._active:
                 raise RelayError(429, "upload_busy", "bounded upload capacity is in use")
             job = self._job(*key)
-            if job and (job["source"] != "wav" or job["phase"] in {"queued", "transcribing", "sending", "uncertain"} | TERMINAL):
+            if job and job["cancel_token"] and headers.get("X-Cancel-Token") != job["cancel_token"]:
+                raise RelayError(409, "task_cancelled", "explicit submission must acknowledge the current cancellation")
+            if job and job["cancel_token"] and job["phase"] not in {"cancelled", "receiving", "awaiting_audio"}:
+                raise RelayError(409, "attempt_already_received", "query this attempt; explicit retry requires a fresh cancellation barrier")
+            if job and (job["source"] != "wav" or job["phase"] in {"queued", "transcribing", "sending", "uncertain", "sent", "audio_expired"}):
                 raise RelayError(409, "recording_state_conflict", "query the existing recording before uploading")
             reserved = sum(a.length for a in self._admissions.values())
             if shutil.disk_usage(self.workdir).free < length + reserved + self.min_free_bytes:
@@ -390,7 +396,8 @@ class Runtime:
                     memo = self.store.get(*key)
                     if memo and memo["status"] in {"received", "transcribing"}:
                         self.store.update(*key, status="transcription_failed", error="wav_reupload_required", updated_at=self._now())
-                    self._update_job(*key, phase="awaiting_audio", wav_name=None, owner_generation=None, updated_at=self._now())
+                    phase = "cancelled" if self._job(*key)["phase"] == "cancelled" else "awaiting_audio"
+                    self._update_job(*key, phase=phase, wav_name=None, owner_generation=None, updated_at=self._now())
             except Exception:
                 # Storage failure may make the durable result uncertain. Stop
                 # accepting work; startup recovery can repair it without ACKs.
@@ -422,21 +429,24 @@ class Runtime:
         if admission.path.stat().st_size != admission.length:
             raise RelayError(400, "incomplete_body", "WAV body length differs from Content-Length")
         digest = actual_hash or sha256_source(admission.path)
-        if digest != claimed:
+        if claimed and digest != claimed:
             raise RelayError(400, "audio_hash_mismatch", "audio SHA-256 does not match body")
         wav = validate_wav(admission.path)
         with admission.path.open("rb") as file:
             os.fsync(file.fileno())
-        created, memo = self.store.create(device, recording, digest, wav["duration_ms"], self._now())
-        if memo["audio_sha256"] != digest or memo["duration_ms"] != wav["duration_ms"]:
-            raise RelayError(409, "recording_conflict", "recording ID belongs to different audio")
-        if not created and memo["status"] not in {"transcription_failed", "received", "transcribing"}:
-            raise RelayError(409, "recording_state_conflict", "recording cannot accept replacement audio")
-        memo = self.store.update(*key, status="received", audio_bytes=admission.length, error=None, updated_at=self._now())
-        self._update_job(*key, phase="queued", claimed_hash=digest, audio_bytes=admission.length, updated_at=self._now())
-        admission.transferred = True
-        self._enqueue("wav", key)
-        return self.auth.public_memo(memo), 202
+        with self._mutex:
+            if self._job(*key)["phase"] == "cancelled":
+                raise RelayError(409, "task_cancelled", "upload was cancelled")
+            created, memo = self.store.create(device, recording, digest, wav["duration_ms"], self._now())
+            if memo["audio_sha256"] != digest or memo["duration_ms"] != wav["duration_ms"]:
+                raise RelayError(409, "recording_conflict", "recording ID belongs to different audio")
+            if not created and memo["status"] not in {"transcription_failed", "transcription_rejected", "received", "transcribing", "cancelled"}:
+                raise RelayError(409, "recording_state_conflict", "recording cannot accept replacement audio")
+            memo = self.store.update(*key, status="received", audio_bytes=admission.length, error=None, updated_at=self._now())
+            self._update_job(*key, phase="queued", claimed_hash=digest, audio_bytes=admission.length, updated_at=self._now())
+            admission.transferred = True
+            self._enqueue("wav", key)
+            return self.auth.public_memo(memo), 202
 
     def _service_for(self, key):
         job = self._job(*key)
@@ -450,10 +460,13 @@ class Runtime:
         return self._provider_factory(self.store, snapshot["config"], progress=lambda: self._progress(key))
 
     def _progress(self, key):
-        self._update_job(*key, updated_at=self._now(), owner_generation=self.owner_generation)
-        job = self._job(*key)
-        if job["source"] == "stream":
-            self.streams._update(*key, updated_at=self._now(), expires_at=self._now() + RETENTION_MS)
+        with self._mutex:
+            job = self._job(*key)
+            if job["phase"] == "cancelled":
+                return
+            self._update_job(*key, updated_at=self._now(), owner_generation=self.owner_generation)
+            if job["source"] == "stream":
+                self.streams._update(*key, updated_at=self._now(), expires_at=self._now() + RETENTION_MS)
 
     def _enqueue(self, source, key):
         with self._mutex:
@@ -474,35 +487,51 @@ class Runtime:
             raise RelayError(503, "damaged_task_metadata", "invalid temporary audio reference")
         wav = self.workdir / name if name else None
         try:
+            if job["phase"] == "cancelled":
+                return
             service = self._service_for(key)
-            if memo["status"] in TERMINAL | {"uncertain", "sending"}:
+            if memo["status"] in TERMINAL | {"uncertain", "sending", "cancelled"}:
                 return
             if memo["status"] not in {"transcribed", "delivery_failed"} or not memo["cloud_content"]:
-                if not wav or wav.is_symlink() or not wav.is_file() or sha256_source(wav) != memo["audio_sha256"]:
+                if not wav or wav.is_symlink() or not wav.is_file() or wav.stat().st_size != memo["audio_bytes"]:
                     raise RelayError(409, "wav_reupload_required", "verified SD original is required")
-                self._update_job(*key, phase="transcribing", owner_generation=self.owner_generation, updated_at=self._now())
-                self.store.update(*key, status="transcribing", error=None, updated_at=self._now())
+                with self._mutex:
+                    if self._job(*key)["phase"] == "cancelled":
+                        return
+                    self._update_job(*key, phase="transcribing", owner_generation=self.owner_generation, updated_at=self._now())
+                    self.store.update(*key, status="transcribing", error=None, updated_at=self._now())
                 text, request = service._transcribe_source(wav, memo["duration_ms"])
                 imported = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(memo["created_at"] / 1000))
                 content = f"**喵伴 #{key[1]}** · 云端导入时间 {imported}\n\n{text}"
-                memo = self.store.update(*key, status="transcribed", transcript=text, cloud_content=content,
-                                         transcript_sha256=hashlib.sha256(text.encode()).hexdigest(), qwen_request_id=request,
-                                         error=None, updated_at=self._now())
-            self._update_job(*key, phase="sending", updated_at=self._now())
+                with self._mutex:
+                    if self._job(*key)["phase"] == "cancelled":
+                        return
+                    memo = self.store.update(*key, status="transcribed", transcript=text, cloud_content=content,
+                                             transcript_sha256=hashlib.sha256(text.encode()).hexdigest(), qwen_request_id=request,
+                                             error=None, updated_at=self._now())
+            with self._mutex:
+                if self._job(*key)["phase"] == "cancelled":
+                    return
+                # Cancellation and this irreversible delivery boundary share one lock.
+                self._update_job(*key, phase="sending", updated_at=self._now())
+                self.store.update(*key, status="sending", error=None, updated_at=self._now())
             service._deliver(memo, self._now())
         except Exception as error:
-            memo = self.store.get(*key)
-            code = getattr(error, "code", "processing_failed")
-            if not isinstance(code, str) or not re.fullmatch(r"[a-z_]{1,80}", code):
-                code = "processing_failed"
-            if memo and memo["status"] == "sending":
-                self.store.update(*key, status="uncertain", error=code, updated_at=self._now())
-            elif memo and memo["status"] == "transcribed":
-                # Durable text exists, but the sending boundary was not reached.
-                self.store.update(*key, status="delivery_failed", error=code, updated_at=self._now())
-            elif memo and memo["status"] not in TERMINAL | {"uncertain", "delivery_failed"}:
-                self.store.update(*key, status="transcription_rejected" if code == "transcript_rejected" else "transcription_failed",
-                                  error=code, updated_at=self._now())
+            with self._mutex:
+                if self._job(*key)["phase"] == "cancelled":
+                    return
+                memo = self.store.get(*key)
+                code = getattr(error, "code", "processing_failed")
+                if not isinstance(code, str) or not re.fullmatch(r"[a-z_]{1,80}", code):
+                    code = "processing_failed"
+                if memo and memo["status"] == "sending":
+                    self.store.update(*key, status="uncertain", error=code, updated_at=self._now())
+                elif memo and memo["status"] == "transcribed":
+                    # Durable text exists, but the sending boundary was not reached.
+                    self.store.update(*key, status="delivery_failed", error=code, updated_at=self._now())
+                elif memo and memo["status"] not in TERMINAL | {"uncertain", "delivery_failed", "cancelled"}:
+                    self.store.update(*key, status="transcription_rejected" if code == "transcript_rejected" else "transcription_failed",
+                                      error=code, updated_at=self._now())
         finally:
             if wav:
                 try:
@@ -705,16 +734,67 @@ class Runtime:
             raise StreamError(410, "audio_expired", "temporary audio has expired")
         return self.retry_job(device, recording)
 
-    def memo_retry(self, authorization, device, recording):
+    def memo_retry(self, authorization, device, recording, cancel_token=None):
         # Device adapter for the existing deliberate WAV delivery retry.
         self.auth.status(authorization, device, recording)
-        job = self._job(device, recording)
-        if not job or job["source"] != "wav":
-            raise RelayError(409, "wrong_task_source", "WAV retry requires a WAV task")
-        return self.retry_job(device, recording)
+        with self._mutex:
+            job = self._job(device, recording)
+            if not job or job["source"] != "wav":
+                raise RelayError(409, "wrong_task_source", "WAV retry requires a WAV task")
+            if job["cancel_token"] and cancel_token != job["cancel_token"]:
+                raise RelayError(409, "stale_task_control", "query the current task before retrying")
+            if job["cancel_token"] and job["phase"] != "cancelled":
+                raise RelayError(409, "attempt_already_received", "query this attempt; explicit retry requires a fresh cancellation barrier")
+            return self.retry_job(device, recording, cancelled_delivery=bool(job["cancel_token"] and cancel_token == job["cancel_token"]))
 
     def memo_status(self, authorization, device, recording):
+        self._validate_key(device, recording)
+        self.auth.authorize(authorization, device)
+        job = self._job(device, recording)
+        if job and job["source"] == "wav" and job["cancel_token"]:
+            return self._cancelled_receipt(device, recording), 200
         return self.auth.status(authorization, device, recording)
+
+    def _cancelled_receipt(self, device, recording):
+        memo = self.store.get(device, recording)
+        token = self._job(device, recording)["cancel_token"]
+        if memo:
+            return {**self.auth.public_memo(memo), "cancel_token": token, "delivery_retry_available": bool(memo["cloud_content"])}
+        return {"cancel_token": token, "server_instance_uuid": self.instance_uuid, "device_id": device,
+                "recording_id": recording, "status": "cancelled", "audio_bytes": 0,
+                "audio_sha256": "", "error": None}
+
+    def cancel_job(self, authorization, device, recording, source, cancel_token=None):
+        self._validate_key(device, recording)
+        self.auth.authorize(authorization, device)
+        key = device, recording
+        with self._mutex:
+            job, memo = self._job(*key), self.store.get(*key)
+            if not job:
+                with self.store.connect() as db:
+                    db.execute("INSERT INTO relay_jobs(task_id,device_id,recording_id,source,phase,created_at,updated_at) VALUES(?,?,?,?,'cancelled',?,?)",
+                               (self._task_id(*key), *key, source, self._now(), self._now()))
+                job = self._job(*key)
+            if source == "wav" and job["cancel_token"] and job["phase"] != "cancelled" and cancel_token != job["cancel_token"]:
+                raise RelayError(409, "stale_task_control", "query the current task before cancelling")
+            if job["source"] != source:
+                raise RelayError(409, "wrong_task_source", "task source differs")
+            if job["phase"] in {"sent", "audio_expired", "sending", "uncertain"} or (memo and memo["status"] in {"sent", "audio_expired", "sending", "uncertain"}):
+                raise RelayError(409, "cancel_too_late", "delivery has started or task is complete; query its result")
+            token = (job["cancel_token"] or uuid.uuid4().hex) if job["phase"] == "cancelled" else uuid.uuid4().hex
+            # All durable authorities change in a single transaction. A restart
+            # cannot resurrect a cancelled stream or an interrupted WAV receive.
+            with self.store.connect() as db:
+                db.execute("BEGIN IMMEDIATE")
+                db.execute("UPDATE relay_jobs SET phase='cancelled',cancel_token=?,updated_at=? WHERE device_id=? AND recording_id=?", (token, self._now(), *key))
+                db.execute("UPDATE memos SET status='cancelled',error=NULL,updated_at=? WHERE device_id=? AND recording_id=?", (self._now(), *key))
+                if source == "stream":
+                    db.execute("INSERT OR IGNORE INTO streams(device_id,recording_id,created_at,updated_at,expires_at,phase) VALUES(?,?,?,?,?,'cancelled')", (*key,self._now(),self._now(),self._now()+RETENTION_MS))
+                    db.execute("UPDATE streams SET phase='cancelled',error=NULL,updated_at=? WHERE device_id=? AND recording_id=?", (self._now(), *key))
+            self._settle(key)
+            if source == "stream":
+                return self.streams._public(self.streams._row(*key)), 200
+            return self._cancelled_receipt(*key), 200
 
 
     def list_jobs(self, limit=50, offset=0):
@@ -749,7 +829,7 @@ class Runtime:
                           "target_id": job["target_id"], "revision": job["revision"], "updated_at": job["updated_at"]})
         return {"items": items, "total": count, "limit": limit, "offset": offset}
 
-    def retry_job(self, device, recording, expected_revision=None):
+    def retry_job(self, device, recording, expected_revision=None, *, cancelled_delivery=False):
         """A deliberate retry starts an attempt using the current configuration.
 
         It never mutates a running attempt or retries an uncertain delivery.
@@ -767,9 +847,9 @@ class Runtime:
                 raise RelayError(409, "processing_active", "task is already active")
             if memo["status"] in {"uncertain", "sending"}:
                 raise RelayError(409, "delivery_uncertain", "resolve this delivery result before retrying")
-            if memo["status"] not in {"transcribed", "delivery_failed", "transcription_failed"}:
+            if memo["status"] not in {"transcribed", "delivery_failed", "transcription_failed"} and not (cancelled_delivery and memo["status"] == "cancelled"):
                 raise RelayError(409, "cannot_retry", "task cannot be retried")
-            if job["source"] == "wav" and (memo["status"] not in {"transcribed", "delivery_failed"} or not memo["cloud_content"]):
+            if job["source"] == "wav" and ((memo["status"] not in {"transcribed", "delivery_failed"} and not (cancelled_delivery and memo["status"] == "cancelled")) or not memo["cloud_content"]):
                 raise RelayError(409, "wav_reupload_required", "upload the SD original to retry transcription")
             if job["source"] == "stream" and not self.streams._public(self.streams._row(*key))["can_retry"]:
                 raise RelayError(409, "cannot_retry", "retry content is unavailable")

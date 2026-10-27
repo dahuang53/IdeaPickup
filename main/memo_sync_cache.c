@@ -37,7 +37,7 @@ bool memo_sync_target_matches(const memo_sync_target_t *a,const memo_sync_target
         (!partial||a->device_id[0]?!strcmp(a->device_id,b->device_id):true);
 }
 static bool valid(const memo_sync_entry_t *e){
- if(!e||!e->id||(e->id&0x80000000U)||(unsigned)e->state>MEMO_JOB_UNCERTAIN||!memchr(e->target.device_id,0,40))return false;
+ if(!e||!e->id||(e->id&0x80000000U)||(unsigned)e->state>MEMO_JOB_CANCELLING||!memchr(e->target.device_id,0,40))return false;
  if(e->bound)return e->audio.bytes>=46&&nonzero(e->audio.sha256,32)&&nonzero(e->target.instance.bytes,16)&&nonzero(e->target.url_hash,32)&&e->target.device_id[0];
  return !e->audio.bytes&&!nonzero(e->audio.sha256,32);
 }
@@ -45,6 +45,11 @@ static void encode(uint8_t *p,const memo_sync_entry_t *e,uint64_t generation){
  memset(p,0,ENTRY_SIZE);memcpy(p,"R1SJ",4);put32(p+4,1);put64(p+8,generation);put32(p+16,e->id);put32(p+20,e->state);
  put32(p+24,(e->automatic?1U:0U)|(e->manual?2U:0U));put32(p+28,e->bound);memcpy(p+32,e->target.instance.bytes,16);memcpy(p+48,e->target.url_hash,32);
  memcpy(p+80,e->target.device_id,40);put64(p+120,e->audio.bytes);memcpy(p+128,e->audio.sha256,32);put32(p+160,crc(p,160));
+}
+bool memo_sync_entry_equal(const memo_sync_entry_t *a,const memo_sync_entry_t *b){
+ if(!a||!b)return false;
+ uint8_t left[ENTRY_SIZE],right[ENTRY_SIZE];encode(left,a,1);encode(right,b,1);
+ return !memcmp(left,right,sizeof(left));
 }
 static bool decode(const uint8_t *p,uint32_t id,memo_sync_entry_t *e,uint64_t *g){
  if(memcmp(p,"R1SJ",4)||get32(p+4)!=1||get32(p+16)!=id||get32(p+24)>3||get32(p+28)>1||get32(p+160)!=crc(p,160))return false;
@@ -74,8 +79,10 @@ static memo_cache_result_t entry_read_unlocked(const char *p,uint32_t id,memo_sy
 static bool entry_write_unlocked(const char *p,const memo_sync_entry_t *e){
  if(!p||!valid(e))return false;
  memo_sync_entry_t previous;uint64_t g=0;unsigned which=1;memo_cache_result_t r=winner(p,e->id,&previous,&g,&which);
- if(r==MEMO_CACHE_IO_ERROR||g==UINT64_MAX)return false;
- /* A manual, fully hashed operation may recreate a missing/corrupt cache. */
+ if(r==MEMO_CACHE_IO_ERROR)return false;
+ if(r==MEMO_CACHE_OK && memo_sync_entry_equal(&previous,e))return true;
+ if(g==UINT64_MAX)return false;
+ /* An explicit submission may recreate a missing/corrupt cache. */
  unsigned next=r==MEMO_CACHE_OK?1-which:0;uint8_t bytes[ENTRY_SIZE];encode(bytes,e,g+1);
  char path[MEMO_CONFIG_URL_MAX+64];int n=snprintf(path,sizeof(path),"%s.%u",p,next);if(n<0||(size_t)n>=sizeof(path))return false;
  FILE *f=fopen(path,"wb");if(!f)return false;bool ok=fwrite(bytes,1,sizeof(bytes),f)==sizeof(bytes);

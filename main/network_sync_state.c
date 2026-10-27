@@ -93,5 +93,6 @@ bool memo_sync_device_attempt_done(memo_job_state_t state)
     return state==MEMO_JOB_WAITING || state==MEMO_JOB_RECEIVED ||
            state==MEMO_JOB_TRANSCRIBING || state==MEMO_JOB_DELIVERING ||
            state==MEMO_JOB_SENT || state==MEMO_JOB_FAILED ||
-           state==MEMO_JOB_REJECTED || state==MEMO_JOB_UNCERTAIN;
+           state==MEMO_JOB_REJECTED || state==MEMO_JOB_UNCERTAIN ||
+           state==MEMO_JOB_CANCELLED || state==MEMO_JOB_CANCELLING;
 }

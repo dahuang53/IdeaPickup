@@ -1,6 +1,6 @@
 """Actual portable device sync engine against R02 ASGI/ledger/broker.
 
-Hash/ESP transport are explicit Python callbacks; files and C/C++ codec/state
+ESP transport uses explicit Python callbacks; files and C/C++ codec/state
 are production code. No device, radio, TLS socket or live provider claim.
 """
 import ctypes as C
@@ -29,14 +29,14 @@ class Record(C.Structure):
 class Store(C.Structure):
     _fields_=[('root',C.c_char*256),('file',C.c_void_p),('id',C.c_uint32),('data_bytes',C.c_uint32),('fail_after',C.c_uint64),('next_fail_after',C.c_uint64),('failed',C.c_bool),('error',C.c_int),('partial',C.c_char*256)]
 class Result(C.Structure):
-    _fields_=[('state',C.c_int),('can_retry',C.c_bool),('pending',C.c_bool),('error',C.c_char*80)]
+    _fields_=[('state',C.c_int),('can_retry',C.c_bool),('pending',C.c_bool),('can_cancel',C.c_bool),('error',C.c_char*80)]
 BEGIN=C.CFUNCTYPE(C.c_bool,C.c_void_p)
 END=C.CFUNCTYPE(None,C.c_void_p)
-HASH=C.CFUNCTYPE(C.c_bool,C.c_void_p,C.c_char_p,C.POINTER(Audio))
 GET=C.CFUNCTYPE(C.c_int,C.c_void_p,C.c_uint32,C.c_void_p,C.c_size_t)
-UPLOAD=C.CFUNCTYPE(C.c_int,C.c_void_p,C.POINTER(Record),C.POINTER(Audio),C.c_void_p,C.c_size_t)
+UPLOAD=C.CFUNCTYPE(C.c_int,C.c_void_p,C.POINTER(Record),C.c_char_p,C.c_void_p,C.c_size_t)
+CONTROL=C.CFUNCTYPE(C.c_int,C.c_void_p,C.c_uint32,C.c_char_p,C.c_void_p,C.c_size_t)
 class IO(C.Structure):
-    _fields_=[('context',C.c_void_p),('begin',BEGIN),('end',END),('hash',HASH),('status',GET),('upload',UPLOAD),('retry',GET)]
+    _fields_=[('context',C.c_void_p),('begin',BEGIN),('end',END),('status',GET),('upload',UPLOAD),('retry',CONTROL),('cancel',CONTROL)]
 
 class SyncTests(unittest.TestCase):
     @classmethod
@@ -93,7 +93,7 @@ class SyncTests(unittest.TestCase):
                 self.deliveries.append(title)
             service._qwen_transcriber,service._siyuan_sender=asr,send;return service
         self.fixture.runtime._provider_factory=factory
-        self.events=[];self.callbacks=[];self.drop=False;self.drop_retry=False;self.status_override=None;self.replace_on_get=False;self.replace_metadata_on_get=False;self.busy=False
+        self.events=[];self.callbacks=[];self.pre_admission_drop=False;self.drop=False;self.drop_retry=False;self.status_override=None;self.replace_on_get=False;self.replace_metadata_on_get=False;self.busy=False
         self.make_wav(1);self.intent(1)
     def make_wav(self,id,variant=1):
         path=self.root/f'memo_{id:010}.wav'
@@ -113,10 +113,6 @@ class SyncTests(unittest.TestCase):
             content=reply.content;C.memset(out,0,capacity)
             if len(content)>=capacity:return 0
             C.memmove(out,content,len(content));return reply.status_code
-        def hashed(_,path,out):
-            try:
-                data=Path(path.decode()).read_bytes();C.memmove(out.contents.sha256,hashlib.sha256(data).digest(),32);out.contents.bytes=len(data);return True
-            except OSError:return False
         def get(_,rid,out,capacity):
             try:
                 self.events.append(('GET',rid))
@@ -130,23 +126,27 @@ class SyncTests(unittest.TestCase):
                 if self.status_override is not None:return self.status_override
                 return emit(response,out,capacity)
             except Exception as error:self.callbacks.append(str(error));return 0
-        def upload(_,record,audio,out,capacity):
+        def upload(_,record,cancel_token,out,capacity):
             try:
                 rid=record.contents.id;self.events.append(('POST',rid))
+                if self.pre_admission_drop:self.pre_admission_drop=False;return 0
                 data=Path(record.contents.path.decode()).read_bytes()
                 response=self.fixture.client.post(self.fixture.url+'/v1/memos',content=data,headers={
-                 'Authorization':'Bearer '+self.token,'Content-Type':'audio/wav','X-Device-ID':self.device,'X-Recording-ID':str(rid),
-                 'X-Audio-SHA256':bytes(audio.contents.sha256).hex()})
+                 'Authorization':'Bearer '+self.token,'Content-Type':'audio/wav','X-Device-ID':self.device,'X-Recording-ID':str(rid),**({'X-Cancel-Token':cancel_token.decode()} if cancel_token else {})})
                 if self.drop:self.drop=False;return 0
                 return emit(response,out,capacity)
             except Exception as error:self.callbacks.append(str(error));return 0
-        def retry(_,rid,out,capacity):
+        def retry(_,rid,cancel_token,out,capacity):
             try:
-                self.events.append(('RETRY',rid));response=self.fixture.client.post(self.fixture.url+f'/v1/memos/{self.device}/{rid}/retry',json={},headers={'Authorization':'Bearer '+self.token})
+                self.events.append(('RETRY',rid));response=self.fixture.client.post(self.fixture.url+f'/v1/memos/{self.device}/{rid}/retry',json={'cancel_token':cancel_token.decode() if cancel_token else ''},headers={'Authorization':'Bearer '+self.token})
                 if self.drop_retry:self.drop_retry=False;return 0
                 return emit(response,out,capacity)
             except Exception as error:self.callbacks.append(str(error));return 0
-        io=IO(None,BEGIN(lambda _:not self.busy),END(lambda _:None),HASH(hashed),GET(get),UPLOAD(upload),GET(retry));out=Result()
+        def cancel(_,rid,cancel_token,out,capacity):
+            self.events.append(('CANCEL',rid))
+            if self.status_override is not None:return self.status_override
+            return emit(self.fixture.client.post(self.fixture.url+f'/v1/memos/{self.device}/{rid}/cancel',json={'cancel_token':cancel_token.decode() if cancel_token else ''},headers={'Authorization':'Bearer '+self.token}),out,capacity)
+        io=IO(None,BEGIN(lambda _:not self.busy),END(lambda _:None),GET(get),UPLOAD(upload),CONTROL(retry),CONTROL(cancel));out=Result()
         self.lib.memo_sd_sync_attempt(str(self.path(id)).encode(),str(cache or self.cache(id)).encode(),id,C.byref(self.target),mode,C.byref(io),C.byref(out))
         self.assertEqual(self.callbacks,[]);return out
     def work(self):self.assertTrue(self.fixture.runtime.run_pending_once())
@@ -189,6 +189,17 @@ class SyncTests(unittest.TestCase):
         missing.mkdir()
         self.assertEqual(self.lib.memo_sd_sync_pending(str(missing).encode(),C.byref(self.target),C.byref(cursor),C.byref(manual),C.byref(complete)),0)
         self.assertTrue(complete.value)
+    def test_unchanged_state_keeps_existing_slots_and_generation(self):
+        entry=self.read_entry(1)
+        paths=[Path(str(self.cache(1))+f'.{n}') for n in (0,1)]
+        before=[p.read_bytes() if p.exists() else None for p in paths]
+        for _ in range(6):
+            self.assertTrue(self.lib.memo_sync_entry_write(str(self.cache(1)).encode(),C.byref(entry)))
+        self.assertEqual([p.read_bytes() if p.exists() else None for p in paths],before)
+        entry.automatic=False;entry.state=1
+        self.assertTrue(self.lib.memo_sync_entry_write(str(self.cache(1)).encode(),C.byref(entry)))
+        self.assertNotEqual([p.read_bytes() if p.exists() else None for p in paths],before)
+        self.assertFalse(self.read_entry(1).automatic)
     def test_new_offline_multiple_then_reboot_each_sync(self):
         for id in range(2,5):self.make_wav(id);self.intent(id)
         cursor=C.c_uint32(0);manual=C.c_bool();discovered=[]
@@ -205,26 +216,82 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(len(self.events),before)
     def test_lost_upload_reply_queries_same_binding_after_restart(self):
         self.drop=True;self.assertEqual(self.run_device().state,5)
-        bound=self.read_entry(1);self.assertTrue(bound.bound);self.work()
+        bound=self.read_entry(1);self.assertFalse(bound.bound);self.work()
         self.assertEqual(self.run_device().state,9);self.assertEqual(self.events.count(('POST',1)),1)
-    def test_same_number_different_audio_never_reuses_server_sent(self):
+    def test_local_status_accepts_same_id_same_size_replacement_without_scanning_audio(self):
+        self.run_device();self.work();self.assertEqual(self.run_device().state,9)
+        self.make_wav(1,2)
+        # Explicitly accepted product tradeoff: browsing shows the saved result,
+        # even if somebody externally replaced same-size audio under the same ID.
+        before=list(self.events)
+        self.assertEqual(self.run_device(1,3).state,9);self.assertEqual(self.events,before)
+    def test_server_receipt_recovers_missing_local_binding(self):
         self.run_device();self.work()
         for slot in (0,1):Path(str(self.cache(1))+f'.{slot}').unlink(missing_ok=True)
-        self.make_wav(1,2);self.intent(1)
-        result=self.run_device();self.assertNotEqual(result.state,9);self.assertEqual(result.error,b'audio_identity_mismatch');self.assertEqual(self.events.count(('POST',1)),1)
+        self.assertEqual(self.run_device(mode=1).state,9)
+        self.assertEqual(self.events.count(('POST',1)),1)
+    def test_detail_rejects_changed_length_using_header_only(self):
+        self.run_device();self.work();self.run_device()
+        with wave.open(str(self.path(1)),'wb') as wav:
+            wav.setnchannels(1);wav.setsampwidth(2);wav.setframerate(16000);wav.writeframes(b'\0'*6400)
+        self.assertEqual(self.run_device(1,3).error,b'recording_changed')
+    def test_accepted_job_get_404_never_reuploads(self):
+        self.run_device();self.status_override=404
+        result=self.run_device();self.assertEqual(result.state,12)
+        self.assertEqual(result.error,b'server_task_missing');self.assertEqual(self.events.count(('POST',1)),1)
+    def test_cancel_offline_queue_stops_auto_and_keeps_audio(self):
+        original=self.path(1).read_bytes();self.status_override=0
+        result=self.run_device(mode=4);self.assertEqual(result.state,13)
+        self.assertFalse(result.pending);self.assertTrue(result.can_retry);self.assertEqual(self.events,[])
+        self.assertEqual(self.path(1).read_bytes(),original)
+        self.assertEqual(self.run_device().error,b'no_pending_intent')
+        self.status_override=None;self.assertEqual(self.run_device(mode=1).state,6)
+    def test_cancel_received_retries_confirmation_without_resubmission(self):
+        self.run_device();self.status_override=0
+        result=self.run_device(mode=4);self.assertEqual(result.state,14);self.assertTrue(result.pending)
+        self.status_override=None;self.assertEqual(self.run_device().state,13)
+        self.work();self.assertEqual(self.deliveries,[]);self.assertEqual(self.events.count(('POST',1)),1)
+        self.assertEqual(self.run_device(mode=1).state,6);self.work();self.run_device()
+        self.assertEqual(len(self.deliveries),1)
+    def test_lost_first_upload_reply_can_still_be_cancelled(self):
+        self.drop=True;self.run_device();self.assertFalse(self.read_entry(1).bound)
+        self.assertEqual(self.run_device(mode=4).state,13);self.work()
+        self.assertEqual(self.deliveries,[]);self.assertEqual(self.events.count(('POST',1)),1)
+    def test_cancel_then_explicit_submit_lost_ack_failure_stops_without_second_post(self):
+        self.run_device();self.assertEqual(self.run_device(mode=4).state,13);self.work()
+        self.mode='asr_fail';self.drop=True
+        self.assertEqual(self.run_device(mode=1).state,5)
+        self.assertTrue(self.read_entry(1).manual)
+        self.work()
+        # A reboot discovers the persisted manual intent, but this upload was
+        # already attempted. Its failure is a result, not a new retry request.
+        self.assertEqual(self.run_device(mode=1).state,10)
         self.assertFalse(self.read_entry(1).automatic)
-    def test_changed_audio_never_reuses_cached_sent(self):
-        self.run_device();self.work();self.assertEqual(self.run_device().state,9);self.make_wav(1,2)
-        result=self.run_device(1,2);self.assertNotEqual(result.state,9);self.assertEqual(result.error,b'recording_changed')
-    def test_media_or_file_replaced_during_query_does_not_mark_success(self):
-        self.run_device();self.work();self.replace_on_get=True
-        result=self.run_device();self.assertNotEqual(result.state,9);self.assertEqual(result.error,b'recording_changed')
+        self.assertEqual(self.run_device().error,b'no_pending_intent')
+        self.assertEqual(self.events.count(('POST',1)),2);self.assertEqual(len(self.asr),1)
+
+    def test_cancel_too_late_tracks_sending_and_clears_cancel_state(self):
+        self.run_device()
+        self.fixture.runtime.store.update(self.device,1,status='sending')
+        self.fixture.runtime._update_job(self.device,1,phase='sending')
+        result=self.run_device(mode=4)
+        self.assertEqual(result.state,8);self.assertTrue(result.pending)
+        self.assertEqual(result.error,b'cancel_too_late')
+        self.assertEqual(self.read_entry(1).state,8)
+        self.assertEqual(self.run_device().state,8)
+        self.assertEqual(self.events.count(('POST',1)),1)
+
+    def test_cancel_successful_remote_does_not_invent_cancelled(self):
+        self.run_device();self.work()
+        self.assertEqual(self.run_device(mode=4).state,9)
+        before=list(self.events);result=self.run_device(mode=1)
+        self.assertEqual(result.state,9);self.assertFalse(result.can_retry);self.assertEqual(self.events,before)
     def test_swapped_media_task_metadata_is_not_overwritten_by_old_attempt(self):
         self.run_device();self.work();self.replace_on_get=self.replace_metadata_on_get=True
         self.assertEqual(self.run_device().error,b'recording_changed')
         e=self.read_entry(1);self.assertTrue(e.automatic)
         self.assertEqual(bytes(e.audio.sha256),hashlib.sha256(self.path(1).read_bytes()).digest())
-    def test_missing_cache_manual_hashes_queries_before_upload(self):
+    def test_missing_cache_manual_queries_before_upload(self):
         for slot in (0,1):Path(str(self.cache(1))+f'.{slot}').unlink(missing_ok=True)
         self.assertEqual(self.run_device().error,b'no_pending_intent');self.assertEqual(self.events,[])
         self.assertEqual(self.run_device(1,1).state,6);self.assertEqual(self.events,[('GET',1),('POST',1)])
@@ -245,6 +312,47 @@ class SyncTests(unittest.TestCase):
     def test_auth_and_timeout_never_replace_verified_success(self):
         self.run_device();self.work();self.run_device()
         for status in (401,0):self.status_override=status;self.assertEqual(self.run_device(1,2).state,9)
+    def test_old_bound_queued_sidecar_does_not_imply_server_acceptance(self):
+        e=self.read_entry(1);e.bound=True;e.target=self.target
+        data=self.path(1).read_bytes();e.audio.bytes=len(data)
+        C.memmove(e.audio.sha256,hashlib.sha256(data).digest(),32)
+        self.assertTrue(self.lib.memo_sync_entry_write(str(self.cache(1)).encode(),C.byref(e)))
+        self.assertEqual(self.run_device(mode=1).state,6);self.work();self.assertEqual(self.run_device().state,9)
+    def test_rejected_content_can_be_explicitly_submitted_but_sent_cannot(self):
+        self.run_device();self.work()
+        self.fixture.runtime.store.update(self.device,1,status='transcription_rejected',error='transcript_rejected')
+        self.fixture.runtime._update_job(self.device,1,phase='transcription_rejected')
+        self.assertEqual(self.run_device().state,11)
+        self.assertTrue(self.run_device(mode=3).can_retry)
+        self.assertEqual(self.run_device(mode=1).state,6);self.work();self.assertEqual(self.run_device().state,9)
+        self.assertFalse(self.run_device(mode=3).can_retry)
+
+    def test_rejected_manual_intent_survives_reboot_and_is_cancellable(self):
+        self.run_device();self.work()
+        self.fixture.runtime.store.update(self.device,1,status='transcription_rejected',error='transcript_rejected')
+        self.fixture.runtime._update_job(self.device,1,phase='transcription_rejected')
+        self.assertEqual(self.run_device().state,11)
+        e=self.read_entry(1);e.manual=e.automatic=True
+        self.assertTrue(self.lib.memo_sync_entry_write(str(self.cache(1)).encode(),C.byref(e)))
+        cursor=C.c_uint32(0);manual=C.c_bool();complete=C.c_bool()
+        self.assertEqual(self.lib.memo_sd_sync_pending(str(self.root).encode(),C.byref(self.target),C.byref(cursor),C.byref(manual),C.byref(complete)),1)
+        self.assertTrue(manual.value);self.assertTrue(complete.value)
+        self.assertTrue(self.run_device(mode=3).can_cancel)
+        # This is still the prior rejected server task: cancellation may truthfully
+        # report that terminal result, but must stop the new local submit intent.
+        out=self.run_device(mode=4)
+        self.assertFalse(out.pending);self.assertIn(out.state,(11,13))
+        self.assertEqual(self.run_device().error,b'no_pending_intent')
+        self.assertEqual(self.events.count(('POST',1)),1)
+
+    def test_failed_manual_submit_interrupted_before_admission_resumes_once(self):
+        self.mode='asr_fail';self.run_device();self.work();self.assertEqual(self.run_device().state,10)
+        self.mode='ok';self.pre_admission_drop=True
+        self.assertEqual(self.run_device(mode=1).state,5)
+        self.assertTrue(self.read_entry(1).automatic)
+        self.assertEqual(self.run_device().state,6);self.work();self.assertEqual(self.run_device().state,9)
+        self.assertEqual(len(self.asr),2);self.assertEqual(len(self.deliveries),1)
+
     def test_asr_failed_manual_reuploads_same_audio(self):
         self.mode='asr_fail';self.run_device();self.work();self.assertEqual(self.run_device().state,10)
         self.mode='ok';self.assertEqual(self.run_device(1,1).state,6);self.work();self.assertEqual(self.run_device().state,9)
@@ -273,7 +381,7 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(raw,[Path(str(self.cache(1))+f'.{n}').read_bytes() for n in (0,1)])
         audio=self.path(1).read_bytes();self.path(1).write_bytes(audio[:-1]+bytes([audio[-1]^1]))
         result=self.run_device(1,3)
-        self.assertEqual(result.error,b'recording_changed');self.assertNotEqual(result.state,9)
+        self.assertEqual(result.error,b'');self.assertEqual(result.state,9)
         self.assertEqual(self.events,before)
 
     def test_no_auto_history_without_version_created_intent(self):

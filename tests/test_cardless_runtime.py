@@ -151,7 +151,7 @@ WRAPPERS=r'''
 extern "C" void fixture_reset(uint32_t id,const memo_sync_target_t *target){
  durable.clear();pending.clear();fault=marker_fault=audio_flag_fault=0;audio_flag_write=false;active_read_fault=false;last_write.clear();reads=0;current=*target;now_us=0;power_ok=true;swap_before_transport=false;http_claims=0;stream_http_active=power_suspended=false;
  static RecordIndex memory[MAX_RECORDS];static uint8_t ring[AUDIO_BUFFER_BYTES],chunk[CHUNK_CAPACITY];
- transfer_state={};memset(memory,0,sizeof(memory));for(auto &slot:record_details)slot={};detail_clock=0;selected_detail=resume_request=0;records=memory;record_count=1;meta_mutex=buffer_mutex=task_mutex=(void*)1;metadata=1;network_chunk=chunk;packet_storage=ring;
+ transfer_state={};memset(memory,0,sizeof(memory));for(auto &slot:record_details)slot={};detail_clock=0;selected_detail=resume_request=cancel_request=0;records=memory;record_count=1;meta_mutex=buffer_mutex=task_mutex=(void*)1;metadata=1;network_chunk=chunk;packet_storage=ring;
  memo_cardless_buffer_init(&packets,ring,sizeof(ring));memo_cardless_record_t initial{};initial.id=id;initial.target=*target;initial.state=MEMO_JOB_QUEUED;records[0]={id,0,0,MEMO_JOB_QUEUED};
  initialized=true;metadata_fault=false;remote_complete=false;transfer_blocked=false;active_id=id;capturing=false;encoder_done=true;recovery_mode=false;
  stop_requested=false;finish_requested=true;encode_abort=false;begin_in_progress=false;encoded_samples=0;input_samples=0;
@@ -246,10 +246,10 @@ class CardlessTests(SyncTests):
         network=(ROOT/'main/network_sync.cpp').read_text()
         parts=[PRELUDE,extract(network,'class HttpGuard')+';',extract(network,'esp_err_t read_http_body'),
                extract(network,'extern "C" int network_sync_stream_request'),initial,extract(source,'struct Reply')+';']
-        names=['Reply parse_reply','memo_job_state_t remote_state','void selected_notice','void clear_selected_notice','void accept_reply','bool active_marker_matches','bool clear_active_marker','bool mark_remote_audio','void release_active','esp_err_t restore_active_record','esp_err_t reconcile_orphan_records','extern "C" bool memo_cardless_can_resume','void make_path','int request','bool online','void sha_hex','int finish_remote','void query_selected','void transfer_step']
+        names=['Reply parse_reply','memo_job_state_t remote_state','void selected_notice','void clear_selected_notice','void accept_reply','bool active_marker_matches','bool clear_active_marker','bool mark_remote_audio','void release_active','esp_err_t restore_active_record','esp_err_t reconcile_orphan_records','extern "C" bool memo_cardless_can_resume','void make_path','int request','bool online','int finish_remote','void query_selected','void cancel_step','void transfer_step']
         parts += [extract(source,name) for name in names]
-        boot='extern "C" int fixture_restore_marker(){metadata_fault=false;active_id=0;recovery_mode=false;encoder_done=true;record_count=counter=0;for(auto &slot:record_details)slot={};selected_detail=resume_request=0;for(auto &item:durable){if(item.first[0]==114){memo_cardless_record_t r{};if(!memo_cardless_record_decode(item.second.data(),item.second.size(),&r))return ESP_FAIL;records[record_count++]={r.id,r.duration_ms,r.encoded_bytes,r.state};counter=std::max(counter,MEMO_CARDLESS_DISPLAY_ID(r.id));}}int e=restore_active_record();return e==ESP_OK?reconcile_orphan_records():e;}'
-        parts += [extract(source,'extern "C" bool memo_cardless_get'),extract(source,'extern "C" bool memo_cardless_peek'),extract(source,'extern "C" bool memo_cardless_retry'),'static int ensure_network_buffer(){return ESP_OK;}',
+        boot='extern "C" int fixture_restore_marker(){metadata_fault=false;active_id=0;recovery_mode=false;encoder_done=true;record_count=counter=0;for(auto &slot:record_details)slot={};selected_detail=resume_request=cancel_request=0;for(auto &item:durable){if(item.first[0]==114){memo_cardless_record_t r{};if(!memo_cardless_record_decode(item.second.data(),item.second.size(),&r))return ESP_FAIL;records[record_count++]={r.id,r.duration_ms,r.encoded_bytes,r.state};counter=std::max(counter,MEMO_CARDLESS_DISPLAY_ID(r.id));}}int e=restore_active_record();return e==ESP_OK?reconcile_orphan_records():e;}'
+        parts += [extract(source,'extern "C" bool memo_cardless_get'),extract(source,'extern "C" bool memo_cardless_peek'),extract(source,'extern "C" bool memo_cardless_can_cancel'),extract(source,'extern "C" bool memo_cardless_cancel'),extract(source,'extern "C" bool memo_cardless_retry'),'static int ensure_network_buffer(){return ESP_OK;}',
                   extract(source,'extern "C" esp_err_t memo_cardless_begin'),extract(source,'extern "C" bool memo_cardless_busy'),WRAPPERS,boot]
         cpp=cls.directory/'cardless-runtime.cpp';cpp.write_text('\n'.join(parts));obj=cls.directory/'cardless-runtime.o'
         crypto=ROOT/'.tools/esp-idf/components/mbedtls/mbedtls'
@@ -268,11 +268,12 @@ class CardlessTests(SyncTests):
         lib.fixture_run.argtypes=[C.c_int];lib.fixture_active.restype=C.c_uint32;lib.fixture_packets.restype=C.c_size_t
         lib.fixture_begin.argtypes=[C.c_int,C.POINTER(C.c_uint32)];lib.fixture_begin_next.argtypes=[C.POINTER(C.c_uint32)];lib.fixture_restore_marker.restype=C.c_int;
         lib.memo_cardless_busy.restype=C.c_bool;
+        lib.memo_cardless_cancel.argtypes=[C.c_uint32];lib.memo_cardless_cancel.restype=C.c_bool;
         lib.fixture_target.argtypes=[C.POINTER(Target)];lib.fixture_reboot.restype=C.c_bool
         cls.chunks=synthetic_chunks(frames=250)
     def setUp(self):
         super().setUp();self.rid=0x80000001;self.runtime_lib.fixture_reset(self.rid,C.byref(self.target));self.calls=[]
-        self.lost_finish=False;self.block_get=False;self.query_status=0;self.bad_ack=False;self.bad_ack_left=0;self.held_on_bad_ack=[]
+        self.lost_finish=False;self.drop_cancel=False;self.block_get=False;self.query_status=0;self.bad_ack=False;self.bad_ack_left=0;self.held_on_bad_ack=[]
         def transport(method,path,id,body,length,content_type,hash,out,capacity):
             try:
                 method=method.decode();path=path.decode();self.calls.append((method,path))
@@ -280,8 +281,10 @@ class CardlessTests(SyncTests):
                 if self.query_status and method=='GET':return self.query_status
                 headers={'Authorization':'Bearer '+self.token,'X-Device-ID':self.device,'X-Recording-ID':str(id)}
                 if content_type:headers['Content-Type']=content_type.decode()
-                if hash:headers['X-Chunk-SHA256']=hash.decode()
+                self.assertFalse(hash, "firmware must not calculate audio chunk SHA")
                 response=self.fixture.client.request(method,self.fixture.url+path,content=C.string_at(body,length) if length else None,headers=headers)
+                if self.drop_cancel and path.endswith('/cancel'):
+                    self.drop_cancel=False;return 0
                 if self.lost_finish and path.endswith('/finish'):
                     self.lost_finish=False;self.block_get=True;return 0
                 if self.bad_ack and method=='PUT':
@@ -298,6 +301,42 @@ class CardlessTests(SyncTests):
         self.transport=TRANSPORT(transport);self.runtime_lib.fixture_transport(self.transport,self.fixture.url.encode(),self.token.encode())
     def push(self,chunk):self.assertTrue(self.runtime_lib.fixture_push(chunk,len(chunk)))
     def tick(self,n=12):self.runtime_lib.fixture_run(n);self.assertEqual(self.callbacks,[])
+    def test_cancel_retained_stream_stops_chunks_and_releases_audio_slot(self):
+        for chunk in self.chunks:self.push(chunk)
+        self.tick(2);self.assertNotEqual(self.runtime_lib.fixture_active(),0)
+        before=list(self.calls);self.assertTrue(self.runtime_lib.memo_cardless_cancel(self.rid))
+        self.assertEqual(self.calls,before)
+        self.tick(3);self.assertEqual(self.runtime_lib.fixture_state(),13)
+        self.assertEqual(self.runtime_lib.fixture_active(),0);self.assertFalse(self.runtime_lib.memo_cardless_busy())
+        self.assertFalse(any(method=='PUT' for method,path in self.calls[len(before):]))
+        self.assertEqual((self.asr,self.deliveries),([],[]))
+    def test_cancel_received_stream_is_durable_without_device_retry(self):
+        for chunk in self.chunks:self.push(chunk)
+        self.tick();self.assertEqual(self.runtime_lib.fixture_active(),0)
+        self.assertTrue(self.runtime_lib.memo_cardless_cancel(self.rid));self.tick(2)
+        self.assertEqual(self.runtime_lib.fixture_state(),13);self.work()
+        self.assertEqual((self.asr,self.deliveries),([],[]))
+        self.assertTrue(self.runtime_lib.fixture_reboot());before=list(self.calls);self.tick(5)
+        self.assertEqual(self.calls,before);self.assertEqual(self.runtime_lib.fixture_state(),13)
+    def test_late_local_cancel_does_not_overwrite_saved_success(self):
+        for chunk in self.chunks:self.push(chunk)
+        self.tick();self.assertEqual(self.runtime_lib.fixture_state(),6)
+        self.assertTrue(self.runtime_lib.memo_cardless_cancel(self.rid))
+        self.work();self.runtime_lib.fixture_query(False)
+        self.assertEqual(self.runtime_lib.fixture_state(),9)
+        self.block_get=True;before=list(self.calls);self.tick(2)
+        self.assertEqual(self.runtime_lib.fixture_state(),9)
+        self.assertEqual(self.calls,before)
+
+    def test_cancel_ack_loss_reboots_to_same_pending_cancellation(self):
+        for chunk in self.chunks:self.push(chunk)
+        self.tick(2);self.drop_cancel=True
+        self.assertTrue(self.runtime_lib.memo_cardless_cancel(self.rid));self.tick(1)
+        self.assertEqual(self.runtime_lib.fixture_state(),14)
+        self.assertTrue(self.runtime_lib.fixture_reboot());self.tick(2)
+        self.assertEqual(self.runtime_lib.fixture_state(),13);self.assertEqual(self.runtime_lib.fixture_active(),0)
+        self.assertEqual((self.asr,self.deliveries),([],[]))
+
     def test_paired_opus_pending_restarts_both_ends_then_delivers_once(self):
         for chunk in self.chunks:self.push(chunk)
         self.lost_finish=True;self.tick(8)

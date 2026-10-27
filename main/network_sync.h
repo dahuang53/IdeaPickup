@@ -63,6 +63,7 @@ typedef struct {
     bool request_pending;
     bool cardless;
     bool can_retry;
+    bool can_cancel;
     bool interrupted;
     char error[80];
 } memo_record_sync_t;
@@ -70,6 +71,7 @@ typedef struct {
 void network_sync_select_record(uint32_t id);
 void network_sync_record_status(memo_record_sync_t *out);
 bool network_sync_retry_record(uint32_t id);
+bool network_sync_cancel_record(uint32_t id);
 
 /* Used by the cardless worker only. Adds the device-scoped authorization and
  * identity headers. It does not read SD or block the audio acquisition task. */
@@ -88,8 +90,6 @@ void network_sync_audio_done(void);
 /* Exclusive, non-reentrant background media query. No retry or SD access if busy. */
 bool network_sync_try_sd_probe(void);
 void network_sync_sd_probe_done(void);
-/* Caller must hold AUDIO; hashes a local file only, also while offline. */
-bool network_sync_hash_local_audio(const char *path,memo_audio_identity_t *out);
 bool network_sync_sd_work_pending(void);
 uint32_t network_sync_sd_scan_count(void);
 

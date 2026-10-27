@@ -2,7 +2,7 @@
 (() => {
   const $ = (selector) => document.querySelector(selector);
   const labels = {overview:"概览",config:"配置",devices:"设备",jobs:"任务"};
-  const states = {received:"已接收",receiving:"接收中",transcribing:"转写中",queued:"等待处理",working:"处理中",transcribed:"待投递",sending:"投递中",sent:"已同步",uncertain:"投递结果待确认",delivery_failed:"投递失败",transcription_failed:"转写失败",transcription_rejected:"转写未通过",audio_expired:"音频暂存已过期",reupload_required:"需要设备重传",created:"配对中",activated:"配对中",finalized:"已配对",revoked:"已撤销",expired:"已过期"};
+  const states = {cancelled:"已取消",awaiting_audio:"等待音频",received:"已接收",receiving:"接收中",transcribing:"转写中",queued:"等待处理",working:"处理中",transcribed:"待投递",sending:"投递中",sent:"已同步",uncertain:"投递结果待确认",delivery_failed:"投递失败",transcription_failed:"转写失败",transcription_rejected:"转写未通过",audio_expired:"音频暂存已过期",reupload_required:"需要设备重传",created:"配对中",activated:"配对中",finalized:"已配对",revoked:"已撤销",expired:"已过期"};
   const errors = {login_denied:"口令不正确，请重试。",login_required:"登录已失效，请重新登录。",authentication_rate_limited:"尝试过于频繁，请 5 分钟后再试。",initialization_denied:"初始化码无效或已过期，请在部署机重新生成。",password_length_12_to_128:"口令需要 12—128 个字符。",revision_conflict:"配置已被另一个页面修改，请刷新后重试。",snapshot_limit:"旧任务仍在使用配置版本，暂时不能新增版本。",configuration_broker_unavailable:"配置服务暂时不可用，请检查部署状态。",maintenance:"服务正在维护，请稍后重试。",not_configured:"请先填写并保存千问和思源配置。",origin_denied:"页面地址与服务地址不匹配，请从部署时填写的服务地址打开。",csrf_denied:"页面会话已更新，请刷新重试。",invalid_url:"地址格式或接口不受支持，请核对完整 HTTPS 地址。",invalid_config:"配置内容不符合要求，请检查字段。",enrollment_pending:"设备有尚未完成的配对，请先在设备上恢复配对。",unsafe_target:"服务地址不在支持范围内。"};
   let csrf="", initialized=false, page="overview", config=null, noticeTimer, pairTimer;
   const offsets={devices:0,jobs:0}, counts={devices:0,jobs:0}, pageSize=20;

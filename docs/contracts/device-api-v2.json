@@ -3,7 +3,7 @@
   "protocol_version": 2,
   "scope": "Fresh installations and ordinary recovery of tasks created by this version; no old-author data migration",
   "identity_schema": 2,
-  "runtime_schema": 2,
+  "runtime_schema": 3,
   "sources": {
     "wav_limit": "server-relay/app.py:MAX_WAV_BYTES",
     "wav_format": "server-relay/app.py:validate_wav",
@@ -72,24 +72,30 @@
       "headers": [
         "X-Device-ID",
         "X-Recording-ID",
-        "X-Audio-SHA256",
         "Content-Length",
         "Content-Type: audio/wav"
       ],
-      "response": "202 only after full body length/hash/WAV validation and durable task binding; existing completed/in-flight record conflicts use 409, then query"
+      "response": "202 after server streaming SHA-256, full length/WAV validation and durable task binding. Device audio hash is unnecessary. In-flight/successful/conflicting audio uses 409; query the same task.",
+      "optional_headers": [
+        "X-Audio-SHA256 (legacy clients; if supplied must match)",
+        "X-Cancel-Token (required after any cancellation, obtained from current task GET)"
+      ]
     },
     {
       "method": "GET",
       "path": "/v1/memos/{device}/{recording}",
       "auth": "matching device",
-      "response": "server_instance_uuid,device_id,recording_id,audio_sha256,audio_bytes,duration_ms,status,model,transcript_sha256,duplicate; no audio or transcript"
+      "response": "server_instance_uuid,device_id,recording_id,audio_sha256,audio_bytes,duration_ms,status,model,transcript_sha256,duplicate; no audio or transcript; cancel_token after cancellation (same token across repeated cancel, new token for a later cancellation)"
     },
     {
       "method": "POST",
       "path": "/v1/memos/{device}/{recording}/retry",
       "auth": "matching device; WAV source only",
       "required_json": [],
-      "response": "202 explicit delivery retry using existing retained text/current provider configuration; ASR failure requires original WAV reupload; active/terminal/uncertain tasks cannot retry. Same existing retry_job semantics, no automatic uncertain redelivery."
+      "response": "202 explicit delivery retry using existing retained text/current provider configuration; ASR failure requires original WAV reupload; active/terminal/uncertain tasks cannot retry. Same existing retry_job semantics, no automatic uncertain redelivery. After an earlier cancellation, read the current cancel_token via GET and send it in this control body; stale retry/cancel requests cannot affect a later explicit submission. An already-cancelled result is idempotent.",
+      "optional_json": [
+        "cancel_token"
+      ]
     },
     {
       "method": "POST",
@@ -113,10 +119,12 @@
       "path": "/v1/streams/{device}/{recording}/chunks/{sequence}",
       "auth": "matching device",
       "headers": [
-        "X-Chunk-SHA256",
         "Content-Type: application/octet-stream"
       ],
-      "response": "201 new durable chunk / 200 same sequence+hash replay; next_seq and received_samples do not advance twice; differing audio uses 409"
+      "response": "Server computes each chunk SHA-256. 201 durable chunk / 200 same sequence and server-computed hash; differing audio 409; ACK prefix does not advance twice.",
+      "optional_headers": [
+        "X-Chunk-SHA256 (legacy clients; if supplied must match)"
+      ]
     },
     {
       "method": "POST",
@@ -254,6 +262,23 @@
         "present"
       ],
       "response": "Only one uncertain result: present=true marks confirmed completion and cleans temporary content; false permits later explicit retry, never immediately redelivers"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/memos/{device}/{recording}/cancel",
+      "auth": "matching device",
+      "required_json": [],
+      "response": "200 cancelled only after durable cancellation. A missing task becomes a cancellation barrier to reject late create/upload. Queued or transcribing work cannot start delivery after this ACK; in-flight ASR may finish and incur its existing cost. Sending/completed/uncertain is 409; query actual result. Repeated cancellation is idempotent. Cancelled stream audio keeps its original expiry. After an earlier cancellation, read the current cancel_token via GET and send it in this control body; stale retry/cancel requests cannot affect a later explicit submission. An already-cancelled result is idempotent.",
+      "optional_json": [
+        "cancel_token"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/v1/streams/{device}/{recording}/cancel",
+      "auth": "matching device",
+      "required_json": [],
+      "response": "200 cancelled only after durable cancellation. A missing task becomes a cancellation barrier to reject late create/upload. Queued or transcribing work cannot start delivery after this ACK; in-flight ASR may finish and incur its existing cost. Sending/completed/uncertain is 409; query actual result. Repeated cancellation is idempotent. Cancelled stream audio keeps its original expiry."
     }
   ],
   "configuration_patch": {
@@ -281,5 +306,7 @@
     "historical task import/rebinding",
     "split save/activate/discard"
   ],
-  "transport": "Bare LAN IPv4 defaults to HTTP port 8765; bare domain defaults to trusted HTTPS. HTTP only for literal RFC1918 IPv4, never public/domain HTTP. Normalization: relay/identity.py and main/memo_network_config.c, shared tests/service-url-cases.json. Pairing/token/instance/task persistence unchanged."
+  "transport": "Bare LAN IPv4 defaults to HTTP port 8765; bare domain defaults to trusted HTTPS. HTTP only for literal RFC1918 IPv4, never public/domain HTTP. Normalization: relay/identity.py and main/memo_network_config.c, shared tests/service-url-cases.json. Pairing/token/instance/task persistence unchanged.",
+  "storage_upgrade": "Runtime schema 2 -> 3 adds a nullable cancellation token in the existing task ledger; preserves data, credentials and IDs. Old runtime rejects schema 3. Deploy backend before new firmware. Rollback to schema-2 code requires its matching pre-upgrade data backup, not only an old image.",
+  "explicit_resubmission": "Before deliberately retrying a failed WAV, device uses the existing cancellation barrier to distinguish its old failure from a new accepted attempt. GET cancelled exposes delivery_retry_available; matching cancel_token permits delivery-only retry with retained text, otherwise reupload. Persist WAITING only after this barrier is acknowledged. Lost request before admission remains cancelled and may resume; a subsequent failed receipt is the actual new attempt result and stops. No new recording ID or device metadata field."
 }

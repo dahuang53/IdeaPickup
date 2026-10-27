@@ -209,10 +209,20 @@ def create_app(database: Path, *, public_url: str, broker=None, runtime=None):
         return await result(tasks().memo_status, request.headers.get("authorization"), device, recording)
 
 
+    @app.post("/v1/memos/{device}/{recording}/cancel")
+    async def memo_cancel(device: str, recording: int, request: Request):
+        value = await body(request, {"cancel_token"})
+        return await result(tasks().cancel_job, request.headers.get("authorization"), device, recording, "wav", **value)
+
+    @app.post("/v1/streams/{device}/{recording}/cancel")
+    async def stream_cancel(device: str, recording: int, request: Request):
+        await body(request, set())
+        return await result(tasks().cancel_job, request.headers.get("authorization"), device, recording, "stream")
+
     @app.post("/v1/memos/{device}/{recording}/retry")
     async def memo_retry(device: str, recording: int, request: Request):
-        await body(request, set())
-        return await result(tasks().memo_retry, request.headers.get("authorization"), device, recording)
+        value = await body(request, {"cancel_token"})
+        return await result(tasks().memo_retry, request.headers.get("authorization"), device, recording, **value)
 
     @app.post("/v1/streams")
     async def stream_create(request: Request):
