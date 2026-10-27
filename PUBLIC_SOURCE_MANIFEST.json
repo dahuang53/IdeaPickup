@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "tree_sha256": "559fcbb62521b8b1c96670e9b948bfbdbee7939e8e060a469d800c92ac0d2809",
+  "tree_sha256": "f842e3b02d871c32db59169c0cc0cf10525ba3826b96fdf8db5e31c1a943a844",
   "files": [
     {
       "path": ".dockerignore",
@@ -694,8 +694,8 @@
     },
     {
       "path": "main/memo_sd_sync.cpp",
-      "sha256": "9ae5f24c9827c55f7d15caacba11c279998dccf0211bf9566fd5da99237cd7cc",
-      "size": 12981,
+      "sha256": "a5972212183323bb36da74c9f976cddaf88535a49e0d1943b72082a1e7f1372a",
+      "size": 13051,
       "executable": false
     },
     {
@@ -862,8 +862,8 @@
     },
     {
       "path": "main/ui.c",
-      "sha256": "4a3d0dacb5d2c3355797777d4594917886c271e7969a194dbe14f7b2d531b7d2",
-      "size": 74680,
+      "sha256": "e5770f118b7a6183b779c206060fa19b7acb85d3a76f05619981905eef28927e",
+      "size": 74835,
       "executable": false
     },
     {
@@ -1678,8 +1678,8 @@
     },
     {
       "path": "tests/test_sync_pipeline.py",
-      "sha256": "e25eb561d5dac603899cc36960a62a7784c3d20196ea90f099fa671a71bc3673",
-      "size": 34087,
+      "sha256": "2fc924f283f14daf9648bf1dcb643a33efdf2f05bc91a3e328b8bc3fb4f8ae88",
+      "size": 36377,
       "executable": false
     },
     {
@@ -1720,8 +1720,8 @@
     },
     {
       "path": "tests/ui_preview.c",
-      "sha256": "51a28ac81c681e98f500c1147aa2a907b18f45ed5fee8331ace78c91c5a70cac",
-      "size": 51450,
+      "sha256": "a6f38a85dda4f0050075e8563466586403cb6de7651b63f198f57e9f54fb1607",
+      "size": 52107,
       "executable": false
     },
     {

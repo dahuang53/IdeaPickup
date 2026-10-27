@@ -27,6 +27,11 @@ memo_job_state_t state(const char *s){
 }
 bool terminal(memo_job_state_t s){return s==MEMO_JOB_SENT||s==MEMO_JOB_REJECTED||s==MEMO_JOB_UNCERTAIN;}
 bool received(memo_job_state_t s){return s==MEMO_JOB_RECEIVED||s==MEMO_JOB_TRANSCRIBING||s==MEMO_JOB_DELIVERING;}
+bool can_submit(const memo_sync_entry_t &e){
+ // Legacy queue cancellation preserved the state; only automatic marks intent.
+ return !e.automatic&&(e.state==MEMO_JOB_FAILED||e.state==MEMO_JOB_REJECTED||
+  e.state==MEMO_JOB_LOCAL||e.state==MEMO_JOB_CANCELLED||e.state==MEMO_JOB_QUEUED);
+}
 void control_token(const char *body,char (&token)[33]){
  cJSON *j=cJSON_Parse(body);const auto *value=cJSON_GetObjectItemCaseSensitive(j,"cancel_token");
  if(cJSON_IsString(value)&&strlen(value->valuestring)==32&&strspn(value->valuestring,"0123456789abcdef")==32)
@@ -76,7 +81,7 @@ extern "C" void memo_sd_sync_attempt(const char *wav,const char *cache,uint32_t 
    if(r!=MEMO_CACHE_OK)return;
    if(e.bound && e.audio.bytes!=(uint64_t)record.data_bytes+44){error("recording_changed");return;}
    out->state=e.state;out->pending=e.automatic;
-   out->can_retry=!e.automatic&&(e.state==MEMO_JOB_FAILED||e.state==MEMO_JOB_REJECTED||e.state==MEMO_JOB_LOCAL||e.state==MEMO_JOB_CANCELLED);
+   out->can_retry=can_submit(e);
    out->can_cancel=(!terminal(e.state)||(e.state==MEMO_JOB_REJECTED&&e.automatic&&e.manual))&&e.state!=MEMO_JOB_CANCELLED&&e.state!=MEMO_JOB_CANCELLING&&
     (e.automatic||received(e.state)||e.state==MEMO_JOB_WAITING);
    return;
@@ -103,7 +108,7 @@ extern "C" void memo_sd_sync_attempt(const char *wav,const char *cache,uint32_t 
   if(!memo_sync_entry_write(cache,&e)){error("sync_metadata_write_failed");return;}
   durable=e;
  }
- auto present=[&](){out->state=e.state;out->pending=e.automatic;out->can_retry=!e.automatic&&(e.state==MEMO_JOB_FAILED||e.state==MEMO_JOB_REJECTED||e.state==MEMO_JOB_LOCAL||e.state==MEMO_JOB_CANCELLED);out->can_cancel=e.automatic&&e.state!=MEMO_JOB_CANCELLING;};
+ auto present=[&](){out->state=e.state;out->pending=e.automatic;out->can_retry=can_submit(e);out->can_cancel=e.automatic&&e.state!=MEMO_JOB_CANCELLING;};
  auto save=[&](memo_job_state_t s,bool pending,bool manual=false){
   Reader reader(io);if(!reader.held){error("audio_busy");out->pending=true;return false;}
   memo_sync_entry_t current{};

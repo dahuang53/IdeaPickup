@@ -517,7 +517,10 @@ static void refresh_record(const memo_snapshot_t *snapshot,const memo_network_st
     uint32_t status_color=GOLD;
     switch(job.state) {
     case MEMO_JOB_LOCAL:state=DETAIL_COPY("仅本地保存","已在本机，尚未同步喵");action="开始同步";break;
-    case MEMO_JOB_QUEUED:state=DETAIL_COPY("等待上传","等待上传喵");action="立即重试";break;
+    case MEMO_JOB_QUEUED:
+        state=job.can_retry && !job.can_cancel && !job.request_pending ?
+            DETAIL_COPY("仅本地保存","已在本机，尚未同步喵") : DETAIL_COPY("等待上传","等待上传喵");
+        action="立即重试";break;
     case MEMO_JOB_CHECKING:state=DETAIL_COPY("正在核对录音","正在核对录音喵");action=DETAIL_COPY("刷新状态","查询中");break;
     case MEMO_JOB_UPLOADING:
         snprintf(text,sizeof(text),DETAIL_COPY("正在上传 %u%%","正在上传 %u%%喵"),job.upload_percent);

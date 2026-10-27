@@ -312,6 +312,42 @@ class SyncTests(unittest.TestCase):
     def test_auth_and_timeout_never_replace_verified_success(self):
         self.run_device();self.work();self.run_device()
         for status in (401,0):self.status_override=status;self.assertEqual(self.run_device(1,2).state,9)
+    def test_disarmed_legacy_queued_detail_allows_only_explicit_submission(self):
+        e=self.read_entry(1);e.automatic=e.manual=False
+        self.assertTrue(self.lib.memo_sync_entry_write(str(self.cache(1)).encode(),C.byref(e)))
+        before={p.name:(p.read_bytes(),p.stat().st_mtime_ns) for p in self.root.glob('sync_r1_*')}
+        result=self.run_device(mode=3)
+        self.assertTrue(result.can_retry)
+        self.assertFalse(result.can_cancel or result.pending)
+        self.assertEqual(self.events,[])
+        self.assertEqual(before,{p.name:(p.read_bytes(),p.stat().st_mtime_ns) for p in self.root.glob('sync_r1_*')})
+        self.assertEqual(self.run_device().error,b'no_pending_intent')
+        cursor=C.c_uint32(0);manual=C.c_bool();complete=C.c_bool()
+        self.assertEqual(self.lib.memo_sd_sync_pending(str(self.root).encode(),C.byref(self.target),C.byref(cursor),C.byref(manual),C.byref(complete)),0)
+        self.assertTrue(complete.value);self.assertEqual(self.events,[])
+        self.assertEqual(self.run_device(mode=1).state,6)
+        self.work();self.assertEqual(self.run_device().state,9)
+        self.assertEqual(self.events.count(('POST',1)),1)
+        self.assertFalse(self.run_device(mode=3).can_retry)
+        self.assertEqual(len(self.asr),1);self.assertEqual(len(self.deliveries),1)
+
+    def test_disarmed_queued_remote_receipt_is_queried_not_resubmitted(self):
+        self.assertEqual(self.run_device().state,6)
+        e=self.read_entry(1);e.state=2;e.automatic=e.manual=False
+        self.assertTrue(self.lib.memo_sync_entry_write(str(self.cache(1)).encode(),C.byref(e)))
+        self.assertTrue(self.run_device(mode=3).can_retry)
+        before=list(self.events)
+        self.assertEqual(self.run_device(mode=1).state,6)
+        self.assertEqual(self.events[len(before):],[('GET',1)])
+        self.work();self.assertEqual(self.run_device().state,9)
+        self.assertEqual(self.events.count(('POST',1)),1)
+        self.assertEqual(len(self.asr),1);self.assertEqual(len(self.deliveries),1)
+
+    def test_active_queued_detail_remains_cancellable_not_submittable(self):
+        result=self.run_device(mode=3)
+        self.assertTrue(result.pending and result.can_cancel)
+        self.assertFalse(result.can_retry);self.assertEqual(self.events,[])
+
     def test_old_bound_queued_sidecar_does_not_imply_server_acceptance(self):
         e=self.read_entry(1);e.bound=True;e.target=self.target
         data=self.path(1).read_bytes();e.audio.bytes=len(data)

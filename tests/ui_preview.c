@@ -693,6 +693,14 @@ int main(void)
         detail_job.state=(memo_job_state_t)st;
         save_frame(st==MEMO_JOB_SENT?"record-detail-sent":"record-detail-status");
     }
+    detail_job.state=MEMO_JOB_QUEUED;detail_job.can_retry=true;detail_job.can_cancel=false;tick(220);
+    assert(contains_visible_label(lv_screen_active(),"提交处理"));
+    assert(contains_visible_label(lv_screen_active(),MEMO_UI_COMPACT?"仅本地保存":"已在本机，尚未同步喵"));
+    unsigned legacy_retry=retry_calls;
+    press(indev,retry_x,retry_y,true);press(indev,retry_x,retry_y,false);tick(220);
+    assert(retry_calls==legacy_retry+1 && detail_job.request_pending);
+    assert(contains_visible_label(lv_screen_active(),MEMO_UI_COMPACT?"已排队，等待处理":"已排队，等待处理喵"));
+    detail_job.request_pending=false;
     detail_job.state=MEMO_JOB_RECEIVED;detail_job.can_retry=false;detail_job.can_cancel=true;tick(220);
     assert(contains_visible_label(lv_screen_active(),"取消处理"));
     unsigned prior_cancel=cancel_calls;
