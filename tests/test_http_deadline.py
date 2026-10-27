@@ -80,7 +80,8 @@ int esp_transport_read(T*t,char*p,int n,int ms){
  advance(std::min(delay,ms));if(delay>=ms){errno=ETIMEDOUT;return 0;}if(n)*p='x';return reply;
 }
 int esp_transport_write(T*t,const char*p,int n,int ms){
- if(t->wr)return t->wr(t,p,n,ms);writes++;
+ if(t->wr)return t->wr(t,p,n,ms);
+ writes++;
  if(nested){int attempts=0;while(!ended(t)){advance(1000);assert(++attempts<=21);}return -1;}
  advance(std::min(delay,ms));return delay>=ms?0:reply;
 }

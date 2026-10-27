@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "tree_sha256": "4ca661942fc03e65da88727014e9cab916dfda6b09aee8ef262fecc200a00b74",
+  "tree_sha256": "de0212a97180cc6ba7a08c391475b6e39726c9ecfd779aa57197d64562b4bb0c",
   "files": [
     {
       "path": ".dockerignore",
@@ -1534,8 +1534,8 @@
     },
     {
       "path": "tests/test_http_deadline.py",
-      "sha256": "c2a46d115f4235ca3e1bd7b03d952f3500af49bb2b95f307a5451be5d3474227",
-      "size": 9704,
+      "sha256": "e65c2936253b9b8e09e2b79f3fa5b71f1588874bfbe1d0ed560a4c91978c720b",
+      "size": 9706,
       "executable": false
     },
     {
