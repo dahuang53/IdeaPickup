@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "tree_sha256": "f842e3b02d871c32db59169c0cc0cf10525ba3826b96fdf8db5e31c1a943a844",
+  "tree_sha256": "48614b7b74568687784511c3a56edeee96a6f32584d9178201581289fa1b9bd9",
   "files": [
     {
       "path": ".dockerignore",
@@ -118,8 +118,8 @@
     },
     {
       "path": "components/esp-wifi-connect/assets/wifi_configuration.html",
-      "sha256": "820715cf9ed8254db982a3e0dba9e15a7580e02ba1f12565f6cf849dff07eb5f",
-      "size": 62688,
+      "sha256": "22c70486a9cec76e6e4ebf7df616b36d60f8d44c41a3b1e0e479cce351ba4837",
+      "size": 63132,
       "executable": false
     },
     {
@@ -322,8 +322,8 @@
     },
     {
       "path": "docs/FIRMWARE_STORAGE.md",
-      "sha256": "1408635b63a1348fd7eca06ec2c49aa613b9e07491331719f4976937a32d22d5",
-      "size": 5108,
+      "sha256": "95d8b16e55a33744b040d3b710d7bca31bfe256b41b386a26e2c198061dfc536",
+      "size": 5635,
       "executable": false
     },
     {
@@ -340,8 +340,8 @@
     },
     {
       "path": "docs/TESTING.md",
-      "sha256": "c6394fbd982e912dc63a842e1f92270060bcd15069e3b46b3ce1b212154010a7",
-      "size": 13561,
+      "sha256": "76c51e5cac4d6fba4ecad4f7404ece3626198597cd4860ae3fb1a555b0756eb0",
+      "size": 14199,
       "executable": false
     },
     {
@@ -370,8 +370,8 @@
     },
     {
       "path": "docs/contracts/firmware-tasks-v1.json",
-      "sha256": "6857db65278279df3bfd4078351aa159850d4021d630dfb09f2b0ed6e2c0419a",
-      "size": 10346,
+      "sha256": "c7b1a50e0dc642e8db868eade397441d1aa9e7981985384fad55d3fc2ae1be3a",
+      "size": 10927,
       "executable": false
     },
     {
@@ -544,8 +544,8 @@
     },
     {
       "path": "main/memo_cardless.cpp",
-      "sha256": "f392e2eecbab0ad697cb5fd5bf17d3a938690893ed921e38769afe7854bfb8d8",
-      "size": 63338,
+      "sha256": "3ca571d909129eb2d5b44506291221daa06fdc58338b159e996a6c0366d18516",
+      "size": 65474,
       "executable": false
     },
     {
@@ -1492,8 +1492,8 @@
     },
     {
       "path": "tests/test_cardless_runtime.py",
-      "sha256": "35069d077adad8a926bc40566a6dbbe4a3fc68c1442893db1dc2a445bde22553",
-      "size": 36035,
+      "sha256": "782038d4c66fdc2b39c4bf26a6203db0f6e25d01616be2ec0ef12d0d8f9fbc79",
+      "size": 40552,
       "executable": false
     },
     {
@@ -1576,8 +1576,8 @@
     },
     {
       "path": "tests/test_portal_async.cjs",
-      "sha256": "fca7c9f943b67535e4af0df91967630e4b7f1b888d87a6eef3773986359ce3a7",
-      "size": 10178,
+      "sha256": "483542b64106eacd74f4af3d7028306647b6bc625e99e0d55d362c476949dc3e",
+      "size": 11513,
       "executable": false
     },
     {

@@ -68,7 +68,7 @@ static std::string last_write;
 static bool active_read_fault=false;
 static long long now_us=0;
 static bool power_ok=true;
-static int reads=0;
+static int reads=0,commits=0;
 struct Done {};
 static void xSemaphoreTake(void *,int){}
 static void xSemaphoreGive(void *){}
@@ -82,7 +82,7 @@ static int nvs_open_from_partition(const char *p,const char *n,int,int *h){if(st
 static void nvs_close(int){}
 static int nvs_set_blob(int,const char *key,const void *p,size_t n){last_write=key;audio_flag_write=key[0]==114&&n==MEMO_CARDLESS_RECORD_SIZE&&(((const uint8_t*)p)[32]&4);if(fault==1)return ESP_FAIL;pending[key]=std::vector<unsigned char>((const unsigned char*)p,(const unsigned char*)p+n);return ESP_OK;}
 static int nvs_get_blob(int,const char *key,void *p,size_t *n){reads++;if(fault==3||(audio_flag_fault==3&&audio_flag_write&&key[0]==114)||(active_read_fault&&!strcmp(key,"active")))return ESP_FAIL;auto it=durable.find(key);if(it==durable.end())return ESP_ERR_NVS_NOT_FOUND;if(*n<it->second.size())return ESP_FAIL;*n=it->second.size();memcpy(p,it->second.data(),*n);return ESP_OK;}
-static int nvs_commit(int){if(fault==1)return ESP_FAIL;
+static int nvs_commit(int){commits++;if(fault==1)return ESP_FAIL;
  if(audio_flag_write&&audio_flag_fault){if(audio_flag_fault==1)return ESP_FAIL;durable=pending;return audio_flag_fault==2?ESP_FAIL:ESP_OK;}
  if(last_write=="active"&&marker_fault){if(marker_fault==1)return ESP_FAIL;durable=pending;if(marker_fault==2)return ESP_FAIL;active_read_fault=true;return ESP_OK;}
  durable=pending;return fault==2?ESP_FAIL:ESP_OK;}
@@ -149,9 +149,9 @@ extern "C" void network_sync_get_status(memo_network_status_t *out){*out={};out-
 '''
 WRAPPERS=r'''
 extern "C" void fixture_reset(uint32_t id,const memo_sync_target_t *target){
- durable.clear();pending.clear();fault=marker_fault=audio_flag_fault=0;audio_flag_write=false;active_read_fault=false;last_write.clear();reads=0;current=*target;now_us=0;power_ok=true;swap_before_transport=false;http_claims=0;stream_http_active=power_suspended=false;
+ durable.clear();pending.clear();fault=marker_fault=audio_flag_fault=0;audio_flag_write=false;active_read_fault=false;last_write.clear();reads=commits=0;current=*target;now_us=0;power_ok=true;swap_before_transport=false;http_claims=0;stream_http_active=power_suspended=false;
  static RecordIndex memory[MAX_RECORDS];static uint8_t ring[AUDIO_BUFFER_BYTES],chunk[CHUNK_CAPACITY];
- transfer_state={};memset(memory,0,sizeof(memory));for(auto &slot:record_details)slot={};detail_clock=0;selected_detail=resume_request=cancel_request=0;records=memory;record_count=1;meta_mutex=buffer_mutex=task_mutex=(void*)1;metadata=1;network_chunk=chunk;packet_storage=ring;
+ transfer_state={};memset(memory,0,sizeof(memory));for(auto &slot:record_details)slot={};detail_clock=0;selected_detail=resume_request=cancel_request=0;records=memory;record_count=1;counter=MEMO_CARDLESS_DISPLAY_ID(id);meta_mutex=buffer_mutex=task_mutex=(void*)1;metadata=1;network_chunk=chunk;packet_storage=ring;
  memo_cardless_buffer_init(&packets,ring,sizeof(ring));memo_cardless_record_t initial{};initial.id=id;initial.target=*target;initial.state=MEMO_JOB_QUEUED;records[0]={id,0,0,MEMO_JOB_QUEUED};
  initialized=true;metadata_fault=false;remote_complete=false;transfer_blocked=false;active_id=id;capturing=false;encoder_done=true;recovery_mode=false;
  stop_requested=false;finish_requested=true;encode_abort=false;begin_in_progress=false;encoded_samples=0;input_samples=0;
@@ -223,6 +223,16 @@ extern "C" int fixture_can_retry(){auto *r=load_record_locked(0);return r && r->
 extern "C" void fixture_query(bool retry){query_selected(records[0].id,retry);}
 extern "C" int fixture_faulted(){return metadata_fault;}
 extern "C" int fixture_reads(){return reads;}
+extern "C" int fixture_commits(){return commits;}
+extern "C" void fixture_capture(bool value){capturing=value;encoder_done=!value;}
+extern "C" void fixture_advance(unsigned ms){now_us+=(int64_t)ms*1000;transfer_step();}
+extern "C" unsigned fixture_samples(bool disk){
+ memo_cardless_record_t value{};
+ if(disk){char key[16];snprintf(key,sizeof(key),"r%08lx",(unsigned long)records[0].id);auto &b=durable[key];if(!memo_cardless_record_decode(b.data(),b.size(),&value))return UINT32_MAX;}
+ else {auto *r=load_record_locked(0);if(!r)return UINT32_MAX;value=*r;}
+ return value.received_samples;
+}
+
 extern "C" void fixture_fault(int kind){fault=kind;}
 extern "C" void fixture_drop(int kind){if(kind==2)test_drop_put_id=active_id.load();else if(kind==3){test_drop_finish_id=active_id.load();test_finish_seconds=1;}}
 extern "C" void fixture_power(bool ok){power_ok=ok;}
@@ -363,6 +373,67 @@ class CardlessTests(SyncTests):
         self.reboot_pairing_and_server();self.work();self.runtime_lib.fixture_query(False)
         self.assertEqual(self.runtime_lib.fixture_state(),9)
         self.assertEqual((len(self.asr),len(self.deliveries)),(1,1))
+    def test_ack_progress_stays_in_ram_and_reboot_recovers_server_prefix(self):
+        for chunk in self.chunks:self.push(chunk)
+        self.runtime_lib.fixture_capture(True)
+        self.tick(2) # Create and first PUT; remote-audio marker is durable.
+        commits=self.runtime_lib.fixture_commits()
+        self.tick(1) # Second PUT changes only progress.
+        self.assertEqual(self.runtime_lib.fixture_commits(),commits)
+        self.assertEqual(self.runtime_lib.fixture_samples(False),160000)
+        self.assertEqual(self.runtime_lib.fixture_samples(True),0)
+        self.assertTrue(self.runtime_lib.fixture_reboot())
+        self.tick();self.work();self.tick()
+        status=self.fixture.client.get(self.fixture.url+f'/v1/streams/{self.device}/{self.rid}',headers={'Authorization':'Bearer '+self.token}).json()
+        self.assertEqual(status['received_samples'],160000)
+        self.assertTrue(status['interrupted']);self.assertEqual(status['status'],'sent')
+        self.assertEqual(len(self.asr),1);self.assertEqual(len(self.deliveries),1)
+
+    def test_unchanged_history_polling_backs_off_then_observes_completion(self):
+        for chunk in self.chunks:self.push(chunk)
+        self.tick(4) # Finish but do not process the synthetic server job.
+        self.assertEqual(self.runtime_lib.fixture_active(),0)
+        self.runtime_lib.fixture_advance(0)
+        for seconds in (15,30,60,120,240,300,300):
+            before=len(self.calls)
+            self.runtime_lib.fixture_advance(seconds*1000-1)
+            self.assertEqual(len(self.calls),before)
+            self.runtime_lib.fixture_advance(1)
+            self.assertEqual(len(self.calls),before+1)
+            self.assertEqual(self.calls[-1][0],'GET')
+        self.work();self.runtime_lib.fixture_advance(300000)
+        self.assertEqual(self.runtime_lib.fixture_state(),9)
+        before=len(self.calls);self.runtime_lib.fixture_advance(600000)
+        self.assertEqual(len(self.calls),before)
+
+    def test_new_task_and_cancel_bypass_backoff_with_fast_queries_inside_sweep(self):
+        for chunk in self.chunks:self.push(chunk)
+        self.tick(4);self.runtime_lib.fixture_advance(0)
+        for seconds in (15,30,60,120,240,300):self.runtime_lib.fixture_advance(seconds*1000)
+        # Actual begin/transfer/finish of a second synthetic recording.
+        second=C.c_uint32()
+        self.assertEqual(self.runtime_lib.fixture_begin_next(C.byref(second)),0)
+        self.assertNotEqual(second.value,self.rid)
+        self.push(self.chunks[0]);self.runtime_lib.fixture_capture(False)
+        for _ in range(3):self.runtime_lib.fixture_advance(0)
+        self.assertEqual(self.runtime_lib.fixture_active(),0)
+        before=len(self.calls);self.runtime_lib.fixture_advance(0)
+        self.assertEqual(self.calls[before:],[('GET',f'/v1/streams/{self.device}/{second.value}')])
+        # Long backoff applies between sweeps; the second record is only 15s later.
+        for seconds in (15,30,60,120,240,300,300):
+            before=len(self.calls)
+            self.runtime_lib.fixture_advance(seconds*1000-1);self.assertEqual(len(self.calls),before)
+            self.runtime_lib.fixture_advance(1)
+            self.assertEqual(self.calls[-1],('GET',f'/v1/streams/{self.device}/{self.rid}'))
+            self.runtime_lib.fixture_advance(14999);self.assertEqual(len(self.calls),before+1)
+            self.runtime_lib.fixture_advance(1)
+            self.assertEqual(self.calls[-1],('GET',f'/v1/streams/{self.device}/{second.value}'))
+        self.assertTrue(self.runtime_lib.memo_cardless_cancel(self.rid))
+        before=len(self.calls);self.runtime_lib.fixture_advance(0)
+        self.assertEqual(self.calls[before:],[('POST',f'/v1/streams/{self.device}/{self.rid}/cancel')])
+        self.assertEqual(self.runtime_lib.fixture_state(),13)
+        self.assertEqual(self.callbacks,[])
+
     def test_background_tracks_completion_without_opening_details_then_stops(self):
         for chunk in self.chunks:self.push(chunk)
         self.tick();self.work();self.tick()

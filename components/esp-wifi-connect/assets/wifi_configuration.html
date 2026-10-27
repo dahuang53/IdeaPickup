@@ -733,7 +733,7 @@
       const utf8Encoder=new TextEncoder();
       const utf8Bytes=str=>utf8Encoder.encode(str).length;
       // Real device transport; rendering below remains the selected Gemini design.
-      let csrf = '', revision = 0, polling = false, timer = null, everLoaded = false;
+      let csrf = '', revision = 0, polling = false, timer = null, everLoaded = false, refreshRequested = false;
       let wifiEditRevision = 0, serviceEditRevision = 0, wifiSubmitted = null;
       let serviceSubmitted = false, composing = false;
       const store = {
@@ -756,8 +756,14 @@
           store.draftServerUrl = store.device.server_url || '';
         }
       }
+      function scheduleStatus(delay) {
+        clearTimeout(timer); timer = null;
+        if (!store.closed && !document.hidden) timer = setTimeout(status, delay);
+      }
       async function status() {
-        if (polling || store.pendingWrite || store.closed) return;
+        if (document.hidden || store.closed) return;
+        if (polling || store.pendingWrite) { refreshRequested = true; return; }
+        refreshRequested = false;
         clearTimeout(timer); polling = true;
         const observed = revision;
         try {
@@ -799,7 +805,7 @@
           csrf = ''; store.apOnline = false;
         } finally {
           polling = false; render();
-          if (!store.closed) timer = setTimeout(status, 2000);
+          scheduleStatus(refreshRequested ? 0 : !store.apOnline || wifiSubmitted || serviceSubmitted || store.device.pairing || store.device.wifi.state === 'connecting' ? 2000 : 10000);
         }
       }
       async function triggerScan() {
@@ -829,7 +835,7 @@
           store[feedback] = {text:e.message, tone:'error'}; return false;
         } finally {
           store.pendingWrite = false; revision++; render();
-          if (!store.closed) timer = setTimeout(status, 0);
+          scheduleStatus(0);
         }
       }
       async function submitWifi() {
@@ -1774,7 +1780,7 @@
 
       document.getElementById('portal-mount').addEventListener('compositionstart',()=>{composing=true;});
       document.getElementById('portal-mount').addEventListener('compositionend',()=>{composing=false;render();});
-      document.addEventListener('visibilitychange',()=>{if(!document.hidden)status();});
+      document.addEventListener('visibilitychange',()=>{clearTimeout(timer);timer=null;refreshRequested=false;if(!document.hidden)status();});
       window.addEventListener('pageshow',status);
       window.addEventListener('online',status);
       render(); status().then(triggerScan);

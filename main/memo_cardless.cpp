@@ -68,7 +68,8 @@ TaskHandle_t encoder_task_handle;
 // its steps without a second internal-RAM HTTP task stack.
 struct TransferState {
     uint32_t working_id=0,seq=0,ack_frames=0,backoff_ms=1000,after_status=0;
-    bool created=false,finishing_uncertain=false;
+    bool created=false,finishing_uncertain=false,status_round_changed=true;
+    uint32_t status_delay_ms=15000;
     int64_t retry_at=0,next_status_at=0;
 } transfer_state;
 StreamBufferHandle_t pcm_stream;
@@ -240,10 +241,14 @@ void update_record(uint32_t id, memo_job_state_t state, const char *error,
     auto *loaded=load_record_locked(at);if(!loaded)return;
     auto &r = *loaded;
     const bool next_interrupted = memo_cardless_interruption(r.interrupted, interrupted, authoritative_interruption);
-    bool changed = r.state != state || r.can_retry != can_retry ||
-                   next_interrupted != r.interrupted || strcmp(r.error, error ? error : "") ||
-                   (received != UINT64_MAX && received != r.received_samples) ||
+    const bool state_changed = r.state != state || r.can_retry != can_retry ||
+                   next_interrupted != r.interrupted || strcmp(r.error, error ? error : "");
+    const bool progress_changed = (received != UINT64_MAX && received != r.received_samples) ||
                    (duration_ms && duration_ms != r.duration_ms);
+    // Active audio possibility is durable before the first PUT. After a reboot,
+    // recovery GET supplies the server's prefix; intermediate ACKs stay in RAM.
+    const bool live_progress = id == active_id.load() && !recovery_mode.load() &&
+                               state == MEMO_JOB_UPLOADING;
     r.state = state;
     r.can_retry = can_retry;
     r.interrupted = next_interrupted;
@@ -257,8 +262,11 @@ void update_record(uint32_t id, memo_job_state_t state, const char *error,
         r.duration_ms = received / 16;
         if (recovery_mode.load()) r.encoded_bytes = ((received + FRAME_SAMPLES - 1) / FRAME_SAMPLES) * 60;
     }
-    if (changed || force_persist) {
+    if (state_changed || force_persist || (progress_changed && !live_progress)) {
         persist_locked(r);
+        revision.fetch_add(1);
+    } else if (progress_changed) {
+        index_record_locked(r);
         revision.fetch_add(1);
     }
 }
@@ -527,6 +535,10 @@ void release_active(uint32_t id)
                  (unsigned long)id, (unsigned)AUDIO_BUFFER_BYTES);
     }
     active_id.store(0);
+    transfer_state.next_status_at=0;
+    transfer_state.after_status=id-1; // A new result gets the next query, not an old backoff.
+    transfer_state.status_delay_ms=15000;
+    transfer_state.status_round_changed=true;
     revision.fetch_add(1);
     ESP_LOGI(TAG, "STREAM_RELEASED id=%lu", (unsigned long)id);
 }
@@ -759,7 +771,11 @@ void transfer_step()
                 cancel_request.compare_exchange_strong(cancellation,0);
             }else{
                 update_record(cancellation,MEMO_JOB_CANCELLING,"",false,saved.interrupted);
-                if(!metadata_fault.load())cancel_request.compare_exchange_strong(cancellation,0);
+                if(!metadata_fault.load()) {
+                    transfer_state.next_status_at=0;transfer_state.after_status=cancellation-1;
+                    transfer_state.status_delay_ms=15000;transfer_state.status_round_changed=true;
+                    cancel_request.compare_exchange_strong(cancellation,0);
+                }
             }
         }
     }
@@ -791,11 +807,30 @@ void transfer_step()
              }}
             if(!next)next=first;
             if(next){
-                after_status=next;memo_cardless_record_t saved{};
+                after_status=next;memo_cardless_record_t saved{},current{};
                 if(memo_cardless_get(next,&saved) && saved.state==MEMO_JOB_CANCELLING)cancel_step(next);
                 else query_selected(next,false);
+                if(saved.state==MEMO_JOB_CANCELLING ||
+                   (memo_cardless_get(next,&current) && current.state!=saved.state)) {
+                    transfer_state.status_delay_ms=15000;
+                    transfer_state.status_round_changed=true;
+                }
             }
-            next_status_at=esp_timer_get_time()+15000000;
+            bool more=false;
+            {Lock lock(meta_mutex);
+             for(size_t i=0;i<record_count;i++) {
+                const auto &r=records[i];
+                if(r.id>next && (r.state==MEMO_JOB_WAITING || r.state==MEMO_JOB_RECEIVED ||
+                   r.state==MEMO_JOB_TRANSCRIBING || r.state==MEMO_JOB_DELIVERING ||
+                   r.state==MEMO_JOB_UNCERTAIN || r.state==MEMO_JOB_CANCELLING)){more=true;break;}
+             }}
+            if(!more && next) {
+                transfer_state.status_delay_ms=transfer_state.status_round_changed ? 15000 :
+                    std::min(transfer_state.status_delay_ms*2,UINT32_C(300000));
+                transfer_state.status_round_changed=false;
+            }
+            // Back off between complete sweeps, not once per historical record.
+            next_status_at=esp_timer_get_time()+(more ? 15000 : transfer_state.status_delay_ms)*1000LL;
         }
         return;
     }
