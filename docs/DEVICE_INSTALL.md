@@ -2,14 +2,14 @@
 
 [返回首页](../README.md) · [固件下载](PUBLIC_RELEASE.md) · [部署后台](DEPLOYMENT.md) · [使用与排错](SUPPORT.md)
 
-本页默认安装已发布的 R12 固件，**无需自行编译**。先核对硬件，再准备安装工具；刷写不会替你部署后端。只需离线录放可跳过后端和配对。
+本页默认安装当前发布的固件，**无需自行编译**。先核对硬件，再准备安装工具；刷写不会替你部署后端。只需离线录放可跳过后端和配对。
 
 ## 1. 确认硬件与准备材料
 
 | 实物 | 下载的固件包 | 安装脚本 |
 |---|---|---|
-| ESP-VoCat V1.2 喵伴，16 MB QIO | `ideapickup-r12-20261016-vocat16.tar.gz` | `scripts/flash_vocat16.sh` |
-| ESP32-S3-Touch-LCD-1.28-BOX 斑梨，16 MB DIO | `ideapickup-r12-20261016-spotpear.tar.gz` | `scripts/flash_spotpear.sh` |
+| ESP-VoCat V1.2 喵伴，16 MB QIO | `ideapickup-2026.10.27-rc1-vocat16.tar.gz` | `scripts/flash_vocat16.sh` |
+| ESP32-S3-Touch-LCD-1.28-BOX 斑梨，16 MB DIO | `ideapickup-2026.10.27-rc1-spotpear.tar.gz` | `scripts/flash_spotpear.sh` |
 
 32 MB 喵伴和其他型号不能使用这些固件。同为 ESP32-S3、能读到 MAC、Flash 容量相同，都不能证明屏幕、音频和引脚兼容。
 
@@ -38,7 +38,7 @@ uv --version
 
 ```sh
 mkdir -p private/downloads/vocat16
-tar -xzf private/downloads/ideapickup-r12-20261016-vocat16.tar.gz -C private/downloads/vocat16
+tar -xzf private/downloads/ideapickup-2026.10.27-rc1-vocat16.tar.gz -C private/downloads/vocat16
 .venv/bin/python -m serial.tools.list_ports -v
 ```
 

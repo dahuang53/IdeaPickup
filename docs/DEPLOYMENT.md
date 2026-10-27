@@ -8,7 +8,7 @@
 
 - Linux Docker Engine（rootful）或运行 Linux 容器的 macOS Docker Desktop，支持 `linux/amd64`、`linux/arm64`；安装入口见 [Docker 官方说明](https://docs.docker.com/get-started/get-docker/)。需要 Compose V2 和 Buildx。
 - 宿主终端需要 Bash、Python 3.10 或更高版本；下列 `python3` 必须指向这个版本。不需要固件 SDK 或 Python 后端虚拟环境来运行现成镜像。
-- 从[下载说明](PUBLIC_RELEASE.md#校验并取得项目目录)取得 R12 项目目录，并在该目录执行后续命令。
+- 从[下载说明](PUBLIC_RELEASE.md#校验并取得项目目录)取得当前版本项目目录，并在该目录执行后续命令。
 
 ```sh
 python3 --version
@@ -46,7 +46,7 @@ docker buildx version
 先拉取[本次发布](PUBLIC_RELEASE.md#配套-docker-镜像)的固定镜像：
 
 ```sh
-docker pull ghcr.io/dahuang53/ideapickup-relay:r12-20261016@sha256:970c10f0ce8ee260d731bc7165bfc52a0f13b1d5ad9710a01685f6fd2a4f6d60
+docker pull ghcr.io/dahuang53/ideapickup-relay:2026.10.27-rc1@sha256:73069bf8d986ab6e3d150e449337aa130aad172bf1f6361b35094e43df94ae31
 mkdir -p private/deploy
 chmod 700 private/deploy
 cp deploy/.env.example private/deploy/relay.env
@@ -56,7 +56,7 @@ chmod 600 private/deploy/relay.env
 `cp` 只用于首次建立配置；已有部署不要覆盖原文件。用文本编辑器修改 `private/deploy/relay.env` 的两行，其余保持默认：
 
 ```dotenv
-VOICE_MEMO_IMAGE=ghcr.io/dahuang53/ideapickup-relay:r12-20261016@sha256:970c10f0ce8ee260d731bc7165bfc52a0f13b1d5ad9710a01685f6fd2a4f6d60
+VOICE_MEMO_IMAGE=ghcr.io/dahuang53/ideapickup-relay:2026.10.27-rc1@sha256:73069bf8d986ab6e3d150e449337aa130aad172bf1f6361b35094e43df94ae31
 VOICE_MEMO_PUBLIC_URL=192.168.1.20
 ```
 
@@ -160,7 +160,7 @@ docker compose --env-file private/deploy/relay.env -f deploy/compose.yaml exec -
 ./scripts/relay_deploy.sh upgrade 'registry/name:version@sha256:实际的64位摘要'
 ```
 
-任务取消版本将运行数据库从 schema 2 升到 3，在原任务表增加取消标记，保留录音、任务、配对和凭据。先升级后端，再升级固件。升级前按下文停止服务并备份项目持久卷和部署配置；旧后端拒绝读取 schema 3，因此回退必须恢复对应的升级前数据备份，不能只换回旧镜像。设备取消状态也需要新版固件读取，固件回退应使用对应的 Flash／状态备份，详见 [存储说明](FIRMWARE_STORAGE.md)。
+任务取消版本将运行数据库从 schema 2 升到 3，在原任务表增加取消标记，保留录音、任务、配对和凭据。先升级后端，再升级固件。升级前让设备停止提交任务，确认后台没有在途工作，按下文停止服务并备份项目持久卷和部署配置；随后启动原有旧实例并确认健康，再执行上述 `upgrade`，因为升级工具要求旧实例正在运行。备份至升级完成期间保持设备和用户不创建或处理任务。旧后端拒绝读取 schema 3，回退必须使用匹配的升级前卷备份；恢复该备份会丢失备份后新增或变更的数据，不能只换回旧镜像，也不能自动用旧数据库覆盖新状态。设备取消状态也需要新版固件读取，固件回退应使用对应的 Flash／状态备份，详见 [存储说明](FIRMWARE_STORAGE.md)。
 
 
 管理器先排空在途工作、停止唯一写入服务并检查当前数据库，再启动候选；超时或不兼容会停止更新。不要用直接 `start` 覆盖运行镜像，也不要用旧数据库覆盖新状态。详细恢复边界见下文。

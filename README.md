@@ -18,7 +18,7 @@ flowchart LR
     D --> E[思源云端收集箱]
 ```
 
-**当前下载：[r12-20261016 预发布](https://github.com/dahuang53/IdeaPickup/releases/tag/r12-20261016)**，含两板固件、源码和配套双架构镜像。这是有已知限制的预发布；完整低电矩阵未验证，斑梨有一项未解决的看门狗告警，详见[支持与限制](docs/SUPPORT.md#known-limits)。
+**当前下载：[2026.10.27-rc1 预发布](https://github.com/dahuang53/IdeaPickup/releases/tag/2026.10.27-rc1)**，含两板固件、源码和配套双架构镜像。这是有已知限制的预发布；完整低电矩阵未验证，斑梨有一项未解决的看门狗告警，详见[支持与限制](docs/SUPPORT.md#known-limits)。
 
 ## 选择你的使用方式
 
@@ -54,7 +54,7 @@ flowchart LR
 | 后端和固件普通更新 | [后端更新](docs/DEPLOYMENT.md#updates)、[固件更新](docs/DEVICE_INSTALL.md#updates) |
 | 报告问题 | [提交前准备](docs/SUPPORT.md#reporting)、[安全问题](SECURITY.md) |
 
-有卡音频保存在自己的 SD 卡。启用转写服务后，待同步录音可能自动上传；先确认哪些录音适合交给自己的中继和千问。中继不提供音频库或云端回放：成功或拒绝后清理暂存音频，失败／中断的闲置暂存最长 24 小时；投递完成清理暂存正文。详见[数据与重试](docs/SUPPORT.md#data-and-status)。
+有卡音频保存在自己的 SD 卡。启用转写服务时，新录音自动处理一次；未处理的旧有卡录音可在详情手动提交，处理中可以取消。请先确认录音适合交给自己的中继和千问。中继不提供音频库或云端回放：成功或拒绝后清理暂存音频，失败／中断的闲置暂存最长 24 小时；投递完成清理暂存正文。详见[数据与重试](docs/SUPPORT.md#data-and-status)。
 
 ## 开发与许可
 

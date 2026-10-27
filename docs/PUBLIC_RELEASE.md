@@ -2,9 +2,53 @@
 
 [返回首页](../README.md) · [部署后端](DEPLOYMENT.md) · [刷机](DEVICE_INSTALL.md) · [支持与限制](SUPPORT.md#known-limits)
 
-## R12 验收交付（r12-20261016）
+## 当前预发布：2026.10.27-rc1
 
-新用户使用 **[r12-20261016 Release](https://github.com/dahuang53/IdeaPickup/releases/tag/r12-20261016)**。这是预发布，提供已构建的两板固件和配套后端，包含内网 IP 部署与当前配网页。两板本轮必做真机检查已完成；完整低电矩阵未验证、斑梨历史看门狗告警未解决，详见[限制](SUPPORT.md#known-limits)。
+[下载 2026.10.27-rc1](https://github.com/dahuang53/IdeaPickup/releases/tag/2026.10.27-rc1)。此版本包含手机热点切换修复、录音任务手动提交与取消、本地状态读取、服务器计算音频 SHA，以及无卡与配网页轮询精简。它仍是预发布：[两板低电矩阵未验证、斑梨看门狗告警未解决](SUPPORT.md#known-limits)。新斑梨固件仅完成构建；喵伴新固件已安装并完成启动、状态和保全检查，没有重做真人录音或物理断电测试。
+
+### 下载哪个文件
+
+| 文件 | 用途 |
+|---|---|
+| [ideapickup-2026.10.27-rc1-vocat16.tar.gz](https://github.com/dahuang53/IdeaPickup/releases/download/2026.10.27-rc1/ideapickup-2026.10.27-rc1-vocat16.tar.gz) | 仅 16 MB QIO 喵伴：固件、manifest 和许可 |
+| [ideapickup-2026.10.27-rc1-spotpear.tar.gz](https://github.com/dahuang53/IdeaPickup/releases/download/2026.10.27-rc1/ideapickup-2026.10.27-rc1-spotpear.tar.gz) | 仅 16 MB DIO 斑梨：固件、manifest 和许可 |
+| [ideapickup-2026.10.27-rc1-source.tar.gz](https://github.com/dahuang53/IdeaPickup/releases/download/2026.10.27-rc1/ideapickup-2026.10.27-rc1-source.tar.gz) | 本版本源码、安装脚本和部署文件 |
+| [SHA256SUMS](https://github.com/dahuang53/IdeaPickup/releases/download/2026.10.27-rc1/SHA256SUMS) | 全部附件的 SHA256 校验值 |
+| [ideapickup-relay-0.2.0rc1-corresponding-source.tar.gz](https://github.com/dahuang53/IdeaPickup/releases/download/2026.10.27-rc1/ideapickup-relay-0.2.0rc1-corresponding-source.tar.gz) | 镜像系统组件的完整对应源码；日常部署不需要下载 |
+
+系统组件沿用原对应源码归档；本版本应用源码使用本次 source 归档。固件包不含安装脚本，请同时下载项目源码。
+
+### 校验并取得项目目录
+
+在同一下载目录保存所需附件与 `SHA256SUMS`，逐个计算摘要并与同名行完整比较；不一致则重新下载，不刷写：
+
+```sh
+# macOS；Linux 可用 sha256sum
+shasum -a 256 ideapickup-2026.10.27-rc1-source.tar.gz
+shasum -a 256 ideapickup-2026.10.27-rc1-vocat16.tar.gz
+# 斑梨用户将最后的 vocat16 换为 spotpear
+mkdir IdeaPickup
+tar -xzf ideapickup-2026.10.27-rc1-source.tar.gz -C IdeaPickup
+cd IdeaPickup
+```
+
+也可使用 `git clone --branch 2026.10.27-rc1 --depth 1 https://github.com/dahuang53/IdeaPickup.git IdeaPickup`。目标目录应尚不存在。后续操作见[刷机和配对](DEVICE_INSTALL.md)。
+
+### 配套 Docker 镜像
+
+支持 `linux/amd64`、`linux/arm64`。使用完整固定引用：
+
+```text
+ghcr.io/dahuang53/ideapickup-relay:2026.10.27-rc1@sha256:73069bf8d986ab6e3d150e449337aa130aad172bf1f6361b35094e43df94ae31
+```
+
+先按[部署说明](DEPLOYMENT.md)拉取并配置。旧版数据库升级前必须备份，**先升级后端再升级固件**；schema 3 不能直接由旧后端读取，回退须使用匹配的升级前备份。运行时 `code_version` 仍为 `0.2.0rc1`，请以发布标签和摘要区分。
+
+本次固件是已核验的构建候选，manifest 中的构建时 Git HEAD 反映构建时点；实际编译输入摘要和固件文件摘要用于绑定源码与字节。旧有真机证据的适用范围见[支持状态](SUPPORT.md#verification-record)。
+
+## 历史 R12 验收交付（r12-20261016）
+
+历史版本 **[r12-20261016 Release](https://github.com/dahuang53/IdeaPickup/releases/tag/r12-20261016)**。这是预发布，提供已构建的两板固件和配套后端，包含内网 IP 部署与当前配网页。两板本轮必做真机检查已完成；完整低电矩阵未验证、斑梨历史看门狗告警未解决，详见[限制](SUPPORT.md#known-limits)。
 
 ### 下载哪个文件
 
@@ -46,7 +90,7 @@ cd IdeaPickup
 
 冻结附件内的文档保留发布时原件；后续勘误和上手说明见[仓库 main 文档](https://github.com/dahuang53/IdeaPickup/tree/main/docs)。文档更新不会替换已经发布的固件或镜像。
 
-### 配套 Docker 镜像
+### R12 配套 Docker 镜像
 
 支持 `linux/amd64`、`linux/arm64`。部署时使用完整固定引用：
 
@@ -60,7 +104,7 @@ ghcr.io/dahuang53/ideapickup-relay:r12-20261016@sha256:970c10f0ce8ee260d731bc716
 
 ## 获取 0.2.0rc1 候选
 
-[历史 0.2.0rc1 Release](https://github.com/dahuang53/IdeaPickup/releases/tag/0.2.0rc1) 保留原源码和 Docker 候选，不含本次两板固件及内网 IP 修正。新用户请使用上面的 R12 配套材料，不混用旧后端。
+[历史 0.2.0rc1 Release](https://github.com/dahuang53/IdeaPickup/releases/tag/0.2.0rc1) 保留原源码和 Docker 候选，不含本次两板固件及内网 IP 修正。请使用当前版本配套材料，不混用旧后端。
 
 历史固定镜像（仅供识别旧部署）：
 

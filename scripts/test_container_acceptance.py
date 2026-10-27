@@ -347,7 +347,19 @@ class Lab:
         for phase, number in [('transcribing', 11), ('transcribed', 12), ('sending', 13)]:
             self.probe('/arm', {'phase': phase, 'recording': number}); self.upload_wav(number)
             poll(lambda: any(e['kind'] == 'gate:' + phase for e in self.inspect(number)['events']))
-            atomic_json_or_env(self.directory / f'wav-{phase}-before.json', self.inspect(number))
+            gated = self.inspect(number)
+            deliveries = sum(e['kind'] == 'delivery' for e in gated['events'])
+            if phase == 'transcribing':
+                require(gated['memo']['status'] == 'transcribing' and gated['job']['phase'] == 'transcribing' and deliveries == 0,
+                        'transcribing gate does not precede delivery')
+            if phase == 'transcribed':
+                require(gated['memo']['status'] == 'transcribed' and gated['job']['phase'] == 'transcribing' and
+                        gated['memo']['transcript'] and gated['memo']['cloud_content'] and deliveries == 0,
+                        'transcribed gate is not after durable text and before sending')
+            if phase == 'sending':
+                require(gated['memo']['status'] == 'sending' and gated['job']['phase'] == 'sending' and deliveries == 1,
+                        'sending gate is not on the delivery boundary')
+            atomic_json_or_env(self.directory / f'wav-{phase}-before.json', gated)
             self.deployment.compose('kill', '-s', 'SIGKILL', 'relay'); self.restart()
             expected = 'uncertain' if phase == 'sending' else 'sent' if phase == 'transcribed' else 'transcription_failed'
             poll(lambda: self.inspect(number)['memo']['status'] == expected)

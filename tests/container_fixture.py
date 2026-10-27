@@ -152,12 +152,22 @@ def provider_factory(ledger):
     class SyntheticProvider(RelayService):
         def _deliver(self, row, now, *, title=None):
             recording = row["recording_id"]
-            ledger.gate("transcribed", recording)  # real store.update already committed
             self.fixture_recording = recording
             result = super()._deliver(row, now, title=title)
             ledger.gate("sent", recording)  # real sent and text cleanup already committed
             return result
     def factory(store, config, *, progress=None):
+        # Gate the actual committed transcribed transition, before the runtime
+        # advances to sending. _deliver now starts after the sending boundary.
+        if not getattr(store, "_fixture_transcribed_gate", False):
+            original_update = store.update
+            def gated_update(device, recording, **fields):
+                row = original_update(device, recording, **fields)
+                if fields.get("status") == "transcribed":
+                    ledger.gate("transcribed", recording)
+                return row
+            store.update = gated_update
+            store._fixture_transcribed_gate = True
         service = SyntheticProvider(store, config["qwen_api_key"], config["siyuan_token"], progress=progress)
         asr_digest = hashlib.sha256(config["qwen_api_key"].encode()).hexdigest()
         delivery_digest = hashlib.sha256(config["siyuan_token"].encode()).hexdigest()
