@@ -496,13 +496,13 @@ static void cardless_cases(lv_indev_t *indev)
     assert(select_calls==queries && retry_calls==retries); // Saved state only; no query or ASR trigger.
     detail_job.state=MEMO_JOB_FAILED;detail_job.can_retry=true;
     snprintf(detail_job.error,sizeof(detail_job.error),"网络中断过久，录音已停止");
-    save_frame("cardless-failed-retry");
-    assert(contains_visible_label(lv_screen_active(),"继续上传"));
+    save_frame("cardless-failed-no-retry");
+    assert(!contains_visible_label(lv_screen_active(),"继续上传"));
     press(indev,TAP_X,retry_y,true);press(indev,TAP_X,retry_y,false);tick(220);
-    assert(retry_calls==retries+1 && detail_job.id==cardless_id);
+    assert(retry_calls==retries && detail_job.id==cardless_id);
     detail_job.request_pending=false;detail_job.can_retry=false;detail_job.interrupted=true;
-    const char *interruption_errors[]={"断电中断，正在确认已传内容","临时音频已清理，无法重试",
-        "断电前未上传，音频已丢失","音频编码失败，录音已中断"};
+    const char *interruption_errors[]={"录音已中断","旧服务待核对",
+        "处理等待超时","网络等待过久"};
     for(unsigned i=0;i<sizeof(interruption_errors)/sizeof(interruption_errors[0]);i++) {
         snprintf(detail_job.error,sizeof(detail_job.error),"%s",interruption_errors[i]);
         save_frame("cardless-interruption-reason");
@@ -534,7 +534,7 @@ static void cardless_cases(lv_indev_t *indev)
     assert(!contains_visible_label(lv_screen_active(),"播放录音"));
     assert(contains_visible_label(lv_screen_active(),"无卡 #12345"));
     press(indev,TAP_X,back_y,true);press(indev,TAP_X,back_y,false);tick(220);
-    puts("HOST_UI: cardless marker/accent, metadata pages, full ID callbacks, ready/start/stop gating, no playback, query versus retry, interruption and mixed SD history PASS");
+    puts("HOST_UI: cardless marker/accent, metadata pages, full ID callbacks, ready/start/stop gating, no playback, no query/retry for terminal state, interruption and mixed SD history PASS");
 }
 
 int main(void)

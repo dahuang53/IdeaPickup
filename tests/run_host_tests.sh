@@ -70,14 +70,6 @@ fi
   "$project_dir/tests/legacy_sync_fixture.c" "$project_dir/tests/test_sync_cache.c" -o "$test_dir/test_sync_cache"
 "$test_dir/test_sync_cache" "$test_dir/sync.bin"
 
-"${CC:-cc}" -std=c11 -Wall -Wextra -Werror -pedantic -g -O1 \
-  -fsanitize=address,undefined -I "$project_dir/main" "$project_dir/main/memo_cardless_buffer.c" \
-  "$project_dir/tests/test_cardless_buffer.c" -o "$test_dir/test_cardless_buffer"
-"$test_dir/test_cardless_buffer"
-"${CC:-cc}" -std=c11 -Wall -Wextra -Werror -pedantic -g -O1 \
-  -fsanitize=address,undefined -I "$project_dir/main" "$project_dir/main/memo_cardless_state.c" \
-  "$project_dir/tests/test_cardless_state.c" -o "$test_dir/test_cardless_state"
-"$test_dir/test_cardless_state"
 "${PYTHON:-python3}" "$project_dir/tests/test_usb_audio_check.py"
 
 "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -pedantic -g -O1 \

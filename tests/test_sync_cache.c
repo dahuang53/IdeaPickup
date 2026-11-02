@@ -9,8 +9,8 @@ int main(int argc,char **argv){
  e.id=42;e.state=MEMO_JOB_SENT;e.bound=true;e.target.instance.bytes[0]=1;e.target.url_hash[0]=2;
  strcpy(e.target.device_id,"future-board");e.audio.bytes=64044;e.audio.sha256[0]=3;
  assert(legacy_fixture_write(p,&e));assert(memo_sync_entry_read(p,42,&out)==MEMO_CACHE_OK&&out.state==MEMO_JOB_SENT);
- assert((e.audio.bytes==out.audio.bytes&&!memcmp(e.audio.sha256,out.audio.sha256,32))&&memo_sync_target_matches(&e.target,&out.target,false));
- out.audio.sha256[0]^=1;assert(!(e.audio.bytes==out.audio.bytes&&!memcmp(e.audio.sha256,out.audio.sha256,32)));out=e;out.target.instance.bytes[0]^=1;assert(!memo_sync_target_matches(&e.target,&out.target,false));
+ assert((e.audio.bytes==out.audio.bytes&&!memcmp(e.audio.sha256,out.audio.sha256,32))&&!memcmp(&e.target,&out.target,sizeof(e.target)));
+ out.audio.sha256[0]^=1;assert(!(e.audio.bytes==out.audio.bytes&&!memcmp(e.audio.sha256,out.audio.sha256,32)));out=e;out.target.instance.bytes[0]^=1;assert(!!memcmp(&e.target,&out.target,sizeof(e.target)));
  e.state=MEMO_JOB_FAILED;e.automatic=e.manual=true;assert(legacy_fixture_write(p,&e));
  assert(memo_sync_entry_read(p,42,&out)==MEMO_CACHE_OK&&out.state==MEMO_JOB_FAILED&&out.manual&&out.automatic);
  char path[320];snprintf(path,sizeof(path),"%s.1",p);FILE *f=fopen(path,"wb");assert(f);fputs("torn",f);fclose(f);

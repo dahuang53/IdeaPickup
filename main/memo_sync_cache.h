@@ -31,7 +31,6 @@ typedef enum { MEMO_CACHE_MISSING, MEMO_CACHE_OK, MEMO_CACHE_INVALID, MEMO_CACHE
 /* Read-only legacy metadata compatibility. Never schedules relay requests or
  * writes the old slots; new direct checkpoints live in memo_sd_sync.h. */
 memo_cache_result_t memo_sync_entry_read(const char *,uint32_t,memo_sync_entry_t *);
-bool memo_sync_target_matches(const memo_sync_target_t *,const memo_sync_target_t *,bool partial);
 #ifdef __cplusplus
 }
 #endif

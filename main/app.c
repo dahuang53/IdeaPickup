@@ -503,9 +503,7 @@ static void start_record(void) {
     app_snapshot(&s);
     if(s.cardless && !s.cardless_ready) {network_sync_audio_done();failure("无卡录音需联网且上传空闲");return;}
     if(s.cardless) {
-        if(microphone_start()!=ESP_OK || board_record_resync()!=ESP_OK) {
-            microphone_stop();network_sync_audio_done();failure("麦克风打开失败");return;
-        }
+        notice("正在准备录音");
         memo_network_status_t network;network_sync_get_status(&network);
         uint32_t floor=latest_visible_id();
         if(network.last_uploaded_id>floor)floor=network.last_uploaded_id;
@@ -514,14 +512,14 @@ static void start_record(void) {
             char error[80];memo_cardless_error(error,sizeof(error));
             network_sync_audio_done();failure(error[0]?error:"无卡录音暂不可用");return;
         }
-        if(board_record_resync()!=ESP_OK) {
+        if(microphone_start()!=ESP_OK || board_record_resync()!=ESP_OK) {
             memo_cardless_finish(true,"麦克风同步失败");
             microphone_stop();network_sync_audio_done();failure("麦克风同步失败");return;
         }
         started_us=esp_timer_get_time();recording_overflows=board_record_overflows();
         xSemaphoreTake(mutex,portMAX_DELAY);model.elapsed_ms=0;model.active_id=id;xSemaphoreGive(mutex);
         state(MEMO_RECORDING,NULL);
-        ESP_LOGI(TAG,"CARDLESS_BEGIN id=%"PRIu32" format=16000/opus/mono",id);
+        ESP_LOGI(TAG,"CARDLESS_BEGIN id=%"PRIu32" format=16000/pcm16/mono",id);
         return;
     }
     bool injected=fault_space;fault_space=false;
@@ -700,7 +698,7 @@ static void prepare_power_shutdown(void) {
         ESP_LOGE(TAG,"LOW_BATTERY_CLOSE microphone close failed");
     while(memo_cardless_busy() && esp_timer_get_time()<close_deadline)
         vTaskDelay(pdMS_TO_TICKS(20));
-    if(memo_cardless_busy())ESP_LOGW(TAG,"CARDLESS_LOW_BATTERY deadline; recovery limited to server ACK prefix");
+    if(memo_cardless_busy())ESP_LOGW(TAG,"CARDLESS_LOW_BATTERY deadline; direct session interrupted");
     atomic_store(&shutdown_prepared,true);
     ESP_LOGI(TAG,"LOW_BATTERY_CLOSE ready state=%d",s.state);
 }
@@ -1043,14 +1041,6 @@ static void console(void *arg) {
         if(ch!='\n'){if(len<sizeof(line)-1)line[len++]=(char)ch;else len=0;continue;}
         line[len]=0;len=0;char verb[32];uint32_t val=0;
         if(sscanf(line,"%31s %"SCNu32,verb,&val)<1)continue;
-        if(!strcmp(verb,"cardless_test")) {
-            unsigned kind=0;uint32_t value=0;char extra;
-            memo_snapshot_t snapshot;app_snapshot(&snapshot);
-            bool valid=sscanf(line,"%*s %u %"SCNu32" %c",&kind,&value,&extra)==2;
-            printf("CARDLESS_TEST accepted=%d kind=%u value=%"PRIu32"\n",
-                   valid && snapshot.cardless && memo_cardless_test_fault(kind,value),kind,value);
-            continue;
-        }
         if(!strcmp(verb,"gauge_diag")) {
             board_battery_diagnostics_t gauge={0};
             esp_err_t err=board_battery_diagnostics(&gauge);
@@ -1097,7 +1087,7 @@ static void console(void *arg) {
         if(!strcmp(verb,"resume")){app_command(CMD_RESUME,0,"serial");continue;}
         const char *names[]={"start","stop","play","next","prev","refresh","fault_write","fault_space","dump","partial","recover","discard","reboot"};
         bool found=false;for(unsigned i=0;i<sizeof(names)/sizeof(names[0]);i++)if(!strcmp(verb,names[i])){app_command((memo_cmd_t)i,val,"serial");found=true;break;}
-        if(!found)printf("HELP status list net_status gauge_diag memory sync_mode local|service provision start stop play ID pause resume usb_open usb_close usb_mute usb_unmute next prev refresh fault_write BYTES fault_space dump ID partial ID recover ID discard ID reboot bootloader cardless_test KIND VALUE\n");
+        if(!found)printf("HELP status list net_status gauge_diag memory sync_mode local|service provision start stop play ID pause resume usb_open usb_close usb_mute usb_unmute next prev refresh fault_write BYTES fault_space dump ID partial ID recover ID discard ID reboot bootloader\n");
     }
 }
 /* Healthy mounted cards need only CMD13; no FAT scan or write. The task

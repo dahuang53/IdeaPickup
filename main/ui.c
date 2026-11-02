@@ -449,18 +449,18 @@ static void refresh_cardless_record(const memo_snapshot_t *snapshot,
 {
     char text[160],wrapped[180];
     const char *state=DETAIL_COPY("状态待查询","状态待查询喵");
-    const char *action=job->can_retry?"重试处理":"刷新状态";
+
     uint32_t color=CLOUD;
     switch(job->state) {
     case MEMO_JOB_LOCAL:state=DETAIL_COPY("等待发送","等待发送喵");break;
     case MEMO_JOB_QUEUED:state=DETAIL_COPY("等待传送","等待传送喵");break;
-    case MEMO_JOB_CHECKING:state=DETAIL_COPY("正在确认状态","正在确认状态喵");action="查询中";break;
+    case MEMO_JOB_CHECKING:state=DETAIL_COPY("正在确认状态","正在确认状态喵");break;
     case MEMO_JOB_UPLOADING:state=DETAIL_COPY("正在传送音频","正在传送音频喵");break;
-    case MEMO_JOB_WAITING:state=DETAIL_COPY("等待服务器确认","等待服务器确认喵");break;
+    case MEMO_JOB_WAITING:state=DETAIL_COPY("等待处理","等待处理喵");break;
     case MEMO_JOB_RECEIVED:state=DETAIL_COPY("服务器已收到","服务器已收到喵");break;
     case MEMO_JOB_TRANSCRIBING:state=DETAIL_COPY("正在转写","正在转写喵");break;
     case MEMO_JOB_DELIVERING:state=DETAIL_COPY("正在投递思源","正在投递思源喵");break;
-    case MEMO_JOB_SENT:state=DETAIL_COPY("已同步思源","已同步思源喵");action="已同步";color=MINT;break;
+    case MEMO_JOB_SENT:state=DETAIL_COPY("已同步思源","已同步思源喵");color=MINT;break;
     case MEMO_JOB_FAILED:state=DETAIL_COPY("处理未完成","处理未完成喵");color=CORAL;break;
     case MEMO_JOB_REJECTED:state=DETAIL_COPY("内容未通过检查","内容未通过检查喵");color=GOLD;break;
     case MEMO_JOB_CANCELLED:state=DETAIL_COPY("已取消处理","已取消处理喵");break;
@@ -471,23 +471,18 @@ static void refresh_cardless_record(const memo_snapshot_t *snapshot,
     if(job->error[0])snprintf(text,sizeof(text),"%s",job->error);
     else if(job->interrupted)snprintf(text,sizeof(text),DETAIL_COPY("录音曾中断\n仅处理已接收的部分","录音曾中断\n仅处理已接收的部分喵"));
     else snprintf(text,sizeof(text),DETAIL_COPY("无卡录音\n本机不保留音频","无卡录音\n音频不留在本机喵"));
-    if(job->state!=MEMO_JOB_SENT && job->state!=MEMO_JOB_FAILED &&
-       job->state!=MEMO_JOB_REJECTED && (!network->configured || !network->connected)) {
-        action="等待联网";
-        if(!job->error[0])snprintf(text,sizeof(text),DETAIL_COPY("网络离线\n联网后可查询状态","网络离线\n联网后可查询状态喵"));
-    }
     wrap_detail(wrapped,sizeof(wrapped),text,MEMO_UI_COMPACT?180:232,
                 MEMO_UI_COMPACT?&memo_font:&memo_font20);
     text_if_changed(record_info,wrapped);
     if((int32_t)(record_feedback_until-lv_tick_get())>0)state=DETAIL_COPY("任务繁忙，请稍后重试","任务繁忙，请稍后重试喵");
     text_if_changed(record_status_label,state);
-    text_if_changed(record_retry_label,action);
+    text_if_changed(record_retry_label,"取消处理");
     lv_obj_set_style_text_color(record_status_label,lv_color_hex(color),0);
     bool idle=snapshot->state==MEMO_IDLE || snapshot->state==MEMO_SAVED || snapshot->state==MEMO_ERROR;
-    if((job->can_cancel || job->can_retry) && job->state!=MEMO_JOB_SENT && job->state!=MEMO_JOB_UNCERTAIN){
+    if(job->can_cancel && job->state!=MEMO_JOB_SENT && job->state!=MEMO_JOB_UNCERTAIN){
         lv_obj_remove_flag(record_retry,LV_OBJ_FLAG_HIDDEN);
-        text_if_changed(record_retry_label,job->can_cancel?"取消处理":"继续上传");
-        enabled(record_retry,idle && (job->can_cancel || (!job->request_pending && network->configured && network->connected)));
+        text_if_changed(record_retry_label,"取消处理");
+        enabled(record_retry,idle && job->can_cancel);
     } else lv_obj_add_flag(record_retry,LV_OBJ_FLAG_HIDDEN);
 #if !MEMO_UI_COMPACT
     lv_obj_set_style_bg_color(record_status_dot,lv_color_hex(color),0);

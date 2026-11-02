@@ -386,7 +386,7 @@ Result Realtime::event(int wait){
         if(!state_->updated||!id||!id[0]||strlen(id)>96||(!prev&&!cJSON_IsNull(previous))||(prev&&strlen(prev)>96)||state_->count==16)return stop(Code::Response);
         for(size_t i=0;i<state_->count;i++)if(!strcmp(id,state_->items[i].id))return stop(Code::Response);
         if(!strcmp(id,state_->last))return stop(Code::Response);
-        auto &item=state_->items[state_->count++];snprintf(item.id,sizeof(item.id),"%s",id);snprintf(item.previous,sizeof(item.previous),"%s",prev?prev:"");
+        auto &item=state_->items[state_->count++];item={};snprintf(item.id,sizeof(item.id),"%s",id);snprintf(item.previous,sizeof(item.previous),"%s",prev?prev:"");
     }else if(!strcmp(type,"conversation.item.input_audio_transcription.completed")){
         const char *id=str(json.root,"item_id"),*text=str(json.root,"transcript");
         if(!id||!text||!utf8(text,strlen(text)))return stop(Code::Response);
@@ -412,17 +412,19 @@ Result Realtime::event(int wait){
     return result_;
 }
 Result Realtime::poll(){return state_?event(0):Result{Code::Invalid};}
-Result Realtime::audio(const void *pcm,size_t bytes){
+Result Realtime::audio(const void *pcm,size_t bytes,uint32_t remaining_ms){
     if(!state_)return {Code::Invalid};
     if(!state_->updated||state_->finishing||!pcm||!bytes||bytes>3200||bytes%2)return stop(Code::Invalid);
     char message[4608];int prefix=snprintf(message,sizeof(message),"{\"event_id\":\"audio_%u\",\"type\":\"input_audio_buffer.append\",\"audio\":\"",static_cast<unsigned>(++state_->event_id));
     size_t n=prefix+base64(static_cast<const uint8_t *>(pcm),bytes,message+prefix);memcpy(message+n,"\"}",2);n+=2;
-    if(!send(message,n,io_.now(io_.context)+2000))return stop(result_.code);
+    if(!remaining_ms)return stop(Code::Timeout);
+    if(!send(message,n,io_.now(io_.context)+std::min<uint32_t>(remaining_ms,2000)))return stop(result_.code);
     return event(0);
 }
-Result Realtime::finish(){
+Result Realtime::finish(uint32_t remaining_ms){
     if(!state_||!state_->updated||state_->finishing)return {Code::Invalid};
-    state_->finishing=true;state_->deadline=io_.now(io_.context)+30000;
+    if(!remaining_ms)return stop(Code::Timeout);
+    state_->finishing=true;state_->deadline=io_.now(io_.context)+std::min<uint32_t>(remaining_ms,30000);
     const char *finish="{\"event_id\":\"finish\",\"type\":\"session.finish\"}";
     if(!send(finish,strlen(finish),state_->deadline))return stop(result_.code);
     while(!state_->finished){Result r=event(100);if(r.code!=Code::Ok)return r;}

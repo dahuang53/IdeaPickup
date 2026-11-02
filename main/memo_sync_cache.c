@@ -29,12 +29,7 @@ static uint32_t get32(const uint8_t *p){uint32_t v=0;for(unsigned i=0;i<4;i++)v|
 static void put64(uint8_t *p,uint64_t v){for(unsigned i=0;i<8;i++)p[i]=(uint8_t)(v>>(8*i));}
 static uint64_t get64(const uint8_t *p){uint64_t v=0;for(unsigned i=0;i<8;i++)v|=(uint64_t)p[i]<<(8*i);return v;}
 static bool nonzero(const void *p,size_t n){const uint8_t *b=p;uint8_t v=0;for(size_t i=0;i<n;i++)v|=b[i];return v!=0;}
-bool memo_sync_target_matches(const memo_sync_target_t *a,const memo_sync_target_t *b,bool partial){
- if(!a||!b)return false;
- return (!partial||nonzero(a->instance.bytes,16)?!memcmp(a->instance.bytes,b->instance.bytes,16):true)&&
-        (!partial||nonzero(a->url_hash,32)?!memcmp(a->url_hash,b->url_hash,32):true)&&
-        (!partial||a->device_id[0]?!strcmp(a->device_id,b->device_id):true);
-}
+
 static bool valid(const memo_sync_entry_t *e){
  if(!e||!e->id||(e->id&0x80000000U)||(unsigned)e->state>MEMO_JOB_CANCELLING||!memchr(e->target.device_id,0,40))return false;
  if(e->bound)return e->audio.bytes>=46&&nonzero(e->audio.sha256,32)&&nonzero(e->target.instance.bytes,16)&&nonzero(e->target.url_hash,32)&&e->target.device_id[0];

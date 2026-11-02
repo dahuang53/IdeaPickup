@@ -1,7 +1,7 @@
 """Run the production shared HTTP scheduler with RTOS/media/transport shims.
 
 Verifies no-card progress, cadence, and SD exclusion while the stream owns audio.
-Protocol/ACK/persistence are covered separately by test_cardless_runtime.py.
+Protocol/failure cleanup/persistence are covered separately by test_cardless_runtime.py.
 """
 from pathlib import Path
 import subprocess
@@ -61,7 +61,6 @@ static void xSemaphoreGive(int){}
 static void xTaskNotifyGive(int){}
 static bool persist_manual(uint32_t){return true;}
 static void job_state(uint32_t,memo_job_state_t){}
-extern "C" bool network_sync_current_target(memo_sync_target_t*){return true;}
 static bool discover_sd_work(const memo_cloud_config_t&){assert(!memo_cardless_busy());if(sd_scan_requested.exchange(false))scans++;return true;}
 static bool sync_one(uint32_t,bool cancel=false){assert(!memo_cardless_busy());sd_jobs++;if(cancel){cancel_calls++;if(cancel_failures-->0)return false;}sd_step_pending=phases-->1;sd_step_blocked=false;sd_step_delay_ms=sd_step_pending?5000:0;active_state=sd_step_pending?MEMO_JOB_WAITING:MEMO_JOB_SENT;return true;}
 static void ulTaskNotifyTake(int,int ms){waits.push_back(ms);clock_us+=ms*1000;if(steps>=stop_after)throw Done{};}

@@ -99,7 +99,6 @@ static std::atomic<bool> sd_scan_requested{true},sd_abort{false},sd_media_abort{
 static memo_config_activity_gate_t activity_gate{};
 static std::atomic<uint32_t> file_read_active{0};
 static std::atomic<memo_job_state_t> active_state{MEMO_JOB_UNKNOWN};
-static std::atomic<bool> stream_http_active{false};
 static std::atomic<uint32_t> active_record{0};
 static bool unique_audio=false,other_http_owner=false;
 [[maybe_unused]] static std::atomic<bool> power_suspended{false},pairing_http_active{false};
@@ -238,10 +237,10 @@ int main(int argc,char **argv){
         const auto paired=snapshot();assert(paired.enabled && paired.phase==MEMO_SERVICE_PAIRED);
         const auto unchanged=durable[1];unsigned saved_writes=writes;
         other_http_owner=true;assert(network_sync_set_local_only(true)==MEMO_CONFIG_BUSY);other_http_owner=false;
-        for(int cut=0;cut<4;++cut){
-            file_read_active=cut==0;stream_http_active=cut==1;active_record=cut==2?1:0;unique_audio=cut==3;
+        for(int cut=0;cut<3;++cut){
+            file_read_active=cut==0;active_record=cut==1?1:0;unique_audio=cut==2;
             assert(network_sync_set_local_only(true)==MEMO_CONFIG_BUSY);
-            file_read_active=0;stream_http_active=false;active_record=0;unique_audio=false;
+            file_read_active=0;unique_audio=false;active_record=0;unique_audio=false;
         }
         assert(durable[1]==unchanged && writes==saved_writes && http_claims==0);
         for(bool local:{true,false}){
@@ -344,11 +343,11 @@ int main(int argc,char **argv){
     assert(network_sync_configure_service("https://two.example","23456789AB",false)==MEMO_CONFIG_BUSY);
     network_sync_audio_done();other_http_owner=false;
     assert(writes==prior_writes && durable[1]==before && durable[2]==wifi_saved);
-    for(int cut=0;cut<4;++cut){
-        file_read_active=cut==0;stream_http_active=cut==1;active_record=cut==2?1:0;unique_audio=cut==3;
+    for(int cut=0;cut<3;++cut){
+        file_read_active=cut==0;active_record=cut==1?1:0;unique_audio=cut==2;
         assert(network_sync_configure_service("https://two.example","23456789AB",false)==MEMO_CONFIG_BUSY);
         assert(durable[1]==before);
-        file_read_active=false;stream_http_active=false;active_record=0;unique_audio=false;
+        file_read_active=false;unique_audio=false;active_record=0;unique_audio=false;
     }
     file_read_active=true;assert(!network_sync_prepare_audio(0));assert(!audio_busy());file_read_active=false;
     sd_scan_requested=false;active_record=7;file_read_active=true;
@@ -479,7 +478,7 @@ int main(){
             for name,text in HEADERS.items():
                 file=temp/name;file.parent.mkdir(parents=True,exist_ok=True);file.write_text(text)
             source=(ROOT/'main/network_sync.cpp').read_text()
-            markers=['bool audio_busy','class HttpGuard','class ConfigGuard','class ConfigCommitGuard','bool current_service','void status_update','void set_error','void refresh_service_status',
+            markers=['bool audio_busy','class HttpGuard','class ConfigGuard','class ConfigCommitGuard','void status_update','void set_error','void refresh_service_status',
                      'extern "C" void network_sync_get_status','extern "C" void network_sync_get_service_config',
                      'bool pairing_is_current','memo_config_result_t pairing_bind','void recover_pairing',
                      'extern "C" memo_config_result_t network_sync_configure_service','extern "C" memo_config_result_t network_sync_set_local_only',

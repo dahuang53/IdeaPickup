@@ -40,7 +40,6 @@ extern "C" bool memo_portal_apply(const char *,size_t,char *,size_t);
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
-#include "mbedtls/sha256.h"
 #include "nvs.h"
 
 namespace {
@@ -51,13 +50,13 @@ constexpr uint32_t NEW_RECORD_SETTLE_MS = 4'000;
 
 SemaphoreHandle_t status_mutex;
 SemaphoreHandle_t http_mutex;
-std::atomic<bool> stream_http_active{false};
 std::atomic<bool> pairing_http_active{false};
 std::atomic<uint32_t> selected_cardless{0};
 std::atomic<uint32_t> cancel_request{0};
 std::atomic<bool> sd_abort{false},sd_media_abort{false};
 std::atomic<bool> sd_resume_after_media{false};
 memo_sd::Runtime sd_runtime;
+std::atomic<int64_t> last_cloud_delivery{0};
 bool sd_step_pending=false,sd_step_blocked=false;
 uint32_t sd_step_delay_ms=0;
 std::atomic<uint32_t> tracked_sd_id{0};
@@ -114,17 +113,12 @@ class ConfigCommitGuard {
 public:
     bool acquired;
     ConfigCommitGuard():acquired(memo_config_activity_acquire(&activity_gate,MEMO_ACTIVITY_COMMIT)) {
-        if(acquired && (file_read_active.load() || stream_http_active.load() || active_record.load() || memo_cardless_busy())) {
+        if(acquired && (file_read_active.load() || active_record.load() || memo_cardless_busy())) {
             memo_config_activity_release(&activity_gate,MEMO_ACTIVITY_COMMIT);acquired=false;
         }
     }
     ~ConfigCommitGuard(){if(acquired)memo_config_activity_release(&activity_gate,MEMO_ACTIVITY_COMMIT);}
 };
-bool current_service(memo_config_snapshot_t &out)
-{
-    ConfigGuard guard;
-    return guard.value && memo_config_credentials(guard.value,&out)==MEMO_CONFIG_OK;
-}
 void job_state(uint32_t id, memo_job_state_t state, unsigned percent=0) {
     if(active_record.load()==id)active_state.store(state);
     xSemaphoreTake(status_mutex,portMAX_DELAY);
@@ -328,7 +322,11 @@ bool sync_one(uint32_t id,bool cancel=false){
  io.clock_ready=[](void *){return ensure_clock("https://cloud");};io.control=sd_control;
  io.progress=[](void *,memo_job_state_t state){job_state(active_record.load(),state);};
  if(missing_cancel)memo_sd::view("/sdcard/memos",id,config.value,result);
- else memo_sd::step("/sdcard/memos",id,config.value,io,sd_runtime,result);
+ else {
+  sd_runtime.last_delivery_ms=last_cloud_delivery.load();
+  memo_sd::step("/sdcard/memos",id,config.value,io,sd_runtime,result);
+  last_cloud_delivery.store(std::max(last_cloud_delivery.load(),sd_runtime.last_delivery_ms));
+ }
  end_sd_io(nullptr);
  sd_step_pending=result.pending;sd_step_delay_ms=result.delay_ms;
  sd_step_blocked=result.error==memo_sd::Error::Storage||result.needs_rebind||
@@ -434,7 +432,7 @@ void sync_task(void *)
                 sd_scan_requested.store(true);next_sd_us=0;
             }
         }
-        memo_cardless_network_step(); // Old no-card consumer is replaced in step 4.
+        memo_cardless_network_step(); // The same owner drives bounded realtime PCM.
         memo_network_status_t snapshot;network_sync_get_status(&snapshot);
         bool eligible=snapshot.connected&&!snapshot.provisioning&&!power_suspended.load();
         if(eligible&&!previously_eligible){sd_scan_requested.store(true);next_scan_us=next_sd_us=0;}
@@ -620,6 +618,8 @@ extern "C" void network_sync_get_service_config(memo_config_public_t *out)
 
 // Recording pipelines adopt direct calls in steps 3/4, using the existing
 // single network owner and HTTP gate; no additional scheduler or task.
+extern "C" int64_t network_sync_delivery_last(){return last_cloud_delivery.load();}
+extern "C" void network_sync_delivery_started(){last_cloud_delivery.store(esp_timer_get_time()/1000);}
 extern "C" bool network_sync_cloud_acquire() {
     return http_mutex && xSemaphoreTakeRecursive(http_mutex,0)==pdTRUE;
 }
@@ -699,7 +699,7 @@ extern "C" void network_sync_record_status(memo_record_sync_t *out) {
         memo_cardless_record_t record{};
         out->id=cardless_id;out->cardless=true;out->state=MEMO_JOB_CHECKING;
         if(memo_cardless_peek(cardless_id,&record)) {
-            out->state=record.state;out->can_retry=memo_cardless_can_resume(cardless_id);
+            out->state=record.state;out->can_retry=false;
             out->interrupted=record.interrupted;out->can_cancel=memo_cardless_can_cancel(cardless_id);
             snprintf(out->error,sizeof(out->error),"%s",record.error);
 
@@ -715,7 +715,7 @@ extern "C" void network_sync_record_status(memo_record_sync_t *out) {
     xSemaphoreGive(status_mutex);
 }
 extern "C" bool network_sync_retry_record(uint32_t id) {
-    if(id & MEMO_CARDLESS_ID_FLAG)return memo_cardless_retry(id);
+    if(id & MEMO_CARDLESS_ID_FLAG)return false;
     if(!storage_available.load() || !id || id>latest_id.load() || audio_busy() || !status_mutex)return false;
     DirectConfig config;if(!config.valid||!config.value.enabled||!memo_cloud_config_ready(&config.value))return false;
     xSemaphoreTake(status_mutex,portMAX_DELAY);
@@ -747,12 +747,6 @@ extern "C" void network_sync_observe_latest(uint32_t record_id) {
     while(record_id>previous && !latest_id.compare_exchange_weak(previous,record_id)) {}
 }
 
-extern "C" bool network_sync_current_target(memo_sync_target_t *out){
- if(!out)return false;
- *out={};memo_config_snapshot_t service{};{ConfigGuard guard;if(!guard.value||memo_config_read_snapshot(guard.value,&service)!=MEMO_CONFIG_OK||service.phase!=MEMO_SERVICE_PAIRED)return false;}
- out->instance=service.instance;snprintf(out->device_id,sizeof(out->device_id),"%s",service.device_id);
- return mbedtls_sha256((const unsigned char *)service.base_url,strlen(service.base_url),out->url_hash,0)==0;
-}
 extern "C" bool network_sync_track_record(uint32_t id){
  if(!id){tracked_sd_id.store(0);tracked_enabled=false;return true;}
  DirectConfig config;tracked_enabled=config.valid&&config.value.enabled&&memo_cloud_config_ready(&config.value);
@@ -853,7 +847,7 @@ extern "C" bool network_sync_power_busy(void)
     auto owner=memo_config_activity(&activity_gate);
     // A periodic media query must not restart the user inactivity timer.
     return snapshot.provisioning || snapshot.syncing || owner==MEMO_ACTIVITY_AUDIO || owner==MEMO_ACTIVITY_COMMIT || file_read_active.load() ||
-           stream_http_active.load() || pairing_http_active.load() || memo_cardless_busy();
+           pairing_http_active.load() || memo_cardless_busy();
 }
 
 extern "C" bool network_sync_power_suspend(void)
@@ -893,60 +887,4 @@ extern "C" void network_sync_power_set_saving(bool saving)
     if(active_record.load()){sd_media_abort.store(true);sd_abort.store(true);}
     manager.SetPowerSaveLevel(saving ? WifiPowerSaveLevel::LOW_POWER :
                                       WifiPowerSaveLevel::PERFORMANCE);
-}
-
-extern "C" int network_sync_stream_request(const char *method,const char *path,
-    uint32_t record_id,const void *payload,size_t length,const char *content_type,
-    const char *chunk_sha,char *response,size_t capacity)
-{
-    if(response && capacity)response[0]='\0';
-    if(!http_mutex || !method || !path || strncmp(path,"/v1/streams",11) ||
-       length>65536 || !response || !capacity)return 0;
-    memo_network_status_t snapshot;network_sync_get_status(&snapshot);
-    if(!snapshot.initialized || !snapshot.configured || !snapshot.connected || snapshot.provisioning || power_suspended.load())return 0;
-    stream_http_active.store(true);
-    HttpGuard guard;
-    memo_config_snapshot_t service{};char url[1024];
-    if(!current_service(service) || memo_config_join_url(service.base_url,path,url,sizeof(url))!=MEMO_CONFIG_OK){stream_http_active.store(false);return 0;}
-    if(!ensure_clock(service.base_url)) {stream_http_active.store(false);return 0;}
-    // Recheck inside HTTP exclusion: a selected closed task cannot race a
-    // service edit between its early task check and transport construction.
-    memo_cardless_record_t task{};memo_sync_target_t current{};
-    current.instance=service.instance;snprintf(current.device_id,sizeof(current.device_id),"%s",service.device_id);
-    if(mbedtls_sha256((const unsigned char *)service.base_url,strlen(service.base_url),current.url_hash,0)||!memo_cardless_get(record_id,&task)||!memo_sync_target_matches(&task.target,&current,false)){stream_http_active.store(false);return 412;}
-
-    esp_http_client_config_t config{};
-    config.url=url;config.crt_bundle_attach=esp_crt_bundle_attach;config.disable_auto_redirect=true;
-    config.timeout_ms=12000;config.buffer_size=1024;config.buffer_size_tx=2048;
-    MemoHttpTransport transport(config);
-    esp_http_client_handle_t client=transport.ready()?esp_http_client_init(&config):nullptr;
-    if(!client) {stream_http_active.store(false);return 0;}
-    esp_http_client_set_method(client,!strcmp(method,"PUT")?HTTP_METHOD_PUT:
-                              !strcmp(method,"POST")?HTTP_METHOD_POST:HTTP_METHOD_GET);
-    std::string authorization=std::string("Bearer ")+service.token;
-    char id[16];snprintf(id,sizeof(id),"%" PRIu32,record_id);
-    esp_http_client_set_header(client,"Authorization",authorization.c_str());
-    esp_http_client_set_header(client,"X-Device-ID",service.device_id);
-    esp_http_client_set_header(client,"X-Recording-ID",id);
-    esp_http_client_set_header(client,"User-Agent","MeowVoiceMemoDevice/0.3");
-    if(content_type)esp_http_client_set_header(client,"Content-Type",content_type);
-    if(chunk_sha)esp_http_client_set_header(client,"X-Chunk-SHA256",chunk_sha);
-    esp_err_t result=esp_http_client_open(client,(int)length);
-    size_t sent=0;
-    while(result==ESP_OK && sent<length) {
-        size_t want=length-sent; if(want>4096)want=4096;
-        transport.write_window();
-        int n=esp_http_client_write(client,static_cast<const char *>(payload)+sent,want);
-        if(n<=0) {result=ESP_FAIL;break;}
-        sent+=(size_t)n;
-    }
-    int code=0;std::string body;
-    if(result==ESP_OK && esp_http_client_fetch_headers(client)>=0) {
-        code=esp_http_client_get_status_code(client);
-        if(read_http_body(client,body)!=ESP_OK || body.size()>=capacity)code=0;
-        else memcpy(response,body.c_str(),body.size()+1);
-    }
-    esp_http_client_close(client);esp_http_client_cleanup(client);
-    stream_http_active.store(false);
-    return code;
 }

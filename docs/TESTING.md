@@ -16,7 +16,7 @@
 | [run_host_tests.sh](../tests/run_host_tests.sh) | 真实存储 / WAV 收尾、录放状态、语音门、供电、USB PCM 等 portable C 与 FakeSerial 测试，ASan / UBSan；无旧分区迁移测试 |
 | [test_relay.sh](../scripts/test_relay.sh) | 实际后端 / HTTP / 账本 / broker / 清理 / 权限 / 供应商本地 TLS 替身；保留原有可选一小时测试边界 |
 | [test_service_config.sh](../scripts/test_service_config.sh) | 当前配置 / 配对及 AP handler，实际生产 C/C++ 与 ASGI，ESP / RF / NVS 为显式平台替身 |
-| [test_sync_pipeline.sh](../scripts/test_sync_pipeline.sh) | 直连有卡生产状态机与协议的52项合成回归：虚拟WAV分段／文本、持久尝试／检查点、取消／不确定、历史只读与账户变更；旧无卡中继回归使用单独兼容fixture。边界见[第三步记录](DEVICE_DIRECT_CLOUD_STEP3.md)，不伪装真实拔电 |
+| [test_sync_pipeline.sh](../scripts/test_sync_pipeline.sh) | 直连有卡生产状态机与协议的52项合成回归：虚拟WAV分段／文本、持久尝试／检查点、取消／不确定、历史只读与账户变更；无卡使用实际直连实时状态机的独立合成回归。边界见[第三步记录](DEVICE_DIRECT_CLOUD_STEP3.md)，不伪装真实拔电 |
 | [test_cloud.sh](../scripts/test_cloud.sh) | 设备直连协议：生产C++配本地合成HTTPS／WebSocket，最大段流式发送、明确失败／投递不确定；另执行实际ESP适配的SDK／RTOS替身与ASan／UBSan。有卡已在第三步接入，基础协议本身不证明真机／真实供应商通过；边界见[第二步记录](DEVICE_DIRECT_CLOUD_STEP2.md) |
 | [test_firmware_install.sh](../scripts/test_firmware_install.sh) | 打包 / 安装边界、SDK / 生产 stdio 与 SD DMA 无内存回归；不使用设备 |
 
@@ -54,9 +54,9 @@
 
 ## 源码与镜像材料
 
-同步状态回归还覆盖：详情只读取已保存状态、不发 HTTP 或改写任务意图；设备详情不读取音频正文，无法识别同编号同长度的外部替换；服务器实际接收时核对已绑定任务的内容冲突；无卡 1024 条索引与 4 个详情槽反复淘汰、活动记录保留、孤立任务恢复，以及未结束任务后台查询和终态停止查询。有卡第三步使用直连检查点及本地详情，旧服务器冲突和无卡轮询仅属于尚未迁移的旧无卡兼容测试。`test_sync_metadata_lock.py` 用真实直连元数据编解码与 FatFs 共享冲突替身验证并发读写；`test_service_runtime.py` 验证串口维护模式沿用保存事务、保留配对和 Wi-Fi、忙态拒绝与重复保存不写 Flash。主机替身不能代替设备内存、SD 读取耗时、触摸或真实传输测试。现有 HTTP SDK 操作超时也不等于请求全程的硬总期限。
+有卡详情只读轻量状态、无HTTP／SHA／无变化写入；对应[第三步](DEVICE_DIRECT_CLOUD_STEP3.md)。无卡实际实时协议／生产任务回归见[第四步](DEVICE_DIRECT_CLOUD_STEP4.md)：有界PCM／文本、最终结果及一次投递、断开和背压退出、有限重试、不确定、取消、NVS故障／容量、混合1024索引／四详情与启动中断收尾。没有旧ACK恢复／历史轮询或无卡设备重试。
 
-`test_network_worker.py` 执行生产网络调度循环，核对无卡时仍推进网络任务、活动流期间排除 SD 同步，以及活动／空闲／配网的等待间隔。`test_cardless_runtime.py` 另行执行原传输状态机的真实协议与故障回归；共享执行者不改变录音编号、确认顺序或不确定结果的恢复规则。
+`test_sync_metadata_lock.py` 验证真实直连元数据编解码与FatFs冲突替身；`test_network_worker.py` 执行共享调度循环，核对无卡进展、媒体排除与等待；`test_service_runtime.py` 保留配置／媒体门闩、NVS故障和Wi-Fi边界。主机计数不能替代真机内存、SD性能、触摸、实听或真实传输。
 
 `tests/test_public_export.py` 验证源归档隐私、链接／变更拒绝及无Git构建身份，随整体主机入口执行。构建收据的source_commit可能是本仓库Git提交或source-sha256；定义在产物契约／source_identity，不读取外层Git。
 
@@ -86,4 +86,4 @@ R12 SD探卡回归由`tests/run_host_tests.sh`调用`test_sd_probe.py`，五组�
 
 自动同步状态回归还覆盖固定无卡索引／详情淘汰、本地详情不发 HTTP、同一任务恢复、长录音详情仅读取文件头，以及请求期限。`test_http_deadline.py` 用 socket pair 验证生产中断任务打断嵌套等待及暂时中断失败后的重试，TCP/TLS 与 RTOS 通知／时间调度为明确替身；不将它称为真机 TLS 故障测试。物理换卡、触摸、真实转写与投递证据须分别核验。
 
-运行开销回归：`test_cardless_runtime.py` 用真实状态机及合成服务验证多段ACK不重复持久写入、RAM进度与旧Flash进度分离、随后模拟重启仍只恢复服务器确认前缀；另验证无变化轮询退避上限和完成后停止。`test_portal_async.cjs`验证页面隐藏、请求中切后台、返回前台、配对快速更新和稳定降频。可见且连接／配对中每2秒查询，稳定后每10秒查询；隐藏时停止新增状态轮询；返回后刷新，若旧请求仍在途则结束后立即补一次。原保存事务及外观不变。合成写计数不是Flash擦除次数或电量实测，模拟重启不是物理断电验收。
+运行开销回归：`test_cardless_runtime.py` 验证直连有界资源、终态不发请求／不写Flash、无历史轮询、启动只做本地中断收尾。`test_portal_async.cjs`验证页面隐藏、请求中切后台、返回前台、配对快速更新和稳定降频。可见且连接／配对中每2秒查询，稳定后每10秒查询；隐藏时停止新增状态轮询；返回后刷新，若旧请求仍在途则结束后立即补一次。原保存事务及外观不变。合成写计数不是Flash擦除次数或电量实测，模拟重启不是物理断电验收。

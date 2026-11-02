@@ -8,7 +8,7 @@ chmod 700 private/host-tests
 suite_dir="$(mktemp -d private/host-tests/sync-pipeline.XXXXXX)"
 trap 'rm -rf -- "$suite_dir"' EXIT
 "${CC:-cc}" -std=c11 -DMEMO_HOST_TEST -Wall -Wextra -Werror -pedantic -g -O1 \
- -fsanitize=address,undefined -I main main/memo_record_ids.c main/memo_cardless_record.c \
+ -fsanitize=address,undefined -I main main/memo_record_ids.c main/memo_cardless_record.c tests/legacy_cardless_fixture.c \
  tests/test_record_ids.c -o "$suite_dir/ids"
 "$suite_dir/ids"
 .venv-relay/bin/python tests/test_sync_metadata_lock.py

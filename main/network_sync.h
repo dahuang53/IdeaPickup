@@ -46,12 +46,13 @@ uint32_t network_sync_detail_stack_free(void);
 uint32_t network_sync_http_stack_free(void);
 /* Wake the single HTTP worker after cardless audio/state becomes available. */
 void network_sync_wake(void);
+/* One device-wide delivery interval shared by SD and cardless owners. */
+int64_t network_sync_delivery_last(void);
+void network_sync_delivery_started(void);
 void network_sync_get_status(memo_network_status_t *out);
 void network_sync_notify_record(uint32_t record_id);
 /* Called by the audio owner after an exact device ID reservation, before capture. */
 bool network_sync_track_record(uint32_t record_id);
-/* No credential is returned. Binding retained with each actual task. */
-bool network_sync_current_target(memo_sync_target_t *out);
 void network_sync_set_storage_available(bool available);
 /* Raise the valid local ID boundary without scheduling any upload. */
 void network_sync_observe_latest(uint32_t record_id);
@@ -74,13 +75,6 @@ void network_sync_select_record(uint32_t id);
 void network_sync_record_status(memo_record_sync_t *out);
 bool network_sync_retry_record(uint32_t id);
 bool network_sync_cancel_record(uint32_t id);
-
-/* Used by the cardless worker only. Adds the device-scoped authorization and
- * identity headers. It does not read SD or block the audio acquisition task. */
-int network_sync_stream_request(const char *method, const char *path,
-                                uint32_t record_id, const void *body, size_t length,
-                                const char *content_type, const char *chunk_sha,
-                                char *response, size_t capacity);
 
 /* Toggle the manual browser configuration hotspot. Safe only while recording/playback are idle. */
 void network_sync_toggle_provisioning(void);

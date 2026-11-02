@@ -12,7 +12,7 @@ def build(temp):
     for name,text in HEADERS.items():
         p=temp/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_text(text)
     source=(ROOT/'main/network_sync.cpp').read_text()
-    markers=['class ConfigGuard','class ConfigCommitGuard','bool current_service','void status_update','void set_error','void refresh_service_status',
+    markers=['class ConfigGuard','class ConfigCommitGuard','void status_update','void set_error','void refresh_service_status',
         'extern "C" void network_sync_get_status','extern "C" void network_sync_get_service_config',
         'extern "C" memo_config_result_t network_sync_configure_service',
         'extern "C" bool network_sync_prepare_audio','extern "C" void network_sync_audio_done']
