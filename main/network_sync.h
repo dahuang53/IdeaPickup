@@ -65,6 +65,8 @@ typedef struct {
     bool can_retry;
     bool can_cancel;
     bool interrupted;
+    bool service_ready;
+    bool needs_rebind;
     char error[80];
 } memo_record_sync_t;
 /* UI-only snapshots: no SD or network IO on the LVGL task. */

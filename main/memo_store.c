@@ -191,10 +191,13 @@ int memo_store_init(memo_store_t *store, const char *root)
  * Filename exclusion is not a history proof or a trusted device counter. */
 static bool parse_task_name(const char *name,uint32_t *id)
 {
-    if(strlen(name)!=24 || memcmp(name,"sync_r1_",8) ||
-       (strcmp(name+18,".job.0") && strcmp(name+18,".job.1")))return false;
+    size_t prefix;
+    if(strlen(name)==24 && !memcmp(name,"sync_r1_",8))prefix=8;
+    else if(strlen(name)==26 && !memcmp(name,"direct_r1_",10))prefix=10;
+    else return false;
+    if(strcmp(name+prefix+10,".job.0") && strcmp(name+prefix+10,".job.1"))return false;
     uint64_t value=0;
-    for(unsigned i=8;i<18;i++){
+    for(size_t i=prefix;i<prefix+10;i++){
         if(name[i]<'0'||name[i]>'9')return false;
         value=value*10U+(unsigned)(name[i]-'0');
     }

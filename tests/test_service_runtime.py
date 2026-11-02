@@ -95,7 +95,7 @@ HARNESS=r'''
 
 static SemaphoreHandle_t http_mutex=(void *)1,status_mutex=(void *)2;
 static void *sync_task_handle=nullptr;
-static std::atomic<bool> sd_scan_requested{true};
+static std::atomic<bool> sd_scan_requested{true},sd_abort{false},sd_media_abort{false},sd_resume_after_media{false};
 static memo_config_activity_gate_t activity_gate{};
 static std::atomic<uint32_t> file_read_active{0};
 static std::atomic<memo_job_state_t> active_state{MEMO_JOB_UNKNOWN};
@@ -351,6 +351,11 @@ int main(int argc,char **argv){
         file_read_active=false;stream_http_active=false;active_record=0;unique_audio=false;
     }
     file_read_active=true;assert(!network_sync_prepare_audio(0));assert(!audio_busy());file_read_active=false;
+    sd_scan_requested=false;active_record=7;file_read_active=true;
+    assert(!network_sync_prepare_audio(0)&&sd_abort&&sd_media_abort&&sd_scan_requested&&!sd_resume_after_media);
+    assert(!audio_busy());active_record=0;file_read_active=false;sd_abort=sd_media_abort=false;
+    sd_scan_requested=false;assert(network_sync_prepare_audio(0));sd_resume_after_media=true;network_sync_audio_done();assert(sd_scan_requested);
+
     // Production probe gate blocks audio/config/SD I/O, but not idle accounting.
     assert(network_sync_try_sd_probe());assert(audio_busy());
     assert(!begin_sd_io(nullptr)&&!file_read_active);

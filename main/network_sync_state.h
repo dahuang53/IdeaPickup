@@ -26,8 +26,8 @@ void memo_sync_queue_manual_persisted(memo_sync_queue_t *queue, uint32_t id,
 bool memo_sync_queue_start(memo_sync_queue_t *queue, bool auto_settled);
 void memo_sync_queue_finish(memo_sync_queue_t *queue, uint32_t id);
 bool memo_sync_queue_contains(const memo_sync_queue_t *queue, uint32_t id);
-/* Relay acceptance finishes device-side sending. Background reconciliation
- * tracks the same task; opening details only reads its saved local state. */
+/* ASR -> DELIVERY and retry waits keep the same task; only terminal states
+ * finish the device attempt. Details always read saved local state. */
 bool memo_sync_device_attempt_done(memo_job_state_t state);
 
 #ifdef __cplusplus

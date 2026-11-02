@@ -14,6 +14,8 @@ PRELUDE = r'''
 #include "network_sync.h"
 #include "network_sync_state.h"
 #include <atomic>
+#include <algorithm>
+#include "memo_cloud_config.h"
 #include <cassert>
 #include <functional>
 #include <vector>
@@ -24,11 +26,16 @@ PRELUDE = r'''
 constexpr int RETRY_DELAY_MS=15000,NEW_RECORD_SETTLE_MS=1000;
 static memo_network_status_t status_value{};
 static memo_sync_queue_t sync_queue{};
-static std::atomic<bool> storage_available{false},power_suspended{false},sd_scan_requested{false};
+static std::atomic<bool> storage_available{false},power_suspended{false},sd_scan_requested{false},sd_media_work{false};
 static std::atomic<int64_t> latest_change_us{0};
 static std::atomic<uint32_t> active_record{0},cancel_request{0};
 static std::atomic<memo_job_state_t> active_state{MEMO_JOB_LOCAL};
-static int status_mutex=1,sync_task_handle=1;
+static int status_mutex=1,sync_task_handle=1,detail_task_handle=1;
+static std::atomic<uint32_t> inspect_id{0};
+static bool sd_step_pending=false,sd_step_blocked=false;static uint32_t sd_step_delay_ms=0;
+static int config_reads=0,phases=0;
+struct DirectConfig {memo_cloud_config_t value{};DirectConfig(){config_reads++;}};
+static void defer_detail(uint32_t){}
 static int steps=0,rf=0,scans=0,sd_jobs=0,pairings=0,remaining=0,stop_after=0;
 static int64_t clock_us=1000000;
 static bool ap=false,audio=false;
@@ -55,23 +62,24 @@ static void xTaskNotifyGive(int){}
 static bool persist_manual(uint32_t){return true;}
 static void job_state(uint32_t,memo_job_state_t){}
 extern "C" bool network_sync_current_target(memo_sync_target_t*){return true;}
-static bool discover_sd_work(const memo_sync_target_t&){assert(!memo_cardless_busy());scans++;return true;}
-static bool sync_one(uint32_t,bool,bool=false,bool cancel=false){assert(!memo_cardless_busy());sd_jobs++;if(cancel){cancel_calls++;if(cancel_failures-->0)return false;}active_state=MEMO_JOB_SENT;return true;}
+static bool discover_sd_work(const memo_cloud_config_t&){assert(!memo_cardless_busy());if(sd_scan_requested.exchange(false))scans++;return true;}
+static bool sync_one(uint32_t,bool cancel=false){assert(!memo_cardless_busy());sd_jobs++;if(cancel){cancel_calls++;if(cancel_failures-->0)return false;}sd_step_pending=phases-->1;sd_step_blocked=false;sd_step_delay_ms=sd_step_pending?5000:0;active_state=sd_step_pending?MEMO_JOB_WAITING:MEMO_JOB_SENT;return true;}
 static void ulTaskNotifyTake(int,int ms){waits.push_back(ms);clock_us+=ms*1000;if(steps>=stop_after)throw Done{};}
 '''
 MAIN = r'''
 static void run(int count){stop_after=count;try{sync_task(nullptr);}catch(Done&){}assert(steps==count&&rf==count);}
-static void reset(){status_value={};status_value.configured=true;sync_queue={};steps=rf=scans=sd_jobs=pairings=0;remaining=0;power_suspended=false;cancel_request=0;cancel_failures=cancel_calls=0;waits.clear();ap=audio=false;storage_available=false;clock_us=1000000;}
+static void reset(){status_value={};status_value.configured=true;sync_queue={};steps=rf=scans=sd_jobs=pairings=0;remaining=0;power_suspended=false;cancel_request=0;cancel_failures=cancel_calls=0;waits.clear();ap=audio=false;storage_available=false;clock_us=1000000;sd_scan_requested=false;sd_step_pending=sd_step_blocked=false;sd_step_delay_ms=0;config_reads=phases=0;}
 int main(){
  reset();remaining=99;run(4);assert(scans==0&&sd_jobs==0);assert((waits==std::vector<int>{250,250,250,250}));
  reset();run(3);assert(scans==0&&sd_jobs==0);assert((waits==std::vector<int>{15000,15000,15000}));
  reset();remaining=3;storage_available=true;sync_queue.active_id=7;run(3);assert(sd_jobs==1&&scans==1);assert((waits==std::vector<int>{250,250,15000}));
  reset();ap=true;status_value.provisioning=true;storage_available=true;run(2);assert(!scans&&!sd_jobs);assert((waits==std::vector<int>{1000,1000}));
  reset();audio=true;storage_available=true;run(2);assert(!scans&&!sd_jobs&&steps==2);
- reset();storage_available=true;cancel_request=7;ap=true;status_value.provisioning=true;run(2);assert(cancel_calls==0&&cancel_request==7);
+ reset();storage_available=true;cancel_request=7;ap=true;status_value.provisioning=true;run(2);assert(cancel_calls==1&&cancel_request==0);
  reset();storage_available=true;cancel_request=7;power_suspended=true;run(2);assert(cancel_calls==0&&cancel_request==7);
  reset();storage_available=true;cancel_request=7;remaining=99;run(2);assert(cancel_calls==0&&cancel_request==7);
  reset();storage_available=true;cancel_request=7;cancel_failures=1;run(3);assert(cancel_calls==2&&cancel_request==0);
+ reset();storage_available=true;sync_queue.active_id=7;phases=2;run(2);assert(sd_jobs==2&&!sync_queue.active_id&&waits[0]==5000);
 }
 '''
 

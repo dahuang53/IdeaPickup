@@ -28,13 +28,10 @@ typedef struct {
  memo_audio_identity_t audio;
 } memo_sync_entry_t;
 typedef enum { MEMO_CACHE_MISSING, MEMO_CACHE_OK, MEMO_CACHE_INVALID, MEMO_CACHE_IO_ERROR } memo_cache_result_t;
-/* Current metadata: destination/intent before HTTP; audio digest from server receipt.
- * Two independently fsynced/read-back slots avoid FAT overwrite-rename. */
+/* Read-only legacy metadata compatibility. Never schedules relay requests or
+ * writes the old slots; new direct checkpoints live in memo_sd_sync.h. */
 memo_cache_result_t memo_sync_entry_read(const char *,uint32_t,memo_sync_entry_t *);
-bool memo_sync_entry_write(const char *,const memo_sync_entry_t *);
 bool memo_sync_target_matches(const memo_sync_target_t *,const memo_sync_target_t *,bool partial);
-bool memo_sync_audio_matches(const memo_audio_identity_t *,const memo_audio_identity_t *);
-bool memo_sync_entry_equal(const memo_sync_entry_t *,const memo_sync_entry_t *);
 #ifdef __cplusplus
 }
 #endif

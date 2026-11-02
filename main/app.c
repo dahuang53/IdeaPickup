@@ -426,7 +426,7 @@ static void record_stop(bool valid, bool emergency) {
     voice_set_mode(VOICE_OFF);
     esp_err_t audio_err=(emergency || !valid || !voice_ready)?microphone_stop():ESP_OK;
     if (!valid || audio_err!=ESP_OK) {
-        memo_store_abort(&store);
+        network_sync_track_record(0);memo_store_abort(&store);
         if(!emergency)network_sync_audio_done();
         errno=valid?EIO:cause; failure("录音失败，未保存"); return;
     }
@@ -530,6 +530,7 @@ static void start_record(void) {
         failure(injected?"测试：空间不足，未保存":"空间不足或存储卡错误");return;
     }
     uint32_t floor=0,reserved=0;
+    network_sync_track_record(0); // An abandoned reservation cannot arm a fallback ID.
     if(memo_store_max_id(&store,&floor)) {network_sync_audio_done();failure("录音目录读取失败");return;}
     if(latest_visible_id()>floor)floor=latest_visible_id();
     bool allocated=memo_record_ids_reserve(floor,&reserved);
@@ -537,9 +538,9 @@ static void start_record(void) {
     if(opened) {network_sync_audio_done();failure("无法创建录音文件");return;}
     if(allocated)network_sync_track_record(store.id);
     else ESP_LOGW(TAG,"LOCAL_ID_FALLBACK id=%"PRIu32" automatic_sync=0",store.id);
-    if (microphone_start()!=ESP_OK) {memo_store_abort(&store);network_sync_audio_done();failure("麦克风打开失败");return;}
+    if (microphone_start()!=ESP_OK) {network_sync_track_record(0);memo_store_abort(&store);network_sync_audio_done();failure("麦克风打开失败");return;}
     if (board_record_resync()!=ESP_OK) {
-        memo_store_abort(&store);microphone_stop();network_sync_audio_done();failure("麦克风同步失败");return;
+        network_sync_track_record(0);memo_store_abort(&store);microphone_stop();network_sync_audio_done();failure("麦克风同步失败");return;
     }
     started_us=esp_timer_get_time();recording_overflows=board_record_overflows();
     next_checkpoint_bytes=RECORD_CHECKPOINT_BYTES;
@@ -914,7 +915,7 @@ static void worker(void *arg) {
                 }
                 unsigned peak=0;for(unsigned i=0;i<512;i++){int a=pcm[i];if(a<0)a=-a;if((unsigned)a>peak)peak=(unsigned)a;}
                 xSemaphoreTake(mutex,portMAX_DELAY);model.elapsed_ms=s.cardless?memo_cardless_elapsed_ms():store.data_bytes/32;model.level=meter_level(peak);xSemaphoreGive(mutex);
-                if(!s.cardless && ++capacity_ticks%32==0 && !have_space()) {memo_store_abort(&store);microphone_stop();network_sync_audio_done();errno=ENOSPC;failure("空间不足，未保存");continue;}
+                if(!s.cardless && ++capacity_ticks%32==0 && !have_space()) {network_sync_track_record(0);memo_store_abort(&store);microphone_stop();network_sync_audio_done();errno=ENOSPC;failure("空间不足，未保存");continue;}
             }
             if(s.state==MEMO_USB_MIC) {
                 memo_usb_submit(pcm,512);

@@ -67,7 +67,7 @@ fi
 
 "${CC:-cc}" -std=c11 -D_POSIX_C_SOURCE=200809L -Wall -Wextra -Werror -pedantic \
   -fsanitize=address,undefined -I "$project_dir/main" "$project_dir/main/memo_sync_cache.c" \
-  "$project_dir/tests/test_sync_cache.c" -o "$test_dir/test_sync_cache"
+  "$project_dir/tests/legacy_sync_fixture.c" "$project_dir/tests/test_sync_cache.c" -o "$test_dir/test_sync_cache"
 "$test_dir/test_sync_cache" "$test_dir/sync.bin"
 
 "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -pedantic -g -O1 \

@@ -9,7 +9,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
-from test_sync_pipeline import SyncTests, Target, ROOT
+from legacy_relay_fixture import LegacyRelayFixture, Target, ROOT
 from test_stream_service import synthetic_chunks
 from test_service_runtime import extract
 
@@ -246,7 +246,7 @@ extern "C" bool fixture_reboot(){
 
 '''
 
-class CardlessTests(SyncTests):
+class CardlessTests(LegacyRelayFixture):
     # Reuse the real pairing/provider fixture, not its inherited SD test methods.
     @classmethod
     def setUpClass(cls):
@@ -564,8 +564,4 @@ class CardlessTests(SyncTests):
                 self.assertTrue(self.runtime_lib.fixture_reboot());self.tick(5)
                 self.assertEqual(self.runtime_lib.fixture_active(),0)
 
-# Avoid rerunning the unrelated inherited SD methods; they have their own suite.
-for name in list(SyncTests.__dict__):
-    if name.startswith('test_'):setattr(CardlessTests,name,None)
-del SyncTests
 if __name__=='__main__':unittest.main(verbosity=2)

@@ -213,6 +213,7 @@ class SyncDemandTests(unittest.TestCase):
 #include <cstdint>
 #include <cstddef>
 #include "network_sync_state.h"
+#include "memo_cloud_config.h"
 static std::atomic<bool> sd_scan_requested{true},sd_media_work{false};
 static std::atomic<uint32_t> sd_directory_scans{0};
 static memo_sync_queue_t sync_queue{};
@@ -220,7 +221,12 @@ static int status_mutex;
 #define portMAX_DELAY 0
 #define ESP_OK 0
 static bool io_ok=true,media_ok=true,scan_ok=true,event_during_scan=false;
-static uint32_t found,observed_latest,notify_count;
+static uint32_t found,observed_latest,notify_count,created,tracked_qwen,tracked_siyuan;
+static bool tracked_enabled=false;static std::atomic<uint32_t> tracked_sd_id{0};
+struct DirectConfig {memo_cloud_config_t value{};bool valid=true;DirectConfig(){value.enabled=true;}};
+static void set_error(const char*){}
+extern "C" bool memo_cloud_config_ready(const memo_cloud_config_t*){return true;}
+namespace memo_sd {static bool create(const char*,uint32_t,const memo_cloud_config_t&,bool){created++;return true;}}
 static unsigned sync_task_handle=1;
 static std::atomic<int64_t> latest_change_us{0};
 static int64_t esp_timer_get_time(){return 123;}
@@ -232,16 +238,16 @@ static void end_sd_io(void*){assert(io_owned);io_owned=false;}
 static int board_sd_check(){assert(io_owned);return media_ok?0:1;}
 static void xSemaphoreTake(int,int){}
 static void xSemaphoreGive(int){}
-static uint32_t memo_sd_sync_pending(const char*,const memo_sync_target_t*,uint32_t*,bool*manual,bool*complete){
- assert(io_owned);*manual=false;*complete=scan_ok;
+namespace memo_sd {static uint32_t pending(const char*,const memo_cloud_config_t&,uint32_t*,bool*complete){
+ assert(io_owned);*complete=scan_ok;
  if(event_during_scan)sd_scan_requested=true;
  return found;
-}
+}}
 '''
-  body=function(source,'bool pending_record(')+function(source,'bool discover_sd_work(')+function(source,'extern "C" void network_sync_notify_record(')
+  body=function(source,'bool pending_record(')+function(source,'bool discover_sd_work(')+function(source,'extern "C" bool network_sync_track_record(')+function(source,'extern "C" void network_sync_notify_record(')
   checks=r'''
 int main(){
- memo_sync_target_t target{};
+ memo_cloud_config_t target{};
  for(int n=0;n<100;n++)discover_sd_work(target);
  assert(sd_directory_scans==1&&!sd_scan_requested&&!sd_media_work);
  network_sync_notify_record(17);
@@ -258,6 +264,8 @@ int main(){
  sd_scan_requested=true;found=0;event_during_scan=true;discover_sd_work(target);
  assert(sd_scan_requested);event_during_scan=false;discover_sd_work(target);
  assert(!sd_scan_requested&&!sd_media_work&&!io_owned);
+ network_sync_track_record(20);network_sync_notify_record(20);assert(created==1);network_sync_notify_record(20);assert(created==1);
+ network_sync_track_record(21);network_sync_track_record(0);network_sync_notify_record(21);assert(created==1);
 }
 '''
   with tempfile.TemporaryDirectory(prefix='sd-demand-',dir=ROOT/'private') as d:
@@ -267,43 +275,8 @@ int main(){
    subprocess.run([str(p/'demand')],check=True)
 class ScanErrorTests(unittest.TestCase):
  def test_entry_io_failure_keeps_discovery_pending(self):
-  source=(ROOT/'main/memo_sd_sync.cpp').read_text()
-  prefix=r'''
-#include <cassert>
-#include <cerrno>
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
-#include <dirent.h>
-#include <inttypes.h>
-#include "memo_sd_sync.h"
-static memo_cache_result_t cache_result=MEMO_CACHE_OK;
-static int wav_error;
-extern "C" memo_cache_result_t memo_sync_entry_read(const char*,uint32_t id,memo_sync_entry_t*out){
- *out={};out->id=id;out->automatic=true;out->state=MEMO_JOB_QUEUED;return cache_result;
-}
-extern "C" bool memo_sync_target_matches(const memo_sync_target_t*,const memo_sync_target_t*,bool){return true;}
-extern "C" int memo_store_validate(const char*,memo_record_t*){errno=wav_error;return wav_error?-1:0;}
-'''
-  checks=r'''
-int main(int argc,char**argv){
- assert(argc==2);memo_sync_target_t target{};uint32_t after=0;bool manual=false,complete=true;
- cache_result=MEMO_CACHE_IO_ERROR;
- assert(!memo_sd_sync_pending(argv[1],&target,&after,&manual,&complete)&&!complete);
- cache_result=MEMO_CACHE_MISSING;
- assert(!memo_sd_sync_pending(argv[1],&target,&after,&manual,&complete)&&complete);
- cache_result=MEMO_CACHE_OK;wav_error=EIO;
- assert(!memo_sd_sync_pending(argv[1],&target,&after,&manual,&complete)&&!complete);
- wav_error=EINVAL;
- assert(!memo_sd_sync_pending(argv[1],&target,&after,&manual,&complete)&&complete);
- wav_error=0;
- assert(memo_sd_sync_pending(argv[1],&target,&after,&manual,&complete)==1&&complete);
-}
-'''
-  with tempfile.TemporaryDirectory(prefix='sd-errors-',dir=ROOT/'private') as d:
-   p=Path(d);(p/'sync_r1_0000000001.job.0').touch();(p/'scan.cpp').write_text(prefix+function(source,'extern "C" uint32_t memo_sd_sync_pending(')+checks)
-   subprocess.run(['c++','-std=c++17','-Wall','-Wextra','-Werror','-g','-fsanitize=address,undefined','-I',str(ROOT/'main'),str(p/'scan.cpp'),'-o',str(p/'scan')],check=True)
-   subprocess.run([str(p/'scan'),str(p)],check=True)
+  from test_sync_pipeline import run_case
+  run_case('scan')
 class PlaybackIdentityTests(unittest.TestCase):
  def test_resume_checks_size_and_offset_without_audio_hash(self):
   source=(ROOT/'main/app.c').read_text()
@@ -362,7 +335,9 @@ class StorageVisibilityTests(unittest.TestCase):
 #define MEMO_PAUSED 6
 #define CMD_STOP 1
 typedef int lv_obj_t;
-static lv_obj_t *record_root,*cat_root,*panel_root,*usb_root,*provision_root;
+static lv_obj_t *record_root,*cat_root,*panel_root,*usb_root,*provision_root,*record_rebind_dialog;
+static uint32_t record_rebind_id;
+static void lv_msgbox_close(lv_obj_t*p){(void)p;}
 static bool panel_visible,record_visible,usb_visible,provision_visible,detail_return_after_stop;
 static uint32_t panel_activity_tick;
 static struct {bool cardless;} selected_record;

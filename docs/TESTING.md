@@ -16,8 +16,8 @@
 | [run_host_tests.sh](../tests/run_host_tests.sh) | 真实存储 / WAV 收尾、录放状态、语音门、供电、USB PCM 等 portable C 与 FakeSerial 测试，ASan / UBSan；无旧分区迁移测试 |
 | [test_relay.sh](../scripts/test_relay.sh) | 实际后端 / HTTP / 账本 / broker / 清理 / 权限 / 供应商本地 TLS 替身；保留原有可选一小时测试边界 |
 | [test_service_config.sh](../scripts/test_service_config.sh) | 当前配置 / 配对及 AP handler，实际生产 C/C++ 与 ASGI，ESP / RF / NVS 为显式平台替身 |
-| [test_sync_pipeline.sh](../scripts/test_sync_pipeline.sh) | 实际编号 / SD / 无卡方法与 HTTP；配置→配对→WAV / Opus→查询 / 显式重试→两端重启，多条离线／换卡／身份／持久化故障场景；后端、broker 重新打开当前持久数据，设备侧重建配置 / sidecar / NVS 替身，不伪装真实拔电 |
-| [test_cloud.sh](../scripts/test_cloud.sh) | 设备直连协议：生产C++配本地合成HTTPS／WebSocket，最大段流式发送、明确失败／投递不确定；另执行实际ESP适配的SDK／RTOS替身与ASan／UBSan。未接入录音主路径，不证明真机／真实供应商通过；边界见[第二步记录](DEVICE_DIRECT_CLOUD_STEP2.md) |
+| [test_sync_pipeline.sh](../scripts/test_sync_pipeline.sh) | 直连有卡生产状态机与协议的52项合成回归：虚拟WAV分段／文本、持久尝试／检查点、取消／不确定、历史只读与账户变更；旧无卡中继回归使用单独兼容fixture。边界见[第三步记录](DEVICE_DIRECT_CLOUD_STEP3.md)，不伪装真实拔电 |
+| [test_cloud.sh](../scripts/test_cloud.sh) | 设备直连协议：生产C++配本地合成HTTPS／WebSocket，最大段流式发送、明确失败／投递不确定；另执行实际ESP适配的SDK／RTOS替身与ASan／UBSan。有卡已在第三步接入，基础协议本身不证明真机／真实供应商通过；边界见[第二步记录](DEVICE_DIRECT_CLOUD_STEP2.md) |
 | [test_firmware_install.sh](../scripts/test_firmware_install.sh) | 打包 / 安装边界、SDK / 生产 stdio 与 SD DMA 无内存回归；不使用设备 |
 
 两板普通构建、打包和恢复命令只在[设备安装说明](DEVICE_INSTALL.md)定义。干净源码验证从无 build、sdkconfig、managed_components、venv 的检出开始；依赖缓存可重用，但必须注明 SDK / 工具 / 下载缓存来源及实际下载，不称作全量冷下载。`test_ui.sh` 使用构建得到的锁定 LVGL；设 `MEMO_UI_OUTPUT=private/ci-ui`，避免覆盖历史证据。USB 描述符对象检查命令由 [CI 固件 job](../.github/workflows/ci.yml) 定义，检查编译对象不能证明 CDC / UAC 已枚举。
@@ -54,7 +54,7 @@
 
 ## 源码与镜像材料
 
-同步状态回归还覆盖：详情只读取已保存状态、不发 HTTP 或改写任务意图；设备详情不读取音频正文，无法识别同编号同长度的外部替换；服务器实际接收时核对已绑定任务的内容冲突；无卡 1024 条索引与 4 个详情槽反复淘汰、活动记录保留、孤立任务恢复，以及未结束任务后台查询和终态停止查询。`test_sync_metadata_lock.py` 用真实元数据编解码与 FatFs 共享冲突替身验证并发读写；`test_service_runtime.py` 验证串口维护模式沿用保存事务、保留配对和 Wi-Fi、忙态拒绝与重复保存不写 Flash。主机替身不能代替设备内存、SD 读取耗时、触摸或真实传输测试。现有 HTTP SDK 操作超时也不等于请求全程的硬总期限。
+同步状态回归还覆盖：详情只读取已保存状态、不发 HTTP 或改写任务意图；设备详情不读取音频正文，无法识别同编号同长度的外部替换；服务器实际接收时核对已绑定任务的内容冲突；无卡 1024 条索引与 4 个详情槽反复淘汰、活动记录保留、孤立任务恢复，以及未结束任务后台查询和终态停止查询。有卡第三步使用直连检查点及本地详情，旧服务器冲突和无卡轮询仅属于尚未迁移的旧无卡兼容测试。`test_sync_metadata_lock.py` 用真实直连元数据编解码与 FatFs 共享冲突替身验证并发读写；`test_service_runtime.py` 验证串口维护模式沿用保存事务、保留配对和 Wi-Fi、忙态拒绝与重复保存不写 Flash。主机替身不能代替设备内存、SD 读取耗时、触摸或真实传输测试。现有 HTTP SDK 操作超时也不等于请求全程的硬总期限。
 
 `test_network_worker.py` 执行生产网络调度循环，核对无卡时仍推进网络任务、活动流期间排除 SD 同步，以及活动／空闲／配网的等待间隔。`test_cardless_runtime.py` 另行执行原传输状态机的真实协议与故障回归；共享执行者不改变录音编号、确认顺序或不确定结果的恢复规则。
 

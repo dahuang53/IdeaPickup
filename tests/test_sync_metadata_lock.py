@@ -8,7 +8,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
-from test_sync_pipeline import Entry, ROOT
+ROOT=Path(__file__).resolve().parents[1]
 
 class MetadataLockTests(unittest.TestCase):
     def test_two_readers_and_writer_do_not_overlap_sidecar_descriptors(self):
@@ -58,22 +58,19 @@ int fatfs_close(FILE *f){
 int sharing_conflicts(void){return conflicts;}
 ''')
             common=['cc','-std=c11','-D_DEFAULT_SOURCE','-DMEMO_HOST_TEST','-fPIC','-g','-O1','-Wall','-Wextra','-Werror','-I',str(p),'-I',str(ROOT/'main')]
-            subprocess.run([*common,'-DESP_PLATFORM','-Dfopen=fatfs_open','-Dfclose=fatfs_close','-c',str(ROOT/'main/memo_sync_cache.c'),'-o',str(p/'codec.o')],check=True)
+            subprocess.run(['c++',*common[2:],'-std=c++17','-DESP_PLATFORM','-Dfopen=fatfs_open','-Dfclose=fatfs_close','-c',str(ROOT/'main/memo_direct_cache.cpp'),'-o',str(p/'codec.o')],check=True)
             subprocess.run([*common,'-c',str(p/'sharing.c'),'-o',str(p/'sharing.o')],check=True)
-            subprocess.run(['cc','-shared',str(p/'codec.o'),str(p/'sharing.o'),'-lpthread','-o',str(p/'codec.so')],check=True)
+            (p/'wrapper.cpp').write_text('#include "memo_sd_sync.h"\nextern "C" bool direct_write(const char*p,int state){memo_sd::Entry e;e.id=1;e.submission=e.qwen_generation=e.siyuan_generation=1;e.file_bytes=100;e.intent=true;e.state=static_cast<memo_job_state_t>(state);return memo_sd::write(p,e); }\nextern "C" int direct_read(const char*p){memo_sd::Entry e;return memo_sd::read(p,1,&e)==MEMO_CACHE_OK?int(e.state):-1;}\n')
+            subprocess.run(['c++',*common[2:],'-std=c++17','-c',str(p/'wrapper.cpp'),'-o',str(p/'wrapper.o')],check=True)
+            subprocess.run(['c++','-shared',str(p/'codec.o'),str(p/'sharing.o'),str(p/'wrapper.o'),'-lpthread','-o',str(p/'codec.so')],check=True)
             lib=C.CDLL(str(p/'codec.so'))
-            lib.memo_sync_entry_write.argtypes=[C.c_char_p,C.POINTER(Entry)];lib.memo_sync_entry_write.restype=C.c_bool
-            lib.memo_sync_entry_read.argtypes=[C.c_char_p,C.c_uint32,C.POINTER(Entry)]
-            path=str(p/'test.job').encode();e=Entry();e.id=1;e.state=2;e.automatic=True
-            self.assertTrue(lib.memo_sync_entry_write(path,C.byref(e)))
+            lib.direct_write.argtypes=[C.c_char_p,C.c_int];lib.direct_write.restype=C.c_bool
+            lib.direct_read.argtypes=[C.c_char_p];lib.direct_read.restype=C.c_int
+            path=str(p).encode();self.assertTrue(lib.direct_write(path,2))
             def writer():
-                for n in range(120):
-                    entry=Entry();entry.id=1;entry.state=2 if n%2 else 1;entry.automatic=True
-                    self.assertTrue(lib.memo_sync_entry_write(path,C.byref(entry)))
+                for n in range(120):self.assertTrue(lib.direct_write(path,2 if n%2 else 5))
             def reader():
-                for _ in range(200):
-                    entry=Entry();self.assertEqual(lib.memo_sync_entry_read(path,1,C.byref(entry)),1)
-                    self.assertIn(entry.state,(1,2))
+                for _ in range(200):self.assertIn(lib.direct_read(path),(2,5))
             with ThreadPoolExecutor(3) as pool:
                 results=[pool.submit(f) for f in (writer,reader,reader)]
                 for result in results:result.result()

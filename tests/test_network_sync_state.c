@@ -8,7 +8,10 @@ int main(void)
     assert(!memo_sync_device_attempt_done(MEMO_JOB_UNKNOWN));
     assert(!memo_sync_device_attempt_done(MEMO_JOB_CHECKING));
     assert(!memo_sync_device_attempt_done(MEMO_JOB_UPLOADING));
-    assert(memo_sync_device_attempt_done(MEMO_JOB_WAITING));
+    assert(!memo_sync_device_attempt_done(MEMO_JOB_WAITING));
+    assert(!memo_sync_device_attempt_done(MEMO_JOB_TRANSCRIBING));
+    assert(!memo_sync_device_attempt_done(MEMO_JOB_DELIVERING));
+    assert(!memo_sync_device_attempt_done(MEMO_JOB_CANCELLING));
     assert(memo_sync_device_attempt_done(MEMO_JOB_SENT));
     assert(memo_sync_device_attempt_done(MEMO_JOB_FAILED));
 
@@ -22,7 +25,7 @@ int main(void)
     assert(queue.active_id == 379 && !queue.active_manual && !queue.pending_id);
     assert(memo_sync_queue_offer_auto(&queue, 380));
     assert(memo_sync_queue_offer_auto(&queue, 381));
-    assert(queue.pending_id == 381); /* #380 remains local, never backfilled. */
+    assert(queue.pending_id == 381); /* Other durable intents are discovered by SD scan. */
     assert(!memo_sync_queue_offer_auto(&queue, 380));
     assert(!memo_sync_queue_offer_auto(&queue, 379));
     assert(!memo_sync_queue_start(&queue, true));

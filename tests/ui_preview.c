@@ -70,7 +70,7 @@ static memo_record_sync_t detail_job;
 static unsigned retry_calls,cancel_calls;
 static bool retry_accept=true;
 static unsigned select_calls;
-void network_sync_select_record(uint32_t id) { select_calls++;detail_job=(memo_record_sync_t){.id=id,.state=MEMO_JOB_LOCAL,.cardless=(id&UINT32_C(0x80000000))!=0,.can_retry=(id&UINT32_C(0x80000000))==0}; }
+void network_sync_select_record(uint32_t id) { select_calls++;detail_job=(memo_record_sync_t){.id=id,.state=MEMO_JOB_LOCAL,.cardless=(id&UINT32_C(0x80000000))!=0,.can_retry=(id&UINT32_C(0x80000000))==0,.service_ready=true}; }
 void network_sync_record_status(memo_record_sync_t *out) { *out=detail_job; }
 bool network_sync_retry_record(uint32_t id) { assert(id==detail_job.id);retry_calls++;if(retry_accept)detail_job.request_pending=true;return retry_accept; }
 bool network_sync_cancel_record(uint32_t id) { assert(id==detail_job.id);cancel_calls++;detail_job.can_cancel=false;detail_job.state=MEMO_JOB_CANCELLING;return true; }
@@ -156,6 +156,7 @@ static void save_frame(const char *name)
 {
     tick(220);
     check_object(lv_screen_active());
+    check_object(lv_layer_top());
     char path[1024];
     const char *output=getenv("MEMO_UI_OUTPUT");if(!output)output="evidence";
 #if defined(MEMO_UI_VOCAT16_PREVIEW)
@@ -237,6 +238,13 @@ static lv_obj_t *find_visible_label(lv_obj_t *obj, const char *text)
 static bool contains_visible_label(lv_obj_t *obj, const char *text)
 {
     return find_visible_label(obj,text)!=NULL;
+}
+
+static void modal_choice(lv_indev_t *indev,const char *text) {
+    lv_obj_t *label=find_visible_label(lv_layer_top(),text);assert(label);
+    lv_area_t area;lv_obj_get_coords(lv_obj_get_parent(label),&area);
+    int x=(area.x1+area.x2)/2,y=(area.y1+area.y2)/2;
+    press(indev,x,y,true);press(indev,x,y,false);tick(240);
 }
 
 static void check_provision_url(void)
@@ -709,7 +717,7 @@ int main(void)
     detail_job.state=MEMO_JOB_SENT;detail_job.can_retry=detail_job.can_cancel=false;tick(220);
     assert(!contains_visible_label(lv_screen_active(),"提交处理")&&!contains_visible_label(lv_screen_active(),"取消处理"));
     detail_job.state=MEMO_JOB_WAITING;tick(220);
-    assert(contains_visible_label(lv_screen_active(),MEMO_UI_COMPACT?"等待接收确认":"等待服务器确认喵"));
+    assert(contains_visible_label(lv_screen_active(),MEMO_UI_COMPACT?"等待处理":"等待处理喵"));
     detail_job.state=MEMO_JOB_CANCELLED;detail_job.can_retry=true;tick(220);
     assert(contains_visible_label(lv_screen_active(),"提交处理"));
     detail_job.state=MEMO_JOB_LOCAL;retry_accept=false;tick(220);
@@ -741,6 +749,19 @@ int main(void)
     network.configured=true;
     network.connected=true;detail_job.state=MEMO_JOB_LOCAL;tick(220);
     assert(contains_visible_label(lv_screen_active(),"提交处理"));
+    detail_job.state=MEMO_JOB_WAITING;detail_job.needs_rebind=true;detail_job.can_cancel=true;
+    tick(220);unsigned before_rebind=retry_calls,before_cancel=cancel_calls;
+    press(indev,retry_x,retry_y,true);press(indev,retry_x,retry_y,false);tick(220);
+    assert(retry_calls==before_rebind&&cancel_calls==before_cancel);
+    assert(contains_visible_label(lv_layer_top(),"提交到当前账号"));save_frame("record-rebind-confirmation");
+    modal_choice(indev,"返回");assert(retry_calls==before_rebind&&cancel_calls==before_cancel);
+    press(indev,retry_x,retry_y,true);press(indev,retry_x,retry_y,false);tick(220);
+    modal_choice(indev,"提交");assert(retry_calls==before_rebind+1);
+    detail_job.request_pending=false;detail_job.state=MEMO_JOB_WAITING;detail_job.can_cancel=true;
+    press(indev,retry_x,retry_y,true);press(indev,retry_x,retry_y,false);tick(220);
+    modal_choice(indev,"取消");assert(cancel_calls==before_cancel+1);
+    detail_job.needs_rebind=false;detail_job.state=MEMO_JOB_LOCAL;detail_job.can_retry=true;detail_job.can_cancel=false;
+    detail_job.error[0]=0;tick(220);
 #if !MEMO_UI_COMPACT
     detail_job.state=MEMO_JOB_LOCAL;
     model.state=MEMO_PLAYING;model.active_id=10;model.elapsed_ms=63000;model.revision++;

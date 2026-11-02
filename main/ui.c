@@ -48,6 +48,8 @@ static lv_obj_t *cat_fallback[2];
 static uint32_t row_ids[MEMO_PAGE_SIZE];
 static lv_obj_t *record_root, *record_title, *record_meta, *record_status_label, *record_info, *record_back;
 static lv_obj_t *record_play, *record_play_label, *record_retry, *record_retry_label;
+static lv_obj_t *record_rebind_dialog;
+static uint32_t record_rebind_id;
 #if !MEMO_UI_COMPACT
 static lv_obj_t *record_status_dot, *record_cat_icon;
 static unsigned record_play_icon_mode; // 0 cat, 1 pause, 2 resume
@@ -181,6 +183,7 @@ static void show_panel(bool show)
     if (provision_visible && show) return;
     if (usb_visible && show) return;
     if(record_visible) {
+        if(record_rebind_dialog){lv_msgbox_close(record_rebind_dialog);record_rebind_dialog=NULL;record_rebind_id=0;}
         memo_snapshot_t snapshot;app_snapshot(&snapshot);
         if(snapshot.state==MEMO_PLAYING || snapshot.state==MEMO_PAUSED) {
             if(!app_command(CMD_STOP,0,show?"touch":"idle_timer"))return;
@@ -344,10 +347,44 @@ static void record_busy_feedback(void) {
     record_feedback_until=lv_tick_get()+2000;
     text_if_changed(record_status_label,DETAIL_COPY("任务繁忙，请稍后重试", "任务繁忙，请稍后重试喵"));
 }
+static void record_rebind_choice(lv_event_t *event) {
+    unsigned action=(unsigned)(uintptr_t)lv_event_get_user_data(event);
+    uint32_t id=record_rebind_id;
+    bool accepted=action==1?network_sync_retry_record(id):action==2?network_sync_cancel_record(id):true;
+    if(record_rebind_dialog)lv_msgbox_close_async(record_rebind_dialog);
+    record_rebind_dialog=NULL;record_rebind_id=0;
+    note_saved_activity();panel_activity_tick=lv_tick_get();
+    if(!accepted)record_busy_feedback();
+}
 static void record_retry_clicked(lv_event_t *event) {
     (void)event;note_saved_activity();panel_activity_tick=lv_tick_get();
     memo_record_sync_t job;network_sync_record_status(&job);
     if(job.state==MEMO_JOB_SENT || job.state==MEMO_JOB_UNCERTAIN)return;
+    if(job.needs_rebind) {
+        if(record_rebind_dialog)return;
+        record_rebind_id=selected_record.id;
+        record_rebind_dialog=lv_msgbox_create(NULL);
+        lv_obj_set_width(record_rebind_dialog,MEMO_UI_COMPACT?184:260);
+        lv_obj_set_style_pad_all(record_rebind_dialog,8,0);
+        lv_obj_set_style_text_font(record_rebind_dialog,&memo_font,0);
+        lv_msgbox_add_title(record_rebind_dialog,"服务已更改");
+        lv_msgbox_add_text(record_rebind_dialog,"提交到当前账号");
+        lv_obj_set_style_pad_all(lv_msgbox_get_header(record_rebind_dialog),0,0);
+        lv_obj_set_style_pad_all(lv_msgbox_get_content(record_rebind_dialog),0,0);
+        lv_obj_t *submit=lv_msgbox_add_footer_button(record_rebind_dialog,"提交");
+        lv_obj_add_event_cb(submit,record_rebind_choice,LV_EVENT_CLICKED,(void *)(uintptr_t)1);
+        enabled(submit,job.service_ready);
+        lv_obj_t *cancel=lv_msgbox_add_footer_button(record_rebind_dialog,"取消");
+        enabled(cancel,job.can_cancel);
+        lv_obj_add_event_cb(cancel,record_rebind_choice,LV_EVENT_CLICKED,(void *)(uintptr_t)2);
+        lv_obj_t *back=lv_msgbox_add_footer_button(record_rebind_dialog,"返回");
+        lv_obj_add_event_cb(back,record_rebind_choice,LV_EVENT_CLICKED,NULL);
+        lv_obj_t *footer=lv_msgbox_get_footer(record_rebind_dialog);
+        lv_obj_set_style_pad_all(footer,0,0);lv_obj_set_style_pad_column(footer,6,0);
+        lv_obj_t *choices[]={submit,cancel,back};
+        for(unsigned i=0;i<3;i++){lv_obj_set_style_pad_hor(choices[i],4,0);lv_obj_set_style_pad_ver(choices[i],6,0);}
+        return;
+    }
     if(job.request_pending && !job.can_cancel)return;
     bool accepted=job.can_cancel?network_sync_cancel_record(selected_record.id):
                   job.can_retry?network_sync_retry_record(selected_record.id):true;
@@ -525,7 +562,7 @@ static void refresh_record(const memo_snapshot_t *snapshot,const memo_network_st
     case MEMO_JOB_UPLOADING:
         snprintf(text,sizeof(text),DETAIL_COPY("正在上传 %u%%","正在上传 %u%%喵"),job.upload_percent);
         state=text;action="上传中";break;
-    case MEMO_JOB_WAITING:state=DETAIL_COPY("等待接收确认","等待服务器确认喵");break;
+    case MEMO_JOB_WAITING:state=DETAIL_COPY("等待处理","等待处理喵");break;
     case MEMO_JOB_RECEIVED:state=DETAIL_COPY("服务器已接收","服务器已收到喵");break;
     case MEMO_JOB_TRANSCRIBING:state=DETAIL_COPY("正在转写","正在转写喵");break;
     case MEMO_JOB_DELIVERING:state=DETAIL_COPY("正在投递思源","正在投递思源喵");break;
@@ -538,7 +575,7 @@ static void refresh_record(const memo_snapshot_t *snapshot,const memo_network_st
     default:break;
     }
     bool waiting_upload=job.state==MEMO_JOB_LOCAL || job.state==MEMO_JOB_QUEUED || job.state==MEMO_JOB_UNKNOWN;
-    if(waiting_upload && !network->configured) {
+    if(waiting_upload && !job.service_ready) {
         state=DETAIL_COPY("仅本地，未配置同步","未配置同步，录音在本机喵");
         action=DETAIL_COPY("刷新状态","联网后同步");
     } else if(waiting_upload && !network->connected) {
@@ -548,6 +585,7 @@ static void refresh_record(const memo_snapshot_t *snapshot,const memo_network_st
         state=DETAIL_COPY("已排队，等待处理","已排队，等待处理喵");action="排队中";
     }
     if(snapshot->state==MEMO_PAUSED && snapshot->error[0])state=snapshot->error;
+    if(job.error[0]&&job.state!=MEMO_JOB_SENT)state=job.error;
     if((int32_t)(record_feedback_until-lv_tick_get())>0)state=DETAIL_COPY("任务繁忙，请稍后重试","任务繁忙，请稍后重试喵");
     text_if_changed(record_status_label,state);
     text_if_changed(record_play_label,snapshot->state==MEMO_PLAYING?"暂停播放":
@@ -558,8 +596,8 @@ static void refresh_record(const memo_snapshot_t *snapshot,const memo_network_st
     bool actionable=(job.can_cancel || job.can_retry) && job.state!=MEMO_JOB_SENT && job.state!=MEMO_JOB_UNCERTAIN;
     if(actionable)lv_obj_remove_flag(record_retry,LV_OBJ_FLAG_HIDDEN);
     else lv_obj_add_flag(record_retry,LV_OBJ_FLAG_HIDDEN);
-    text_if_changed(record_retry_label,job.can_cancel?"取消处理":"提交处理");
-    enabled(record_retry,actionable && idle && (job.can_cancel || (!job.request_pending && network->configured)));
+    text_if_changed(record_retry_label,job.needs_rebind?"选择处理":job.can_cancel?"取消处理":"提交处理");
+    enabled(record_retry,actionable && idle && (job.can_cancel || (!job.request_pending && job.service_ready)));
 #if !MEMO_UI_COMPACT
     lv_obj_set_style_bg_color(record_play,lv_color_hex(snapshot->state==MEMO_PLAYING?0xF4B7A8:MINT),0);
     unsigned icon_mode=snapshot->state==MEMO_PLAYING?1:snapshot->state==MEMO_PAUSED?2:0;
