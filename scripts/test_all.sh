@@ -11,6 +11,7 @@ export PYTHON="$PWD/.venv/bin/python"
 ./scripts/test_relay.sh
 ./scripts/test_service_config.sh
 ./scripts/test_sync_pipeline.sh
+./scripts/test_cloud.sh
 ./scripts/test_firmware_install.sh
 # Retain rejection coverage for the disabled historical privileged publisher.
 .venv/bin/python -m unittest discover -s tests -p test_legacy_maintenance_cli.py -v

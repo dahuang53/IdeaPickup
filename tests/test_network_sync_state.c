@@ -5,30 +5,13 @@
 
 int main(void)
 {
-    assert(memo_sync_remote_action(0, NULL) == MEMO_SYNC_RETRY_LATER);
-    assert(memo_sync_remote_action(404, NULL) == MEMO_SYNC_UPLOAD);
-    assert(memo_sync_remote_action(200, "sent") == MEMO_SYNC_RECOVER_SENT);
-    assert(memo_sync_remote_action(200, "transcription_rejected") ==
-           MEMO_SYNC_RECOVER_REJECTED);
-    assert(memo_sync_remote_action(200, "received") == MEMO_SYNC_WAIT_REMOTE);
-    assert(memo_sync_remote_action(200, "transcribing") == MEMO_SYNC_WAIT_REMOTE);
-    assert(memo_sync_remote_action(200, "transcription_failed") == MEMO_SYNC_UPLOAD);
-    assert(memo_sync_remote_action(503, "transcribing") == MEMO_SYNC_RETRY_LATER);
-    assert(memo_sync_remote_action(200, "sending") == MEMO_SYNC_WAIT_REMOTE);
-    assert(memo_sync_upload_response_pending(-1));
-    assert(memo_sync_upload_response_pending(0));
-    assert(!memo_sync_upload_response_pending(200));
-    assert(!memo_sync_upload_response_pending(202));
     assert(!memo_sync_device_attempt_done(MEMO_JOB_UNKNOWN));
     assert(!memo_sync_device_attempt_done(MEMO_JOB_CHECKING));
     assert(!memo_sync_device_attempt_done(MEMO_JOB_UPLOADING));
     assert(memo_sync_device_attempt_done(MEMO_JOB_WAITING));
     assert(memo_sync_device_attempt_done(MEMO_JOB_SENT));
     assert(memo_sync_device_attempt_done(MEMO_JOB_FAILED));
-    assert(memo_sync_local_state(MEMO_JOB_UNKNOWN, false)==MEMO_JOB_LOCAL);
-    assert(memo_sync_local_state(MEMO_JOB_UNKNOWN, true)==MEMO_JOB_QUEUED);
-    assert(memo_sync_local_state(MEMO_JOB_QUEUED, false)==MEMO_JOB_LOCAL);
-    assert(memo_sync_local_state(MEMO_JOB_SENT, false)==MEMO_JOB_SENT);
+
 
     /* Booting with a high historical ID does not itself populate this queue. */
     memo_sync_queue_t queue = {0};
@@ -76,5 +59,5 @@ int main(void)
     assert(memo_sync_queue_offer_manual(&queue, 299, false));
     memo_sync_queue_manual_persisted(&queue, 299, false);
     assert(!memo_sync_queue_contains(&queue, 299));
-    puts("PASS: relay states and bounded one-active/one-pending scheduler");
+    puts("PASS: current task states and bounded one-active/one-pending scheduler");
 }

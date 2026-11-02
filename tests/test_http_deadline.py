@@ -30,6 +30,7 @@ void esp_transport_set_func(T*,connect_func,io_read_func,io_func,trans_func,poll
 int esp_transport_connect(T*,const char*,int,int);int esp_transport_read(T*,char*,int,int);int esp_transport_write(T*,const char*,int,int);
 int esp_transport_close(T*);int esp_transport_poll_read(T*,int);int esp_transport_poll_write(T*,int);
 int64_t esp_timer_get_time();int esp_transport_get_socket(T*);
+struct Error {int last_error=0,esp_tls_error_code=0,esp_tls_flags=0;};using esp_tls_error_handle_t=Error*;Error*esp_transport_get_error_handle(T*);int esp_tls_get_and_clear_last_error(Error*,int*,int*);
 constexpr int ESP_OK=0;
 struct esp_timer_create_args_t {void(*callback)(void*);void*arg;const char*name;};
 using esp_timer_handle_t=void*;
@@ -43,8 +44,11 @@ HARNESS=r"""
 #include <sys/socket.h>
 #include <unistd.h>
 struct T {void*ctx=nullptr;connect_func con=nullptr;io_read_func rd=nullptr;io_func wr=nullptr;trans_func cl=nullptr;poll_func pr=nullptr,pw=nullptr;bool tls=false,bundle=false;int fd=-1,peer=-1;};
+static T*last_inner=nullptr;
 static int live=0,bundles=0,reads=0,writes=0,delay=1000,reply=1;
 static int64_t now=1;static bool nested=false;static int shutdown_failures=0;
+static void(*before_inner)()=nullptr;static void(*after_inner)()=nullptr;
+static void once(void(*&callback)()){if(callback){auto f=callback;callback=nullptr;f();}}
 static bool sem_available=true;
 void*test_sem_get(){return sem_available?(void*)1:nullptr;}
 static void(*worker)(void*);static uint32_t wait_ticks=0;
@@ -69,21 +73,25 @@ void esp_transport_set_default_port(T*,int){}
 void esp_transport_set_func(T*t,connect_func c,io_read_func r,io_func w,trans_func cl,poll_func pr,poll_func pw,trans_func){t->con=c;t->rd=r;t->wr=w;t->cl=cl;t->pr=pr;t->pw=pw;}
 int64_t esp_timer_get_time(){return now;}
 int esp_transport_get_socket(T*t){return t->fd;}
-int esp_transport_connect(T*t,const char*h,int p,int ms){if(t->con)return t->con(t,h,p,ms);assert(!t->tls||t->bundle);int fds[2];assert(!socketpair(AF_UNIX,SOCK_STREAM,0,fds));t->fd=fds[0];t->peer=fds[1];return 0;}
+Error*esp_transport_get_error_handle(T*){return nullptr;}
+int esp_tls_get_and_clear_last_error(Error*,int*,int*flags){*flags=42;return 0;}
+int esp_transport_connect(T*t,const char*h,int p,int ms){if(t->con)return t->con(t,h,p,ms);assert(!t->tls||t->bundle);int fds[2];assert(!socketpair(AF_UNIX,SOCK_STREAM,0,fds));t->fd=fds[0];t->peer=fds[1];last_inner=t;return 0;}
 static bool ended(T*t){char c;int n=recv(t->fd,&c,1,MSG_DONTWAIT);return n==0;}
 int esp_transport_read(T*t,char*p,int n,int ms){
  if(t->rd)return t->rd(t,p,n,ms);
  reads++;
+ once(before_inner);
  // Model a TLS inner loop that ignores fresh transport timeouts: only actual
  // socket shutdown by the production callback releases this inner call.
  if(nested){int attempts=0;while(!ended(t)){advance(1000);assert(++attempts<=33);}return -1;}
- advance(std::min(delay,ms));if(delay>=ms){errno=ETIMEDOUT;return 0;}if(n)*p='x';return reply;
+ advance(std::min(delay,ms));if(delay>=ms){errno=ETIMEDOUT;return 0;}if(n)*p='x';once(after_inner);return reply;
 }
 int esp_transport_write(T*t,const char*p,int n,int ms){
  if(t->wr)return t->wr(t,p,n,ms);
  writes++;
+ once(before_inner);
  if(nested){int attempts=0;while(!ended(t)){advance(1000);assert(++attempts<=21);}return -1;}
- advance(std::min(delay,ms));return delay>=ms?0:reply;
+ advance(std::min(delay,ms));once(after_inner);return delay>=ms?0:reply;
 }
 int esp_transport_close(T*t){if(t->cl)return t->cl(t);if(t->fd>=0){close(t->fd);t->fd=-1;}return 0;}
 int esp_transport_poll_read(T*t,int ms){return t->pr?t->pr(t,ms):1;}
@@ -103,9 +111,46 @@ static void run(const char*url,int scenario){
  }
  assert(!live);run_worker();assert(wait_ticks==0xffffffffU);advance(60000);assert(wait_ticks==0xffffffffU);
 }
+static T*overlap_socket=nullptr;
+static MemoHttpTransport*overlap_guard=nullptr;
+static bool block_read=false;
+static void other_direction(){
+ nested=false;delay=1;reply=1;char c;
+ if(block_read)assert(esp_transport_write(overlap_socket,"x",1,10000)==1);
+ else assert(esp_transport_read(overlap_socket,&c,1,10000)==1);
+ nested=true;
+}
+static void interrupt_at_completion(){overlap_guard->interrupt();}
+static void overlap(){
+ for(int scenario=0;scenario<4;scenario++){
+  now=1;shutdown_failures=0;esp_http_client_config_t cfg{};cfg.url="https://example.test";cfg.crt_bundle_attach=bundle;
+  {MemoHttpTransport guard(cfg,0,true);assert(guard.ready());assert(!esp_transport_connect(cfg.transport,"example.test",443,10000));
+   overlap_socket=cfg.transport;overlap_guard=&guard;block_read=(scenario%2)==0;char c;
+   // A normal completion in the opposite direction cannot disarm the blocked
+   // TLS call. Both directions require actual socket shutdown to return.
+   if(scenario<2){nested=true;before_inner=other_direction;int result=block_read?esp_transport_read(cfg.transport,&c,1,10000):esp_transport_write(cfg.transport,"x",1,10000);assert(result<=0);assert(now<=11000001);}
+   // Interrupt arrives just before I/O returns. Defer the deadline worker
+   // until AFTER that I/O disarms, so cancellation must survive the disarm.
+   else{nested=false;delay=1;reply=1;after_inner=interrupt_at_completion;if(block_read)esp_transport_read(cfg.transport,&c,1,10000);else esp_transport_write(cfg.transport,"x",1,10000);run_worker();}
+   assert(ended(last_inner)); // Actual socketpair shutdown, not only a flag.
+   // Subsequent I/O must fail immediately without advancing the clock.
+   const int64_t stopped=now;assert(esp_transport_write(cfg.transport,"x",1,10000)<0);assert(now==stopped);
+  }
+  assert(!live);run_worker();assert(wait_ticks==0xffffffffU);
+ }
+}
 int main(){esp_http_client_config_t unavailable{};unavailable.url="http://transport.example.test";sem_available=false;{MemoHttpTransport t(unavailable);assert(!t.ready());}assert(!live);sem_available=true;for(int n=0;n<5;n++){run("http://transport.example.test",n);run("https://example.test",n);}assert(bundles==5);
  esp_http_client_config_t cfg{};cfg.url="https://example.test";{MemoHttpTransport t(cfg);assert(!t.ready());}assert(!live);
- cfg.crt_bundle_attach=bundle;{MemoHttpTransport a(cfg),b(cfg),c(cfg);assert(a.ready()&&b.ready()&&!c.ready());}assert(!live);
+ cfg.crt_bundle_attach=bundle;
+ now=1;{MemoHttpTransport hard(cfg,5000001);assert(hard.ready());assert(hard.tls_verify_flags()==42);
+  assert(!esp_transport_connect(cfg.transport,"example.test",443,20000));assert(!hard.may_have_written());
+  nested=true;shutdown_failures=0;
+  assert(esp_transport_write(cfg.transport,"x",1,20000)<0);assert(hard.may_have_written());assert(now<=6000001);
+  hard.write_window();assert(esp_transport_write(cfg.transport,"x",1,20000)<0); // Cannot renew total deadline.
+ }
+ assert(!live);
+ {MemoHttpTransport a(cfg),b(cfg),c(cfg);assert(a.ready()&&b.ready()&&!c.ready());}assert(!live);
+ overlap();
 }
 """
 
@@ -119,7 +164,7 @@ class HttpDeadlineTests(unittest.TestCase):
    (p/'freertos/task.h').write_text('#pragma once\n#include "FreeRTOS.h"\nvoid* xTaskCreateStatic(void(*)(void*),const char*,unsigned,void*,unsigned,uint8_t*,void*);\nvoid xTaskNotifyGive(void*);unsigned ulTaskNotifyTake(int,unsigned);void vTaskDelay(unsigned);unsigned uxTaskGetStackHighWaterMark(void*);\n')
    (p/'lwip').mkdir();(p/'lwip/opt.h').write_text('#define LWIP_NETCONN_SEM_PER_THREAD 1\nvoid*test_sem_get();\n#define LWIP_NETCONN_THREAD_SEM_GET() test_sem_get()\n');(p/'lwip/sys.h').write_text('')
    (p/'cancel.h').write_text('int guarded_shutdown(int,int);\n')
-   for name in ('esp_http_client.h','esp_transport.h','esp_transport_tcp.h','esp_transport_ssl.h','esp_timer.h'):
+   for name in ('esp_http_client.h','esp_transport.h','esp_transport_tcp.h','esp_transport_ssl.h','esp_timer.h','esp_tls.h'):
     (p/name).write_text('#include "shim.h"\n')
    (p/'test.cpp').write_text(HARNESS)
    common=['c++','-std=c++17','-Wall','-Wextra','-Werror','-g','-O1','-fsanitize=address,undefined','-I',str(p),'-I',str(ROOT/'main')]

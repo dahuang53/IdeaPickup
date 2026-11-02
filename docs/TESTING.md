@@ -17,6 +17,7 @@
 | [test_relay.sh](../scripts/test_relay.sh) | 实际后端 / HTTP / 账本 / broker / 清理 / 权限 / 供应商本地 TLS 替身；保留原有可选一小时测试边界 |
 | [test_service_config.sh](../scripts/test_service_config.sh) | 当前配置 / 配对及 AP handler，实际生产 C/C++ 与 ASGI，ESP / RF / NVS 为显式平台替身 |
 | [test_sync_pipeline.sh](../scripts/test_sync_pipeline.sh) | 实际编号 / SD / 无卡方法与 HTTP；配置→配对→WAV / Opus→查询 / 显式重试→两端重启，多条离线／换卡／身份／持久化故障场景；后端、broker 重新打开当前持久数据，设备侧重建配置 / sidecar / NVS 替身，不伪装真实拔电 |
+| [test_cloud.sh](../scripts/test_cloud.sh) | 设备直连协议：生产C++配本地合成HTTPS／WebSocket，最大段流式发送、明确失败／投递不确定；另执行实际ESP适配的SDK／RTOS替身与ASan／UBSan。未接入录音主路径，不证明真机／真实供应商通过；边界见[第二步记录](DEVICE_DIRECT_CLOUD_STEP2.md) |
 | [test_firmware_install.sh](../scripts/test_firmware_install.sh) | 打包 / 安装边界、SDK / 生产 stdio 与 SD DMA 无内存回归；不使用设备 |
 
 两板普通构建、打包和恢复命令只在[设备安装说明](DEVICE_INSTALL.md)定义。干净源码验证从无 build、sdkconfig、managed_components、venv 的检出开始；依赖缓存可重用，但必须注明 SDK / 工具 / 下载缓存来源及实际下载，不称作全量冷下载。`test_ui.sh` 使用构建得到的锁定 LVGL；设 `MEMO_UI_OUTPUT=private/ci-ui`，避免覆盖历史证据。USB 描述符对象检查命令由 [CI 固件 job](../.github/workflows/ci.yml) 定义，检查编译对象不能证明 CDC / UAC 已枚举。

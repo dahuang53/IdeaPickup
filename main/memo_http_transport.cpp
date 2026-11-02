@@ -1,6 +1,7 @@
 #include "memo_http_transport.h"
 #include "esp_transport_tcp.h"
 #include "esp_transport_ssl.h"
+#include "esp_tls.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -15,7 +16,10 @@
 namespace {
 // One fixed, dedicated cancellation owner. Never block ESP timer/event tasks.
 // All fd binding/unbinding uses this lock, so shutdown cannot hit a reused fd.
-struct SocketDeadline {int fd=-1;int64_t deadline=0,retry_at=0;bool used=false,expired=false;};
+// WS receive and send may overlap. Completing one direction must not disarm
+// the other, or the sticky shutdown requested by the session owner.
+enum DeadlineLane {READ_LANE,WRITE_LANE,STOP_LANE,SEND_LANE};
+struct SocketDeadline {int fd=-1;int64_t deadline[4]{},retry_at=0;bool used=false,expired=false;};
 SocketDeadline sockets[2];
 StaticSemaphore_t deadline_mutex_storage;
 SemaphoreHandle_t deadline_mutex;
@@ -36,15 +40,18 @@ void deadline_worker(void *) {
  for(;;){
   xSemaphoreTake(deadline_mutex,portMAX_DELAY);
   const int64_t now=esp_timer_get_time();int64_t next=0;
-  for(auto &s:sockets)if(s.used && s.fd>=0 && s.deadline && !s.expired){
-   int64_t due=s.retry_at?s.retry_at:s.deadline;
+  for(auto &s:sockets)if(s.used && s.fd>=0 && !s.expired){
+   int64_t first=0;
+   for(int64_t deadline:s.deadline)if(deadline && (!first || deadline<first))first=deadline;
+   if(!first)continue;
+   int64_t due=s.retry_at?s.retry_at:first;
    if(now>=due){
     // Only successful shutdown (or an already disconnected socket) is final.
     // Resource/transient failures retain ownership and retry after 100 ms.
     if(shutdown(s.fd,SHUT_RDWR)==0 || errno==ENOTCONN)s.expired=true;
     else s.retry_at=esp_timer_get_time()+100000;
    }
-   if(!s.expired){due=s.retry_at?s.retry_at:s.deadline;if(!next||due<next)next=due;}
+   if(!s.expired){due=s.retry_at?s.retry_at:first;if(!next||due<next)next=due;}
   }
   xSemaphoreGive(deadline_mutex);
   int64_t remaining=next?next-esp_timer_get_time():0;
@@ -74,25 +81,26 @@ int reserve_socket() {
 void unbind_socket(int slot,bool release=false) {
  if(slot<0)return;
  xSemaphoreTake(deadline_mutex,portMAX_DELAY);
- sockets[slot].fd=-1;sockets[slot].deadline=0;
+ sockets[slot].fd=-1;
+ for(auto &deadline:sockets[slot].deadline)deadline=0;
  if(release)sockets[slot].used=false;
  xSemaphoreGive(deadline_mutex);xTaskNotifyGive(deadline_task);
 }
-bool arm_socket(int slot,int64_t deadline) {
+bool arm_socket(int slot,int64_t deadline,DeadlineLane lane) {
  xSemaphoreTake(deadline_mutex,portMAX_DELAY);
  auto &s=sockets[slot];bool ok=s.fd>=0 && !s.expired;
- if(ok){s.deadline=deadline;s.retry_at=0;}
+ if(ok){s.deadline[lane]=deadline;s.retry_at=0;}
  xSemaphoreGive(deadline_mutex);xTaskNotifyGive(deadline_task);return ok;
 }
-void disarm_socket(int slot) {
- xSemaphoreTake(deadline_mutex,portMAX_DELAY);sockets[slot].deadline=0;
+void disarm_socket(int slot,DeadlineLane lane) {
+ xSemaphoreTake(deadline_mutex,portMAX_DELAY);sockets[slot].deadline[lane]=0;
  xSemaphoreGive(deadline_mutex);xTaskNotifyGive(deadline_task);
 }
 }
 
 uint32_t MemoHttpTransport::stack_free() {return deadline_task?uxTaskGetStackHighWaterMark(deadline_task)*sizeof(StackType_t):0;}
 
-MemoHttpTransport::MemoHttpTransport(esp_http_client_config_t &cfg) {
+MemoHttpTransport::MemoHttpTransport(esp_http_client_config_t &cfg,int64_t hard_deadline_us,bool streaming):hard_deadline_(hard_deadline_us),streaming_(streaming) {
  const bool tls=cfg.url && !strncmp(cfg.url,"https://",8);
  if(!tls && (!cfg.url || strncmp(cfg.url,"http://",7)))return;
  if(tls && !cfg.crt_bundle_attach)return; // Never weaken certificate checking.
@@ -128,10 +136,36 @@ int MemoHttpTransport::budget(int64_t &deadline,int window_ms,int timeout_ms) {
  return timeout_ms>0 && timeout_ms<remaining?timeout_ms:(int)remaining;
 }
 void MemoHttpTransport::write_window(){write_deadline_=0;}
+void MemoHttpTransport::read_window(){read_deadline_=0;}
+void MemoHttpTransport::send_until(int64_t deadline) {
+ if(slot_<0)return;
+ if(deadline)arm_socket(slot_,deadline,SEND_LANE);
+ else disarm_socket(slot_,SEND_LANE);
+}
+void MemoHttpTransport::interrupt() {
+ interrupted_.store(true);
+ if(slot_>=0)arm_socket(slot_,esp_timer_get_time(),STOP_LANE);
+}
+int MemoHttpTransport::tls_verify_flags() const {
+ int code=0,flags=0;
+ if(inner_)esp_tls_get_and_clear_last_error(esp_transport_get_error_handle(inner_),&code,&flags);
+ return flags;
+}
+int MemoHttpTransport::window(int64_t &deadline,int interval,int ms) {
+ if(interrupted_.load())return 0;
+ int wait=budget(deadline,interval,ms);
+ if(hard_deadline_ && deadline>hard_deadline_)deadline=hard_deadline_;
+ int64_t left=(deadline-esp_timer_get_time())/1000;
+ return left>0?(wait<left?wait:static_cast<int>(left)):0;
+}
 int MemoHttpTransport::connect(esp_transport_handle_t t,const char *host,int port,int ms) {
  auto &s=self(t);
+ if(s.interrupted_.load())return -1;
+ if(s.hard_deadline_){int64_t left=(s.hard_deadline_-esp_timer_get_time())/1000;if(left<=0)return -1;if(ms>left)ms=static_cast<int>(left);}
  int result=esp_transport_connect(s.inner_,host,port,ms);
  if(result)return result;
+ if(s.interrupted_.load()){esp_transport_close(s.inner_);return -1;}
+ if(s.hard_deadline_ && esp_timer_get_time()>=s.hard_deadline_){esp_transport_close(s.inner_);return -1;}
  // The cancellation owner also interrupts nested TLS recv/send beyond IDF poll.
  int fd=esp_transport_get_socket(s.inner_);
  if(fd<0){esp_transport_close(s.inner_);return -1;}
@@ -139,25 +173,34 @@ int MemoHttpTransport::connect(esp_transport_handle_t t,const char *host,int por
  return 0;
 }
 int MemoHttpTransport::read(esp_transport_handle_t t,char *p,int n,int ms) {
- auto &s=self(t);int wait=budget(s.read_deadline_,30000,ms);
- if(!wait || !arm_socket(s.slot_,s.read_deadline_))return ERR_TCP_TRANSPORT_CONNECTION_TIMEOUT;
- int result=esp_transport_read(s.inner_,p,n,wait);disarm_socket(s.slot_);
+ auto &s=self(t);if(s.streaming_)s.read_deadline_=0;
+ if(s.interrupted_.load())return -1;
+ int wait=s.window(s.read_deadline_,s.hard_deadline_||s.streaming_?10000:30000,ms);
+ if(!wait || !arm_socket(s.slot_,s.read_deadline_,READ_LANE))return ERR_TCP_TRANSPORT_CONNECTION_TIMEOUT;
+ if(s.interrupted_.load())return -1;
+ int result=esp_transport_read(s.inner_,p,n,wait);disarm_socket(s.slot_,READ_LANE);
+ if(s.interrupted_.load())return -1;
  if(esp_timer_get_time()>=s.read_deadline_){errno=ETIMEDOUT;return ERR_TCP_TRANSPORT_CONNECTION_TIMEOUT;}
  return result;
 }
 int MemoHttpTransport::write(esp_transport_handle_t t,const char *p,int n,int ms) {
- auto &s=self(t);int wait=budget(s.write_deadline_,20000,ms);
- if(!wait || !arm_socket(s.slot_,s.write_deadline_))return -1;
- int result=esp_transport_write(s.inner_,p,n,wait);disarm_socket(s.slot_);
+ auto &s=self(t);if(s.streaming_)s.write_deadline_=0;
+ int wait=s.window(s.write_deadline_,s.hard_deadline_||s.streaming_?10000:20000,ms);
+ if(!wait || !arm_socket(s.slot_,s.write_deadline_,WRITE_LANE))return -1;
+ if(s.interrupted_.load())return -1;
+ if(n>0)s.written_=true; // An unsuccessful write may still have sent a prefix.
+ int result=esp_transport_write(s.inner_,p,n,wait);disarm_socket(s.slot_,WRITE_LANE);
  if(esp_timer_get_time()>=s.write_deadline_){errno=ETIMEDOUT;return -1;}
  return result;
 }
 int MemoHttpTransport::close(esp_transport_handle_t t){auto &s=self(t);unbind_socket(s.slot_);return esp_transport_close(s.inner_);}
 int MemoHttpTransport::poll_read(esp_transport_handle_t t,int ms) {
- auto &s=self(t);int wait=budget(s.read_deadline_,30000,ms);
+ auto &s=self(t);if(s.streaming_)s.read_deadline_=0;
+ int wait=s.window(s.read_deadline_,s.hard_deadline_||s.streaming_?10000:30000,ms);
  return wait?esp_transport_poll_read(s.inner_,wait):0;
 }
 int MemoHttpTransport::poll_write(esp_transport_handle_t t,int ms) {
- auto &s=self(t);int wait=budget(s.write_deadline_,20000,ms);
+ auto &s=self(t);if(s.streaming_)s.write_deadline_=0;
+ int wait=s.window(s.write_deadline_,s.hard_deadline_||s.streaming_?10000:20000,ms);
  return wait?esp_transport_poll_write(s.inner_,wait):0;
 }

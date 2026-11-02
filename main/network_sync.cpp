@@ -722,6 +722,14 @@ extern "C" void network_sync_get_service_config(memo_config_public_t *out)
     if(!out)return;
     ConfigGuard guard;memo_config_public_status(guard.value,out);
 }
+
+// Recording pipelines adopt direct calls in steps 3/4, using the existing
+// single network owner and HTTP gate; no additional scheduler or task.
+extern "C" bool network_sync_cloud_acquire() {
+    return http_mutex && xSemaphoreTakeRecursive(http_mutex,0)==pdTRUE;
+}
+extern "C" void network_sync_cloud_release() {xSemaphoreGiveRecursive(http_mutex);}
+extern "C" bool network_sync_cloud_clock_ready() {return ensure_clock("https://cloud");}
 extern "C" memo_config_result_t network_sync_configure_service(const char *url,const char *code,bool local_only)
 {
     // A request is accepted only after the durable snapshot is read back. No
