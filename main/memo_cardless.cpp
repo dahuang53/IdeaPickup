@@ -86,6 +86,7 @@ bool marker(uint32_t id){
 bool save_current(){
  bool ok;{Lock lock(meta_mutex);ok=write_record(current);if(ok)remember(current);}
  if(!ok)fault();
+ else network_sync_task_result(current.id,current.state,current.error);
  return ok;
 }
 bool online(){memo_network_status_t n{};network_sync_get_status(&n);return n.initialized&&n.connected&&!n.provisioning;}
@@ -157,11 +158,10 @@ extern "C" esp_err_t memo_cardless_init(){
  if((legacy_open&&!load_index("records1",true))||!load_index("direct1",false)||!boot_cleanup()){metadata_fault=true;copy(error,sizeof(error),"记录存储校验失败");return ESP_FAIL;}
  std::sort(records,records+count,[](const Index&a,const Index&b){return a.id<b.id;});initialized=true;revision.fetch_add(1);return ESP_OK;
 }
-extern "C" void memo_cardless_config_changed(){
- memo_cloud_config_t c{};configured=memo_cloud_config_read(&c)&&c.enabled&&memo_cloud_config_ready(&c);memo_cloud_config_clear(&c);
- if(active){stopped=true;abort_io=true;}network_sync_wake();
+extern "C" void memo_cardless_configure(bool ready,bool changed){
+ configured=ready;
+ if(changed&&active){stopped=true;abort_io=true;}network_sync_wake();
 }
-extern "C" esp_err_t memo_cardless_start_pending(){if(!initialized)return ESP_ERR_INVALID_STATE;memo_cloud_config_t c{};configured=memo_cloud_config_read(&c)&&c.enabled&&memo_cloud_config_ready(&c);memo_cloud_config_clear(&c);return ESP_OK;}
 extern "C" bool memo_cardless_ready(){return initialized&&!metadata_fault&&configured&&!active&&online();}
 extern "C" esp_err_t memo_cardless_observe_id(uint32_t id){if(id&MEMO_CARDLESS_ID_FLAG)return ESP_ERR_INVALID_ARG;if(!initialized)return ESP_ERR_INVALID_STATE;Lock lock(meta_mutex);counter=std::max(counter,id);return ESP_OK;}
 extern "C" esp_err_t memo_cardless_begin(uint32_t floor,uint32_t *id){

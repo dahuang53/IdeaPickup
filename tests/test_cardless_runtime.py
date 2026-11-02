@@ -79,6 +79,6 @@ class CardlessRuntimeTests(unittest.TestCase):
  @classmethod
  def tearDownClass(cls):cls.temp.cleanup()
  def check(self,case):subprocess.run([str(self.binary),case],check=True)
-for case in ['success','no_network','credentials','queue_full','send_block','disconnect','text_limit','final_timeout','drain_timeout','cancel_capture','cancel_delivery','cancel_success','uncertain','delivery_retry','delivery_limited','metadata_begin','metadata_terminal','capacity','history','boot','iterations','memory','metadata_commit','mixed_full','config_stop','orphan','cancel_audio','cross_rate','cancel_handshake','slow_handshake','handshake_timeout','mixed_capacity','stop_interleave','capture_error']:
+for case in ['success','no_network','credentials','queue_full','send_block','disconnect','text_limit','final_timeout','drain_timeout','cancel_capture','cancel_delivery','cancel_success','uncertain','delivery_retry','delivery_limited','metadata_begin','metadata_terminal','capacity','history','boot','iterations','memory','metadata_commit','mixed_full','config_stop','orphan','cancel_audio','cross_rate','cancel_handshake','slow_handshake','handshake_timeout','mixed_capacity','stop_interleave','capture_error','config_noop']:
  setattr(CardlessRuntimeTests,'test_'+case,lambda self,c=case:self.check(c))
 if __name__=='__main__':unittest.main(verbosity=2)

@@ -5,7 +5,7 @@
 extern "C" {
 #endif
 /* cJSON exposes NUL-terminated strings without decoded lengths. Reject a
- * decoded NUL before parsing, so an address/action/device ID cannot be silently
+ * decoded NUL before parsing, so a configuration/action string cannot be silently
  * shortened at \u0000. Escaped literal backslashes remain ordinary text.
  * Limit structural depth before cJSON's recursive parser uses task stack.
  * This is a transport precheck, not a replacement for JSON parsing. */
@@ -36,8 +36,8 @@ static inline bool memo_service_json_text_safe(const char *text, size_t length)
     }
     return !in_string && depth == 0;
 }
-/* Current-service portal adapters. Settings commit through the existing short
- * admission gate; pairing HTTP runs on the ordinary application worker. */
+/* Direct-cloud public flags/mode/clear adapters. Secrets use USB only.
+ * No provider calls or legacy enrollment are performed by these handlers. */
 typedef bool (*memo_service_status_fn)(char *, size_t);
 typedef bool (*memo_service_apply_fn)(const char *, size_t, char *, size_t);
 void memo_service_portal_register(memo_service_status_fn, memo_service_apply_fn);

@@ -19,7 +19,6 @@ static unsigned commands;
 static bool storage_view;
 static lv_indev_data_t pointer;
 static memo_network_status_t network;
-static memo_config_public_t service={.enabled=true};
 static memo_power_status_t power = {
     .supported = true,
     .initialized = true,
@@ -65,7 +64,6 @@ bool app_command(memo_cmd_t command, uint32_t arg, const char *source)
 
 void app_snapshot(memo_snapshot_t *out) { *out = model; }
 void network_sync_get_status(memo_network_status_t *out) { *out = network; }
-void network_sync_get_service_config(memo_config_public_t *out) { *out=service; }
 static memo_record_sync_t detail_job;
 static unsigned retry_calls,cancel_calls;
 static bool retry_accept=true;
@@ -446,7 +444,7 @@ static void cardless_cases(lv_indev_t *indev)
     model=(memo_snapshot_t){.state=MEMO_IDLE,.cardless=true,.cardless_ready=true,
         .voice_ready=true,.count=10,.page_count=4,.item_count=1,.revision=model.revision+1};
     model.items[0]=(memo_item_t){.id=cardless_id,.duration_ms=3755000,.file_bytes=7801234,.cardless=true};
-    network.configured=true;network.connected=true;network.error[0]='\0';
+    network.configured=true;network.cloud_enabled=true;network.cloud_credentials=true;network.connected=true;network.error[0]='\0';
     tick(220);
     ui_power_show_awake();tick(220);
     assert(cat_anim_test_state()==CAT_ANIM_CARDLESS);
@@ -512,7 +510,7 @@ static void cardless_cases(lv_indev_t *indev)
     network.configured=false;network.connected=false;detail_job.state=MEMO_JOB_FAILED;
     save_frame("cardless-saved-failure-offline");
     assert(contains_visible_label(lv_screen_active(),MEMO_UI_COMPACT?"处理未完成":"处理未完成喵"));
-    network.configured=true;network.connected=true;
+    network.configured=true;network.cloud_enabled=true;network.cloud_credentials=true;network.connected=true;
     for(int st=MEMO_JOB_UNKNOWN;st<=MEMO_JOB_CANCELLING;st++) {
         detail_job.state=(memo_job_state_t)st;
         save_frame("cardless-detail-status");
@@ -551,7 +549,7 @@ int main(void)
     model = (memo_snapshot_t){ .state=MEMO_IDLE, .sd_ready=true, .count=10,
         .page=0, .page_count=4, .revision=1, .item_count=3,
         .items={{10,120123,3843980},{9,5345,171084},{8,11111,355596}} };
-    network = (memo_network_status_t){ .initialized=true, .configured=true, .connected=true };
+    network = (memo_network_status_t){ .initialized=true, .configured=true,.cloud_enabled=true,.cloud_credentials=true, .connected=true };
     ui_init();
 #if MEMO_UI_COMPACT
     assert(MEMO_CAT_SCALE == 256);
@@ -746,7 +744,7 @@ int main(void)
     assert(contains_visible_label(lv_screen_active(),MEMO_UI_COMPACT?"处理失败":"同步失败，录音仍在本机喵"));
     detail_job.state=MEMO_JOB_CHECKING;save_frame("record-local-identity-check");
     assert(contains_visible_label(lv_screen_active(),MEMO_UI_COMPACT?"正在核对录音":"正在核对录音喵"));
-    network.configured=true;
+    network.configured=true;network.cloud_enabled=true;network.cloud_credentials=true;
     network.connected=true;detail_job.state=MEMO_JOB_LOCAL;tick(220);
     assert(contains_visible_label(lv_screen_active(),"提交处理"));
     detail_job.state=MEMO_JOB_WAITING;detail_job.needs_rebind=true;detail_job.can_cancel=true;
@@ -987,15 +985,13 @@ int main(void)
     };
     for(unsigned i=0;i<sizeof(network_errors)/sizeof(network_errors[0]);++i){
         snprintf(network.error,sizeof(network.error),"%s",network_errors[i]);
-        service.pairing=i<2;
         char frame[64];snprintf(frame,sizeof(frame),"control-network-error-%u",i);save_frame(frame);
-        const char *caption=service.pairing?(MEMO_UI_COMPACT?"配对中，录音可用":"正在配对，录音可用"):
-            (MEMO_UI_COMPACT?"待配对，录音可用":"服务待配对，录音可用");
+        const char *caption=MEMO_UI_COMPACT?"待配置，录音可用":"服务待配置，录音可用";
         lv_obj_t *notice=find_visible_label(lv_screen_active(),caption);assert(notice);
         lv_area_t area;lv_obj_get_coords(notice,&area);
         assert(area.y2 < (MEMO_UI_COMPACT?84:153)); // Primary button / first recording row.
     }
-    network.error[0]='\0';service.pairing=false;
+    network.error[0]='\0';
     network.provisioning = true;
     snprintf(network.ap_ssid, sizeof(network.ap_ssid), "MeowInbox-D69C");
     tick(220);
@@ -1005,35 +1001,24 @@ int main(void)
     assert(!contains_visible_label(lv_screen_active(), "连上热点自动打开"));
     assert(!contains_visible_label(lv_screen_active(), "连接热点后自动打开网页"));
     check_provision_url();
-    service.pairing=true;save_frame("provisioning-pairing");
-    assert(contains_visible_label(lv_screen_active(),network.connected?"正在配对，请稍候":"等待连接 Wi-Fi"));
-    check_provision_url();
-    network.connected=true;
-    snprintf(network.error,sizeof(network.error),"服务接口不兼容，请检查中继版本；更换配对码无法解决");
-    save_frame("provisioning-pairing-incompatible");
-    assert(contains_visible_label(lv_screen_active(),"配对未完成，请看网页"));
-    assert(!contains_visible_label(lv_screen_active(),"正在配对，请稍候"));
-    check_provision_url();
-    network.error[0]='\0';
-    service.pairing=false;service.enabled=false;save_frame("provisioning-local");
-    assert(contains_visible_label(lv_screen_active(),MEMO_UI_COMPACT?"仅本地，有卡录放可用":"仅本地，有卡录音回放可用喵"));
-    check_provision_url();
-    service.result=MEMO_CONFIG_STORAGE_ERROR;save_frame("provisioning-save-failure");
-    assert(contains_visible_label(lv_screen_active(),MEMO_UI_COMPACT?"设置未确认，网页重试":"设置未确认，请在网页重试喵"));
-    check_provision_url();
-    service=(memo_config_public_t){.enabled=true};
-    snprintf(network.error,sizeof(network.error),"配对码无效、过期或设备已撤销，请重新配对");
-    save_frame("provisioning-pair-failure");
-    assert(contains_visible_label(lv_screen_active(),MEMO_UI_COMPACT?"配对失败，网页重试":"服务未配对，请在网页重试喵"));
-    check_provision_url();
-    network.error[0]='\0';
+    network.cloud_enabled=true;network.cloud_credentials=false;save_frame("provisioning-usb-config");
+    assert(contains_visible_label(lv_screen_active(),"通过USB配置云服务"));check_provision_url();
+    network.cloud_credentials=true;network.connected=false;save_frame("provisioning-wait-wifi");
+    assert(contains_visible_label(lv_screen_active(),"等待连接 Wi-Fi"));check_provision_url();
+    network.connected=true;save_frame("provisioning-unverified");
+    assert(contains_visible_label(lv_screen_active(),"凭据已存，尚未验证"));check_provision_url();
+    network.cloud_enabled=false;save_frame("provisioning-local");
+    assert(contains_visible_label(lv_screen_active(),MEMO_UI_COMPACT?"仅本地，有卡录放可用":"仅本地，有卡录音回放可用喵"));check_provision_url();
+    network.cloud_config_error=true;save_frame("provisioning-save-failure");
+    assert(contains_visible_label(lv_screen_active(),MEMO_UI_COMPACT?"设置未确认，网页重试":"设置未确认，请在网页重试喵"));check_provision_url();
+    network.cloud_config_error=false;network.cloud_enabled=true;network.error[0]='\0';
     network.configured = true;
     tick(220);
     save_frame("provisioning-enrolled");
 #if MEMO_UI_COMPACT
-    assert(contains_visible_label(lv_screen_active(), "服务已配对"));
+    assert(contains_visible_label(lv_screen_active(), "凭据已存，尚未验证"));
 #else
-    assert(contains_visible_label(lv_screen_active(), "服务已配对"));
+    assert(contains_visible_label(lv_screen_active(), "凭据已存，尚未验证"));
 #endif
     check_provision_url();
     lv_area_t exit_area;

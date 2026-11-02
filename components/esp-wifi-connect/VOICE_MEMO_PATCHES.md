@@ -1,4 +1,4 @@
-# VoiceMemo changes
+# IdeaPickup changes
 
 Upstream: `78/esp-wifi-connect` 3.3.1, commit recorded in `UPSTREAM_COMMIT`.
 
@@ -7,8 +7,9 @@ Upstream: `78/esp-wifi-connect` 3.3.1, commit recorded in `UPSTREAM_COMMIT`.
   Project AP password generation and temporary observation hooks were removed;
   existing NVS keys are neither changed nor erased.
 - Separate Wi-Fi connection/save from current-service configuration. The application
-  callbacks expose only a redacted view and save the existing R03 settings; pairing
-  runs/replays on the ordinary worker, with no new phase or history operation.
+  callbacks expose only direct-cloud credential-presence flags, mode and actual task
+  results. Long-term credentials use the bounded USB helper, never the open AP.
+  Legacy relay URL/token/pairing handlers have been removed; old NVS stays intact.
 - Limit JSON bodies and reject decoded NUL/unsafe structural depth before parsing;
   use the narrow DONOR request guard (fixed AP Host/Origin, fresh session CSRF).
   All existing mutation handlers require this guard; hidden upstream advanced and
@@ -54,7 +55,7 @@ The upstream MIT license is retained in `LICENSE`.
   return ordinary 404; no synthetic Internet-success response is sent.
 - Reuse the existing application network worker for bounded Wi-Fi connect/save;
   the HTTP task only accepts a request. AP and STA stay up after a successful
-  save so the existing enrollment worker can complete pairing with live status.
+  save so users can inspect actual connection and direct-cloud task status.
   AP Stop wakes and joins an in-flight connection before driver teardown. Saved
   Wi-Fi reconnects when settings reopen. Raw passwords/tokens are never status fields.
 - HTTP accepted sockets must target the AP interface address; the simultaneous
@@ -66,6 +67,6 @@ The upstream MIT license is retained in `LICENSE`.
 - The provisioning page has an offline, self-contained visual/interaction design
   supplied through Gemini Canvas. Integration keeps its styling intact, uses the
   existing relative API routes, protects edits from overlapping responses, and
-  separates accepted settings from verified Wi-Fi/pairing results. The product
+  separates accepted settings from actual Wi-Fi/cloud-task results; saving credentials is not provider verification. The product
   title is IdeaPickup across both supported hardware variants. No auto-popup,
   new endpoint, persistent browser storage, or third-party asset is added.

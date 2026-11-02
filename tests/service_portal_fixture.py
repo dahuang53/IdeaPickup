@@ -1,4 +1,4 @@
-"""Loopback fixture runs production AP handlers, portal adapter and R03 NVS body.
+"""Loopback fixture runs production AP handlers, portal adapter and direct NVS settings.
 RF/ESP httpd/NVS/task APIs are explicit shims. No hardware or providers.
 Browser loopback Host/Origin maps to the fixed AP address only in this fixture.
 """
@@ -12,9 +12,10 @@ def build(temp):
     for name,text in HEADERS.items():
         p=temp/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_text(text)
     source=(ROOT/'main/network_sync.cpp').read_text()
-    markers=['class ConfigGuard','class ConfigCommitGuard','void status_update','void set_error','void refresh_service_status',
-        'extern "C" void network_sync_get_status','extern "C" void network_sync_get_service_config',
-        'extern "C" memo_config_result_t network_sync_configure_service',
+    markers=['class ConfigCommitGuard','void status_update','void set_error','void publish_cloud_status','void refresh_service_status',
+        'extern "C" void network_sync_get_status','extern "C" void network_sync_get_cloud_config','extern "C" void network_sync_task_result',
+        'void cloud_saved','extern "C" memo_cloud_result_t network_sync_configure_cloud','extern "C" memo_cloud_result_t network_sync_set_local_only',
+        'extern "C" bool network_sync_cloud_input_begin','extern "C" memo_cloud_result_t network_sync_cloud_input_save','extern "C" void network_sync_cloud_input_end',
         'extern "C" bool network_sync_prepare_audio','extern "C" void network_sync_audio_done']
     bodies='\n'.join(extract(source,m)+(';' if m.startswith('class ') else '') for m in markers)
     ap=(ROOT/'components/esp-wifi-connect/wifi_configuration_ap.cc').read_text()
@@ -23,7 +24,7 @@ def build(temp):
                    'WifiPortalStatus WifiConfigurationAp::GetConnectionStatus(']:
         bodies+='\n'+extract(ap,marker)
     bodies+='\n'+extract((ROOT/'components/esp-wifi-connect/wifi_manager.cc').read_text(),'bool WifiManager::Initialize')
-    h=HARNESS[:HARNESS.index('int main(int argc')]
+    h=HARNESS
     h=h.replace('class WifiConfigurationAp {','''static bool wifi_connect_fault=false;
 void esp_wifi_disconnect(){}
 struct WifiPortalStatus {std::string state="not_configured",ssid,error;bool saved=false,connected=false;};
@@ -81,7 +82,7 @@ int main(){
     SsidManager::GetInstance().SetConfigCommitGuard(// __BEGIN__
     ,// __END__
     );
-    assert(memo_network_config_nvs_init()==ESP_OK);
+    refresh_service_status();configuration_bootstrap=false;status_value.initialized=true;
     snprintf(status_value.device_id,sizeof(status_value.device_id),"fixture-device");
     status_value.provisioning=true;
     WifiConfigurationAp ap;
@@ -98,7 +99,8 @@ int main(){
             if(cJSON_IsTrue(cJSON_GetObjectItem(j,"wifi_process"))){ap.ProcessConnection();status_value.connected=ap.GetConnectionStatus().connected;}
             wifi_connect_fault=cJSON_IsTrue(cJSON_GetObjectItem(j,"wifi_fail"));
             if(cJSON_IsString(cJSON_GetObjectItem(j,"network_error")))set_error(text("network_error",""));
-            if(cJSON_IsTrue(cJSON_GetObjectItem(j,"paired"))){ConfigCommitGuard commit;ConfigGuard guard;auto generation=guard.value->value.generation;memo_server_uuid_t id{};id.bytes[0]=1;memo_config_bind_instance(guard.value,generation,&id);memo_config_finish_pairing(guard.value,guard.value->value.generation,&id);refresh_service_status();}
+            if(cJSON_IsTrue(cJSON_GetObjectItem(j,"credentials"))){memo_cloud_patch_t p{};p.workspace="llm-fixture";p.qwen_key="synthetic-key";p.siyuan_token="synthetic-token";assert(network_sync_configure_cloud(&p)==MEMO_CLOUD_OK);}
+            v=cJSON_GetObjectItem(j,"task_state");if(cJSON_IsNumber(v))network_sync_task_result(1,memo_job_state_t(v->valueint),"");
             req.response="{\"success\":true}";
         }else if(!strcmp(route,"/service")) {if(!strcmp(method,"POST"))service_post(&req);else service_get(&req);}
         else if(!strcmp(route,"/submit"))wifi_post(&req);
@@ -122,10 +124,9 @@ int main(){
         extra=extra.replace('// __'+marker+'__',extract(source,source_marker).split('=',1)[1])
     p=temp/'fixture.cpp';p.write_text('#include <iostream>\n'+h+extra)
     includes=['-I',str(temp),'-I',str(ROOT/'main'),'-I',str(ROOT/'components/esp-wifi-connect/include'),'-I',str(ROOT/'.tools/esp-idf/components/json/cJSON')]
-    objects=[]
-    for source in [ROOT/'main/memo_network_config.c',ROOT/'main/memo_network_config_nvs.c',ROOT/'.tools/esp-idf/components/json/cJSON/cJSON.c']:
-        obj=temp/(source.stem+'.o');objects.append(str(obj));subprocess.run(['cc','-std=c11','-g','-O1','-Wall','-Wextra','-Werror',*includes,'-c',str(source),'-o',str(obj)],check=True)
-    binary=temp/'fixture';subprocess.run(['c++','-std=c++17','-g','-O1','-Wall','-Wextra','-Werror','-DMEMO_HOST_TEST',*includes,str(p),str(ROOT/'main/memo_service_portal.cpp'),str(ROOT/'components/esp-wifi-connect/ssid_manager.cc'),*objects,'-o',str(binary)],check=True)
+    from cloud_settings_fixture import compile_objects
+    objects=compile_objects(temp,includes)
+    binary=temp/'fixture';subprocess.run(['c++','-std=c++17','-g','-O1','-Wall','-Wextra','-Werror','-fsanitize=address,undefined','-DMEMO_HOST_TEST',*includes,str(p),str(ROOT/'main/memo_service_portal.cpp'),str(ROOT/'components/esp-wifi-connect/ssid_manager.cc'),*objects,'-o',str(binary)],check=True)
     return binary
 
 class Native:

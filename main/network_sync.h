@@ -4,7 +4,8 @@
 #include <stdint.h>
 #include <stddef.h>
 #include "memo_sync_cache.h"
-#include "memo_network_config.h"
+#include "memo_cloud_config.h"
+#include "memo_activity.h"
 #if defined(MEMO_HOST_TEST) || defined(CAT_ANIM_TEST)
 typedef int esp_err_t;
 #else
@@ -18,6 +19,7 @@ extern "C" {
 typedef struct {
     bool initialized;
     bool configured;
+    bool cloud_enabled,cloud_credentials,cloud_config_error;
     bool connected;
     bool provisioning;
     bool syncing;
@@ -27,6 +29,9 @@ typedef struct {
     memo_job_state_t active_sync_state;
     uint32_t queued_sync_id;
     bool queued_sync_manual;
+    uint32_t last_task_id;
+    memo_job_state_t last_task_state;
+    char last_task_error[80];
     char device_id[40];
     char ap_ssid[33];
     char error[80];
@@ -35,17 +40,20 @@ typedef struct {
 /* Existing recordings are not uploaded implicitly. Service configuration is
  * separate from Wi-Fi; an unconfigured/local-only device keeps offline audio. */
 esp_err_t network_sync_init(uint32_t existing_latest_id);
-/* R05 portal adapter uses these; no credentials are returned to the UI.
- * OK means durable settings / queued pairing, not server-confirmed pairing. */
-memo_config_result_t network_sync_configure_service(const char *url, const char *pairing_code, bool local_only);
-void network_sync_get_service_config(memo_config_public_t *out);
-/* Maintenance transport: reuse current address/pairing, never expose credentials. */
-memo_config_result_t network_sync_set_local_only(bool local_only);
+/* Public flags contain no provider keys; saves never invoke providers. */
+void network_sync_get_cloud_config(memo_cloud_public_t *);
+memo_cloud_result_t network_sync_configure_cloud(const memo_cloud_patch_t *);
+memo_cloud_result_t network_sync_set_local_only(bool);
+/* USB secret channel is admitted only while idle and hotspot is open. */
+bool network_sync_cloud_input_begin(void);
+memo_cloud_result_t network_sync_cloud_input_save(const memo_cloud_patch_t *);
+void network_sync_cloud_input_end(void);
 /* Numeric maintenance measurement; minimum unused detail-task stack in bytes. */
 uint32_t network_sync_detail_stack_free(void);
 uint32_t network_sync_http_stack_free(void);
 /* Wake the single HTTP worker after cardless audio/state becomes available. */
 void network_sync_wake(void);
+void network_sync_task_result(uint32_t,memo_job_state_t,const char *);
 /* One device-wide delivery interval shared by SD and cardless owners. */
 int64_t network_sync_delivery_last(void);
 void network_sync_delivery_started(void);

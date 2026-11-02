@@ -200,8 +200,8 @@ void WifiConfigurationAp::StartWebServer()
         return ESP_FAIL;
     };
     config.lru_purge_enable = true;
-    // Current-service save calls the bounded NVS adapter synchronously; leave
-    // stack space for its URL validation and durable readback. No HTTP pairing here.
+    // Public mode/clear settings use the bounded NVS adapter synchronously.
+    // Provider credentials are accepted only on the dedicated USB channel.
     config.stack_size = 8192;
     config.uri_match_fn = httpd_uri_match_wildcard;
     // 5G Network takes longer to connect

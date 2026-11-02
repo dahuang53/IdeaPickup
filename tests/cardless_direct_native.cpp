@@ -58,6 +58,7 @@ extern "C" void network_sync_get_status(memo_network_status_t *n){*n={};n->initi
 static int64_t shared_delivery=0;
 extern "C" int64_t network_sync_delivery_last(){return shared_delivery;}
 extern "C" void network_sync_delivery_started(){shared_delivery=clock_ms;}
+extern "C" void network_sync_task_result(uint32_t,memo_job_state_t,const char*){}
 extern "C" void network_sync_wake(){}
 static std::deque<std::string> events;static std::string mode="ok",body,response;static size_t response_at=0;static bool leased=false,sent=false,ws=false;static int deliveries=0,leases=0,ws_opened=0,ws_closed=0;static size_t audio_bytes=0;static unsigned item=0;static int64_t handshake_until=0;static std::vector<int64_t> delivery_times;
 memo_cloud::IO cardless_test_io{};
@@ -84,7 +85,7 @@ static void io_init(){
  cardless_test_io.http_read=[](void*,void *p,size_t n,int){n=std::min(n,response.size()-response_at);memcpy(p,response.data()+response_at,n);response_at+=n;if(mode=="cancel_success"&&response_at==response.size())memo_cardless_cancel(active);return int(n);};
  cardless_test_io.http_complete=[](void*){return response_at==response.size();};cardless_test_io.http_sent=[](void*){return sent;};cardless_test_io.http_close=[](void*){};
 }
-static void boot(){assert(memo_cardless_init()==ESP_OK);assert(memo_cardless_start_pending()==ESP_OK);}
+static void boot(){assert(memo_cardless_init()==ESP_OK);memo_cardless_configure(config_enabled,false);}
 static void reset_boot(){if(active)release();cardless_free(records);records=nullptr;for(void *p:{meta_mutex,pcm_mutex,begin_mutex})delete static_cast<std::recursive_mutex *>(p);meta_mutex=pcm_mutex=begin_mutex=nullptr;if(metadata){nvs_close(metadata);metadata=0;}if(legacy_open){nvs_close(legacy);legacy_open=false;}count=counter=age=0;for(auto &d:details)d={};initialized=metadata_fault=false;selected=0;highwater=0;}
 static uint32_t begin(){uint32_t id=0;assert(memo_cardless_begin(0,&id)==ESP_OK&&id);return id;}
 static void feed(){int16_t pcm[1600]{};assert(memo_cardless_append(pcm,1600));memo_cardless_network_step();}
@@ -114,7 +115,8 @@ int main(int argc,char **argv){assert(argc==2);std::string name=argv[1];io_init(
   else {assert(result!=ESP_OK&&!id&&!capturing&&!active&&clock_ms<=start+15100);}
  }
  else if(name=="cross_rate"){shared_delivery=clock_ms;int64_t previous=clock_ms;uint32_t id=begin();feed();assert(end(id).state==MEMO_JOB_SENT&&delivery_times[0]>=previous+10000);}
- else if(name=="config_stop"){uint32_t id=begin();feed();config_enabled=false;memo_cardless_config_changed();assert(end(id).state==MEMO_JOB_FAILED&&!deliveries&&!memo_cardless_ready());}
+ else if(name=="config_noop"){uint32_t id=begin();feed();memo_cardless_configure(config_enabled,false);assert(!stopped&&!abort_io&&capturing);assert(end(id).state==MEMO_JOB_SENT);}
+ else if(name=="config_stop"){uint32_t id=begin();feed();config_enabled=false;memo_cardless_configure(config_enabled,true);assert(end(id).state==MEMO_JOB_FAILED&&!deliveries&&!memo_cardless_ready());}
  else if(name=="orphan"){
   uint32_t id=begin();feed();fault_write=1;memo_cardless_finish(false,"");memo_cardless_network_step();assert(metadata_fault&&!active);fault_write=0;reset_boot();boot();memo_cardless_record_t r{};assert(memo_cardless_get(id,&r)&&r.state==MEMO_JOB_FAILED&&!ws&&!deliveries);
  }

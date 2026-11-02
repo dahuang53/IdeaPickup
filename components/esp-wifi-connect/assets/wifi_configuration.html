@@ -738,11 +738,11 @@
       let serviceSubmitted = false, composing = false;
       const store = {
         apOnline: false, closed: false, scanning: false, pendingWrite: false, aps: [],
-        device: {wifi: {}, local_only: false, configured: false, pairing: false, server_url: ''},
+        device: {wifi: {}, local_only: true, configured: false, qwen_set: false, siyuan_set: false, qwen_generation: 0, siyuan_generation: 0},
         lastKnownWifiSummary: '无', lastKnownServiceSummary: '无',
         wifiEdited: false, customSsidMode: false, wifiMenuOpen: false, draftSsid: '', draftPassword: '',
         exitFeedback: {text: '', tone: ''}, showPassword: false, wifiFeedback: {text: '', tone: ''},
-        serviceEdited: false, draftMode: 'service', draftServerUrl: '', draftPairingCode: '',
+        serviceEdited: false, draftMode: 'local',
         serviceFeedback: {text: '', tone: ''}, candA_wifiOpen: false, candA_serviceOpen: false
       };
       function writable() { return store.apOnline && csrf && !store.closed && !store.pendingWrite && !store.scanning; }
@@ -753,7 +753,6 @@
         }
         if (!store.serviceEdited) {
           store.draftMode = store.device.local_only ? 'local' : 'service';
-          store.draftServerUrl = store.device.server_url || '';
         }
       }
       function scheduleStatus(delay) {
@@ -772,8 +771,8 @@
           if (typeof value.csrf !== 'string' || !value.csrf || !value.wifi ||
               typeof value.wifi.state !== 'string' || typeof value.wifi.connected !== 'boolean' ||
               typeof value.wifi.saved !== 'boolean' || typeof value.local_only !== 'boolean' ||
-              typeof value.configured !== 'boolean' || typeof value.pairing !== 'boolean' ||
-              typeof value.phase !== 'string' || typeof value.server_url !== 'string') throw Error('Invalid device state');
+              typeof value.configured !== 'boolean' || typeof value.qwen_set !== 'boolean' || typeof value.siyuan_set !== 'boolean' ||
+              typeof value.phase !== 'string' || !Number.isInteger(value.qwen_generation) || !Number.isInteger(value.siyuan_generation)) throw Error('Invalid device state');
           csrf = value.csrf; store.device = value; store.apOnline = true;
           syncDrafts();
           if (!everLoaded) {
@@ -795,7 +794,7 @@
           }
           if (serviceSubmitted) {
             store.serviceFeedback = {text: '', tone: ''};
-            if (value.phase === 'error' || value.local_only || (value.phase === 'paired' && value.configured)) {
+            if (value.phase === 'error' || value.local_only || (value.phase === 'ready' && value.configured)) {
               if (!store.serviceEdited) store.candA_serviceOpen = value.phase === 'error';
               serviceSubmitted = false;
             }
@@ -805,7 +804,7 @@
           csrf = ''; store.apOnline = false;
         } finally {
           polling = false; render();
-          scheduleStatus(refreshRequested ? 0 : !store.apOnline || wifiSubmitted || serviceSubmitted || store.device.pairing || store.device.wifi.state === 'connecting' ? 2000 : 10000);
+          scheduleStatus(refreshRequested ? 0 : !store.apOnline || wifiSubmitted || serviceSubmitted || [2,5,7,8,14].includes(store.device.task_state) || store.device.wifi.state === 'connecting' ? 2000 : 10000);
         }
       }
       async function triggerScan() {
@@ -851,14 +850,14 @@
         }
         await status();
       }
-      async function submitService() {
+      async function submitService(clearProvider = '') {
         if (!writable()) return;
-        const wantLocal=store.draftMode==='local', cleanUrl=store.draftServerUrl.trim(), cleanCode=store.draftPairingCode.trim().toUpperCase(), edit=serviceEditRevision;
-        let error = wantLocal ? '' : !cleanUrl ? '请填写服务器内网 IP 或 HTTPS 域名' : utf8Bytes(cleanUrl)>240 ? '服务器地址超出长度限制' : cleanCode.length>16 ? '配对码最多 16 位字符' : '';
-        if(error){store.serviceFeedback={text:error,tone:'error'};render();return;}
+        const wantLocal=clearProvider ? true : store.draftMode==='local', edit=serviceEditRevision;
         store.serviceFeedback={text:'正在保存…',tone:'pending'};
-        if(await save('/service',{server_url:cleanUrl,pairing_code:cleanCode,local_only:wantLocal},'serviceFeedback')) {
-          if(serviceEditRevision===edit){store.draftPairingCode='';store.serviceEdited=false;}
+        const patch={local_only:wantLocal,qwen_generation:store.device.qwen_generation,siyuan_generation:store.device.siyuan_generation};
+        if(clearProvider)patch[clearProvider==='qwen'?'clear_qwen':'clear_siyuan']=true;
+        if(await save('/service',patch,'serviceFeedback')) {
+          if(serviceEditRevision===edit)store.serviceEdited=false;
           serviceSubmitted=true;
         }
         await status();
@@ -869,7 +868,7 @@
         store.exitFeedback={text:'',tone:''};
         if(await save('/exit',{},'exitFeedback')) {
           store.closed=true;store.apOnline=false;csrf='';clearTimeout(timer);
-          store.draftPassword='';store.draftPairingCode='';store.wifiEdited=false;store.serviceEdited=false;
+          store.draftPassword='';store.wifiEdited=false;store.serviceEdited=false;
           render();
         } else {render();await status();}
       }
@@ -1068,111 +1067,13 @@
       }
 
       function deriveServiceInfo() {
-        if (store.closed) {
-          return {
-            short: `停止更新（原：${store.lastKnownServiceSummary}）`,
-            note: '',
-            tone: 'neutral',
-            icon: '○',
-            activeMode: store.device.local_only ? 'local' : 'service',
-            isPaired: false
-          };
-        }
-        if (!store.apOnline) {
-          return {
-            short: `当前未知（原：${store.lastKnownServiceSummary}）`,
-            note: '',
-            tone: 'neutral',
-            icon: '?',
-            activeMode: store.device.local_only ? 'local' : 'service',
-            isPaired: false
-          };
-        }
-        const d = store.device;
-        const isLocal = Boolean(d.local_only) || d.phase === 'local';
-        if (isLocal) {
-          store.lastKnownServiceSummary = '仅本地使用';
-          return {
-            short: '仅本地使用',
-            note: '',
-            tone: 'success',
-            icon: '✓',
-            activeMode: 'local',
-            isPaired: false
-          };
-        }
-        const host = (d.server_url || '').replace(/^https?:\/\//, '');
-        if (d.phase === 'paired' && d.configured) {
-          store.lastKnownServiceSummary = `已配对 ${host}`;
-          return {
-            short: host ? `已配对 ${host}` : '已配对',
-            note: '',
-            tone: 'success',
-            icon: '✓',
-            activeMode: 'service',
-            isPaired: true
-          };
-        }
-        if (d.phase === 'error') {
-          return {
-            short: '配对未通过',
-            note: d.message || '请检查地址或重新生成配对码',
-            tone: 'error',
-            icon: '✕',
-            activeMode: 'service',
-            isPaired: false
-          };
-        }
-        if (d.phase === 'pairing' || d.pairing) {
-          if (d.phase === 'waiting_wifi') {
-            return {
-              short: '待连 Wi-Fi 后配对',
-              note: host ? `已保存 ${host}` : '',
-              tone: 'pending',
-              icon: '◐',
-              activeMode: 'service',
-              isPaired: false
-            };
-          }
-          return {
-            short: '正在配对…',
-            note: d.message || (host ? `正在验证 ${host}` : ''),
-            tone: 'pending',
-            icon: '◐',
-            activeMode: 'service',
-            isPaired: false
-          };
-        }
-        if (d.phase === 'waiting_wifi') {
-          return {
-            short: '待连 Wi-Fi 后配对',
-            note: host ? `已保存 ${host}` : '',
-            tone: 'pending',
-            icon: '◐',
-            activeMode: 'service',
-            isPaired: false
-          };
-        }
-        return {
-          short: '未配对服务',
-          note: '',
-          tone: 'warn',
-          icon: '○',
-          activeMode: 'none',
-          isPaired: false
-        };
-      }
-
-      function isSameServerWithExistingPairing() {
-        const cleanDraft = (store.draftServerUrl || '').trim();
-        const cleanDevice = (store.device.server_url || '').trim();
-        const cleanCode = (store.draftPairingCode || '').trim();
-        return Boolean(
-          cleanDraft &&
-          cleanDraft === cleanDevice &&
-          !cleanCode &&
-          (store.device.configured || store.device.pairing || (store.device.local_only && store.device.server_url))
-        );
+        const d=store.device;
+        if(store.closed || !store.apOnline)return {short:store.closed?'停止更新':'当前未知',note:'',tone:'neutral',icon:'○',activeMode:d.local_only?'local':'service',isReady:false};
+        let task='';
+        if(d.task_id){const names={2:'等待处理',5:'等待处理',7:'正在转写',8:'正在投递思源',9:'已送达思源',10:'处理失败',11:'未识别到语音',12:'投递待核对',13:'已取消',14:'正在取消'};task=names[d.task_state] ? '最近处理：'+names[d.task_state] : '';}
+        if(d.phase==='error')return {short:'配置不可读',note:d.message||'',tone:'error',icon:'✕',activeMode:'none',isReady:false};
+        if(d.local_only)return {short:'仅本地使用',note:task,tone:'success',icon:'✓',activeMode:'local',isReady:d.configured};
+        return {short:d.configured?'凭据已保存':'待配置凭据',note:task || (d.configured?'尚未验证；录音完成后处理':'通过电脑USB配置千问和思源'),tone:d.configured?'neutral':'warn',icon:'○',activeMode:'service',isReady:d.configured};
       }
 
       function renderApIcons(ap) {
@@ -1377,76 +1278,21 @@
 
       // Shared Service Form Controls (No duplicate draft banner)
       function renderServiceFieldsControls(btnColorStyle) {
-        const disabled = store.closed || !store.apOnline || store.pendingWrite || store.scanning;
-        const urlTooLong = utf8Bytes(store.draftServerUrl) > 240;
-        const codeTooLong = (store.draftPairingCode || '').trim().length > 16;
-        const samePairedServer = isSameServerWithExistingPairing();
-        const hasExistingServer = Boolean(store.device.configured || store.device.pairing || (store.device.local_only && store.device.server_url));
-
-        let btnText = '保存并配对';
-        if (samePairedServer) {
-          btnText = store.device.local_only ? '启用此转写服务' : '保存更改';
-        }
-
+        const disabled=store.closed||!store.apOnline||store.pendingWrite||store.scanning;
+        const d=store.device;
         return `
           <div class="f-group">
-            <div class="f-label-row">
-              <label class="f-label" for="srv-url-input">服务器地址</label>
-              ${urlTooLong
-                ? '<span class="f-err-inline">地址超长</span>'
-                : (store.serviceEdited && store.apOnline && !store.closed
-                    ? '<button type="button" class="f-link-btn" data-action="reset-service-draft">还原修改</button>'
-                    : '')}
+            <div class="f-label-row"><span class="f-label">千问</span><span>${d.qwen_set?'已保存':'未配置'}</span></div>
+            <div class="f-label-row"><span class="f-label">思源</span><span>${d.siyuan_set?'已保存':'未配置'}</span></div>
+            <p class="f-help">连接电脑 USB，在项目目录运行配置助手。输入留空保留原值；密钥不通过此网页发送。</p>
+            <code style="overflow-wrap:anywhere;word-break:break-word">.venv/bin/python scripts/configure_cloud.py</code>
+            <div class="f-input-row" style="margin-top:10px">
+              <button type="button" class="f-sub-btn" data-action="clear-qwen" ${disabled||!d.qwen_set?'disabled':''}>清除千问</button>
+              <button type="button" class="f-sub-btn" data-action="clear-siyuan" ${disabled||!d.siyuan_set?'disabled':''}>清除思源</button>
             </div>
-            <input
-              id="srv-url-input"
-              class="portal-input"
-              type="text"
-              inputmode="url"
-              maxlength="240"
-              autocomplete="url"
-              autocapitalize="none"
-              spellcheck="false"
-              placeholder="内网 IP (默认8765) 或 https://域名"
-              value="${escapeAttr(store.draftServerUrl)}"
-              ${disabled ? 'disabled' : ''}
-            >
           </div>
-
-          <div class="f-group">
-            <div class="f-label-row">
-              <label class="f-label" for="srv-code-input">配对码</label>
-              ${codeTooLong ? '<span class="f-err-inline">最多 16 位</span>' : ''}
-            </div>
-            <input
-              id="srv-code-input"
-              class="portal-input"
-              type="text"
-              maxlength="16"
-              autocomplete="one-time-code"
-              autocapitalize="characters"
-              spellcheck="false"
-              placeholder="${hasExistingServer ? '不换服务器可留空；换新地址需填新码' : '在服务器管理页生成'}"
-              value="${escapeAttr(store.draftPairingCode)}"
-              ${disabled ? 'disabled' : ''}
-            >
-          </div>
-
-          ${store.serviceFeedback.text ? `
-            <div class="f-feedback" data-tone="${store.serviceFeedback.tone}" role="status" aria-live="polite">
-              ${escapeHtml(store.serviceFeedback.text)}
-            </div>
-          ` : ''}
-
-          <button
-            type="button"
-            class="f-primary-btn"
-            style="${btnColorStyle}"
-            data-action="submit-service"
-            ${disabled ? 'disabled' : ''}
-          >
-            ${btnText}
-          </button>
+          ${store.serviceFeedback.text?`<div class="f-feedback" data-tone="${store.serviceFeedback.tone}" role="status" aria-live="polite">${escapeHtml(store.serviceFeedback.text)}</div>`:''}
+          <button type="button" class="f-primary-btn" style="${btnColorStyle}" data-action="submit-service" ${disabled||!d.configured?'disabled':''}>${d.local_only?'启用转写服务':'保存模式'}</button>
         `;
       }
 
@@ -1460,14 +1306,14 @@
         if (alreadyLocalOnDevice) {
           return `
             <div style="font-size:0.8125rem; color:#52525B; line-height:1.45;">
-              插存储卡即可离线录音与回放，不联网同步（原服务器地址已保留）。
+              插存储卡即可离线录音与回放，不联网同步（凭据已保留）。
             </div>
           `;
         }
 
         return `
           <div style="font-size:0.8125rem; color:#52525B; line-height:1.45; margin-bottom:10px;">
-            切换后停止联网同步，插存储卡可离线录音与回放（原服务器地址会保留）。
+            切换后停止联网同步，插存储卡可离线录音与回放（凭据会保留）。
           </div>
 
           ${store.serviceFeedback.text ? `
@@ -1575,10 +1421,10 @@
                 ${store.draftMode === 'local' ? `
                   ${renderLocalModeAction('background:#18181B; color:#FFFFFF;')}
                 ` : `
-                  ${(!store.candA_serviceOpen && s.isPaired && !store.serviceEdited) ? `
+                  ${(!store.candA_serviceOpen && s.isReady && !store.serviceEdited) ? `
                     <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
                       <span style="font-size:0.8125rem; color:#52525B;">支持无卡录音与自动同步转写</span>
-                      <button type="button" class="a-action-btn" data-action="toggle-a-service" aria-expanded="${store.candA_serviceOpen}">修改服务器</button>
+                      <button type="button" class="a-action-btn" data-action="toggle-a-service" aria-expanded="${store.candA_serviceOpen}">查看配置</button>
                     </div>
                   ` : `
                     <div style="background:#F6F5F2; padding:12px; border-radius:10px; border:1px solid #D6D3CD;">
@@ -1682,6 +1528,8 @@
           submitWifi();
         } else if (action === 'submit-service') {
           submitService();
+        } else if (action === 'clear-qwen' || action === 'clear-siyuan') {
+          if(window.confirm('清除这项凭据并切到仅本地使用？'))submitService(action==='clear-qwen'?'qwen':'siyuan');
         } else if (action === 'reset-wifi-draft') {
           store.wifiEdited = false; wifiEditRevision++;
           store.draftSsid = store.device.wifi.ssid || '';
@@ -1693,8 +1541,6 @@
         } else if (action === 'reset-service-draft') {
           store.serviceEdited = false; serviceEditRevision++;
           store.draftMode = store.device.local_only ? 'local' : 'service';
-          store.draftServerUrl = store.device.server_url || '';
-          store.draftPairingCode = '';
           store.serviceFeedback = { text: '', tone: '' };
           render();
         } else if (action === 'reconnect-ap') {
@@ -1766,14 +1612,6 @@
         } else if (id === 'wifi-pwd-input') {
           store.wifiEdited = true; wifiEditRevision++;
           store.draftPassword = e.target.value;
-          render();
-        } else if (id === 'srv-url-input') {
-          store.serviceEdited = true; serviceEditRevision++;
-          store.draftServerUrl = e.target.value;
-          render();
-        } else if (id === 'srv-code-input') {
-          store.serviceEdited = true; serviceEditRevision++;
-          store.draftPairingCode = e.target.value;
           render();
         }
       });

@@ -1,90 +1,42 @@
-"""Actual AP handler/callback/NVS behavior with explicit platform shims."""
+"""Production AP guards, redacted direct configuration and real NVS adapter."""
 import json,tempfile,unittest
 from pathlib import Path
 from service_portal_fixture import ROOT,build,Native
-
 class PortalTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.temp=tempfile.TemporaryDirectory(prefix='portal-',dir=ROOT/'private/host-tests');cls.binary=build(Path(cls.temp.name))
-    @classmethod
-    def tearDownClass(cls):cls.temp.cleanup()
-    def setUp(self):self.native=Native(self.binary)
-    def tearDown(self):self.native.close()
-    def call(self,route='/service',body=None,**extra):
-        return self.native.call({'route':route,'method':'POST' if body is not None else 'GET','body':body if isinstance(body,str) else json.dumps(body) if body is not None else '',**extra})
-    def csrf(self):return self.call()[1]['csrf']
-    def test_redacted_fresh_state_and_request_guards(self):
-        status,state=self.call();self.assertEqual(status,200);self.assertTrue(state['local_only']);self.assertFalse(state['configured']);
-        self.assertEqual(set(state),{'success','server_url','local_only','configured','pairing','connected','message','phase','wifi','csrf'})
-        body={'server_url':'https://one.example','pairing_code':'23456789AB','local_only':False}
-        for overrides in [{},{'csrf':'wrong'},{'csrf':state['csrf'],'host':'evil.example'},{'csrf':state['csrf'],'origin':'http://evil.example'},{'csrf':state['csrf'],'type':'text/plain'}]:
-            self.assertEqual(self.call(body=body,**overrides)[0],403)
-        self.assertEqual(self.call(host='evil.example')[0],403)
-        self.assertEqual(self.call(body=body,csrf=state['csrf'])[0],200)
-    def test_invalid_input_never_replaces_saved_target(self):
-        csrf=self.csrf();good={'server_url':'https://one.example:9443/memo','pairing_code':'23456789AB','local_only':False}
-        self.assertEqual(self.call(body=good,csrf=csrf)[0],200)
-        for body in ['{','{"server_url":"https://evil.example\\u0000junk","pairing_code":"23456789AB","local_only":false}',json.dumps({**good,'local_only':'false'}),json.dumps({**good,'server_url':'http://invalid.example'}),'['*17+']'*17,'{} extra']:
-            self.assertEqual(self.call(body=body,csrf=csrf)[0],409)
-            self.assertEqual(self.call()[1]['server_url'],good['server_url'])
-        self.assertEqual(self.call(body=' '*1025,csrf=csrf)[0],400)
-    def test_busy_failure_uncertain_save_retry_and_noop(self):
-        csrf=self.csrf();body={'server_url':'https://one.example','pairing_code':'23456789AB','local_only':False}
-        self.native.call({'route':'/__control','busy':True})
-        self.assertEqual(self.call(body=body,csrf=csrf)[0],409)
-        self.native.call({'route':'/__control','fault':4})
-        status,state=self.call(body=body,csrf=csrf);self.assertEqual(status,409);self.assertIn('未确认',state['error'])
-        self.native.call({'route':'/__control'})
-        self.assertEqual(self.call(body=body,csrf=csrf)[0],200)
-        self.assertEqual(self.call(body=body,csrf=csrf)[0],200)
-        self.assertTrue(self.call()[1]['pairing']);self.assertFalse(self.call()[1]['configured'])
-        self.native.call({'route':'/__control','paired':True});self.assertTrue(self.call()[1]['configured'])
-        self.assertEqual(self.call(body={**body,'pairing_code':'','local_only':True},csrf=csrf)[0],200)
-        self.assertTrue(self.call()[1]['local_only'])
-    def test_new_code_for_pending_service_is_saved_without_false_busy(self):
-        csrf=self.csrf();body={'server_url':'https://one.example','pairing_code':'23456789AB','local_only':False}
-        self.assertEqual(self.call(body=body,csrf=csrf)[0],200)
-        self.assertEqual(self.call(body={**body,'pairing_code':'BCDEFGHJKL'},csrf=csrf)[0],200)
-        state=self.call()[1];self.assertTrue(state['pairing']);self.assertFalse(state['configured'])
-        self.assertNotIn('pairing_code',state)
-
-    def test_bare_lan_ip_save_and_public_http_rejection(self):
-        csrf=self.csrf();body={'server_url':'192.168.1.20','pairing_code':'23456789AB','local_only':False}
-        self.assertEqual(self.call(body=body,csrf=csrf)[0],200)
-        self.assertEqual(self.call()[1]['server_url'],'http://192.168.1.20:8765')
-        self.assertEqual(self.call(body={**body,'server_url':'http://public.example'},csrf=csrf)[0],409)
-        self.assertEqual(self.call()[1]['server_url'],'http://192.168.1.20:8765')
-
-    def test_pairing_progress_visible_without_exiting(self):
-        csrf=self.csrf();body={'server_url':'https://one.example','pairing_code':'23456789AB','local_only':False}
-        self.assertEqual(self.call(body=body,csrf=csrf)[0],200)
-        self.assertEqual(self.call()[1]['phase'],'waiting_wifi')
-        self.call('/submit',{'ssid':'Home','password':'synthetic-only'},csrf=csrf)
-        self.native.call({'route':'/__control','wifi_process':True})
-        self.assertEqual(self.call()[1]['phase'],'pairing')
-        failure='服务接口不兼容，请检查中继版本；更换配对码无法解决'
-        self.native.call({'route':'/__control','network_error':failure})
-        state=self.call()[1];self.assertEqual(state['phase'],'error');self.assertEqual(state['message'],failure)
-        self.assertTrue(state['pairing']);self.assertFalse(state['configured'])
-        self.assertEqual(self.call()[1]['message'],failure)
-        self.native.call({'route':'/__control','network_error':''})
-        self.native.call({'route':'/__control','paired':True})
-        self.assertEqual(self.call()[1]['phase'],'paired')
-        self.assertNotIn('token',self.call()[1]);self.assertNotIn('password',self.call()[1]['wifi'])
-
-    def test_wifi_separate_save_and_session_protection(self):
-        csrf=self.csrf();body={'ssid':'Home <&>','password':'synthetic-only'}
-        self.assertEqual(self.call('/submit',body)[0],403)
-        self.assertEqual(self.call('/submit',body,csrf=csrf)[0],202)
-        self.assertEqual(self.call()[1]['wifi']['state'],'connecting')
-        self.native.call({'route':'/__control','wifi_process':True})
-        self.assertTrue(self.call()[1]['wifi']['saved'])
-        self.assertTrue(self.call()[1]['wifi']['connected'])
-        self.assertTrue(self.call()[1]['local_only'])
-        self.assertFalse(self.call('/submit',{'ssid':'','password':''},csrf=csrf)[1]['success'])
-        self.assertFalse(self.call('/submit',{'ssid':'x','password':{}},csrf=csrf)[1]['success'])
-        self.assertEqual(self.call('/exit',{})[0],403)
-        self.assertEqual(self.call('/exit',{},csrf=csrf)[1],{'success':True})
-
+ @classmethod
+ def setUpClass(cls):
+  cls.temp=tempfile.TemporaryDirectory(prefix='portal-',dir=ROOT/'private/host-tests');cls.binary=build(Path(cls.temp.name))
+ @classmethod
+ def tearDownClass(cls):cls.temp.cleanup()
+ def setUp(self):self.native=Native(self.binary)
+ def tearDown(self):self.native.close()
+ def call(self,route='/service',body=None,**extra):return self.native.call({'route':route,'method':'POST' if body is not None else 'GET','body':body if isinstance(body,str) else json.dumps(body) if body is not None else '',**extra})
+ def state(self):return self.call()[1]
+ def patch(self,**extra):
+  d=self.state();return {'local_only':d['local_only'],'qwen_generation':d['qwen_generation'],'siyuan_generation':d['siyuan_generation'],**extra}
+ def credentials(self):self.native.call({'route':'/__control','credentials':True})
+ def test_flags_only_and_no_false_cloud_verification(self):
+  d=self.state();self.assertTrue(d['local_only']);self.assertFalse(d['configured']);self.assertEqual(d['phase'],'local');self.assertNotIn('server_url',d);self.assertNotIn('pairing',d)
+  self.credentials();d=self.state();self.assertTrue(d['configured']);self.assertTrue(d['local_only']);self.assertEqual(d['task_state'],0);self.assertIn('尚未验证',d['message']);self.assertNotIn('synthetic',json.dumps(d));
+  self.assertEqual(self.call(body=self.patch(local_only=False),csrf=d['csrf'])[0],200);self.assertEqual(self.state()['phase'],'ready');self.assertEqual(self.state()['task_state'],0)
+ def test_origin_session_and_type_guards(self):
+  d=self.state();body=self.patch()
+  for over in [{},{'csrf':'wrong'},{'csrf':d['csrf'],'host':'evil.example'},{'csrf':d['csrf'],'origin':'http://evil.example'},{'csrf':d['csrf'],'type':'text/plain'}]:self.assertEqual(self.call(body=body,**over)[0],403)
+  self.assertEqual(self.call(host='evil.example')[0],403)
+ def test_legacy_secret_unknown_duplicate_and_invalid_fields_rejected(self):
+  d=self.state();csrf=d['csrf'];good=self.patch()
+  for body in [{**good,'server_url':'https://old.example'},{**good,'qwen_key':'must-not-send'},{**good,'local_only':'false'},{**good,'qwen_generation':-1},{**good,'siyuan_generation':1.5},'{','{"local_only":true,"local_only":false,"qwen_generation":0,"siyuan_generation":0}',json.dumps(good)+' extra',{'local_only':True}]:self.assertEqual(self.call(body=body,csrf=csrf)[0],409)
+  self.assertEqual(self.call(body=' '*1025,csrf=csrf)[0],400);self.assertFalse(self.state()['configured'])
+ def test_clear_is_explicit_and_generation_conflicts_keep_current(self):
+  self.credentials();d=self.state();old=self.patch();self.assertEqual(self.call(body=self.patch(clear_qwen=True),csrf=d['csrf'])[0],200);current=self.state();self.assertFalse(current['qwen_set']);self.assertTrue(current['siyuan_set']);self.assertTrue(current['local_only']);self.assertEqual(current['qwen_generation'],2)
+  self.assertEqual(self.call(body=old,csrf=d['csrf'])[0],409);self.assertEqual(self.state()['qwen_generation'],2)
+ def test_busy_and_uncertain_storage_do_not_claim_success(self):
+  d=self.state();body=self.patch();self.native.call({'route':'/__control','busy':True});self.assertEqual(self.call(body=body,csrf=d['csrf'])[0],409)
+  self.native.call({'route':'/__control'});self.credentials();body=self.patch(local_only=False);self.native.call({'route':'/__control','fault':4});status,result=self.call(body=body,csrf=d['csrf']);self.assertEqual(status,409);self.assertIn('未确认',result['error']);self.native.call({'route':'/__control'});self.assertEqual(self.state()['phase'],'ready')
+ def test_not_configured_mode_does_not_trigger_business(self):
+  d=self.state();status,result=self.call(body=self.patch(local_only=False),csrf=d['csrf']);self.assertEqual(status,409);self.assertIn('USB',result['error']);self.assertEqual(self.state()['task_state'],0)
+ def test_task_results_are_separate_from_saved_credentials(self):
+  self.credentials();d=self.state();self.call(body=self.patch(local_only=False),csrf=d['csrf']);self.native.call({'route':'/__control','task_state':9});self.assertEqual(self.state()['task_state'],9);self.assertEqual(self.state()['phase'],'ready')
+ def test_wifi_and_exit_keep_original_request_boundaries(self):
+  d=self.state();self.assertEqual(self.call('/submit',{'ssid':'fixture','password':'synthetic'},csrf=d['csrf'])[0],202);self.native.call({'route':'/__control','wifi_process':True});self.assertTrue(self.state()['wifi']['saved']);self.assertEqual(self.call('/exit',{})[0],403);self.assertTrue(self.call('/exit',{},csrf=d['csrf'])[1]['success'])
 if __name__=='__main__':unittest.main(verbosity=2)

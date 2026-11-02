@@ -52,7 +52,6 @@ struct HttpGuard {};
 static void status_update(const std::function<void(memo_network_status_t&)>& f){f(status_value);}
 extern "C" void network_sync_get_status(memo_network_status_t* s){*s=status_value;}
 static int64_t esp_timer_get_time(){return clock_us;}
-static void recover_pairing(){pairings++;}
 static void memo_cardless_network_step(){steps++;if(remaining>0)remaining--;}
 static bool memo_cardless_busy(){return remaining!=0;}
 static bool audio_busy(){return audio;}

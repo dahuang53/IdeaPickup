@@ -47,7 +47,7 @@ static bool decode(const uint8_t *p,uint32_t id,memo_sync_entry_t *e,uint64_t *g
  e->audio.bytes=get64(p+120);memcpy(e->audio.sha256,p+128,32);return *g&&valid(e);
 }
 static memo_cache_result_t slot(const char *base,unsigned number,uint32_t id,memo_sync_entry_t *e,uint64_t *g){
- char path[MEMO_CONFIG_URL_MAX+64];int n=snprintf(path,sizeof(path),"%s.%u",base,number);if(n<0||(size_t)n>=sizeof(path))return MEMO_CACHE_IO_ERROR;
+ char path[305] /* original legacy metadata path bound */;int n=snprintf(path,sizeof(path),"%s.%u",base,number);if(n<0||(size_t)n>=sizeof(path))return MEMO_CACHE_IO_ERROR;
  FILE *f=fopen(path,"rb");if(!f)return errno==ENOENT?MEMO_CACHE_MISSING:MEMO_CACHE_IO_ERROR;
  uint8_t p[ENTRY_SIZE];bool exact=fread(p,1,sizeof(p),f)==sizeof(p)&&fgetc(f)==EOF;bool io=ferror(f);if(fclose(f))io=true;
  if(io)return MEMO_CACHE_IO_ERROR;

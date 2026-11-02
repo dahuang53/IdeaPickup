@@ -958,7 +958,7 @@ static void detail_text(const memo_snapshot_t *s, const memo_network_status_t *n
         const char *phase="正在确认状态喵";
         switch(network->active_sync_state){
         case MEMO_JOB_UPLOADING:phase="正在传送音频喵";break;
-        case MEMO_JOB_WAITING:phase="等待服务器确认喵";break;
+        case MEMO_JOB_WAITING:phase="等待处理喵";break;
         case MEMO_JOB_RECEIVED:phase="服务器已收到喵";break;
         case MEMO_JOB_TRANSCRIBING:phase="正在转写喵";break;
         case MEMO_JOB_DELIVERING:phase="正在投递思源喵";break;
@@ -968,11 +968,11 @@ static void detail_text(const memo_snapshot_t *s, const memo_network_status_t *n
         snprintf(text,size,"%s",phase);
     } else if (network->error[0]) {
         // Network diagnostics belong on the web page, not over the recording cards.
-        memo_config_public_t service; network_sync_get_service_config(&service);
-        const char *notice = service.pairing ? DETAIL_COPY("配对中，录音可用", "正在配对，录音可用") :
-            !network->configured ? DETAIL_COPY("待配对，录音可用", "服务待配对，录音可用") :
+        const char *notice = !network->configured ? DETAIL_COPY("待配置，录音可用", "服务待配置，录音可用") :
             DETAIL_COPY("同步未完成，可录音", "同步未完成，录音可用");
         snprintf(text, size, "%s", notice);
+    } else if (!network->cloud_enabled) {
+        snprintf(text,size,"仅本地录音");
     } else if (!network->configured) {
 #if MEMO_UI_COMPACT
         snprintf(text, size, "返回后长按表情配网");
@@ -1186,20 +1186,11 @@ static void refresh(lv_timer_t *timer)
         show_provision(true);
         snprintf(text, sizeof(text), "热点 %s", network.ap_ssid[0] ? network.ap_ssid : "正在启动");
         text_if_changed(provision_ap_label, text);
-        memo_config_public_t service;network_sync_get_service_config(&service);
-        if(service.result!=MEMO_CONFIG_OK)snprintf(text,sizeof(text),DETAIL_COPY("设置未确认，网页重试","设置未确认，请在网页重试喵"));
-        else if(!service.enabled)snprintf(text,sizeof(text),DETAIL_COPY("仅本地，有卡录放可用","仅本地，有卡录音回放可用喵"));
-        else if(service.pairing)snprintf(text,sizeof(text), "%s", !network.connected ?
-            "等待连接 Wi-Fi" : network.error[0] ? "配对未完成，请看网页" : "正在配对，请稍候");
-        else if (network.configured) {
-#if MEMO_UI_COMPACT
-            snprintf(text, sizeof(text), "服务已配对");
-#else
-            snprintf(text, sizeof(text), "服务已配对");
-#endif
-        }
-        else if (network.error[0]) snprintf(text, sizeof(text),DETAIL_COPY("配对失败，网页重试","服务未配对，请在网页重试喵"));
-        else text[0] = 0;
+        if(network.cloud_config_error)snprintf(text,sizeof(text),DETAIL_COPY("设置未确认，网页重试","设置未确认，请在网页重试喵"));
+        else if(!network.cloud_enabled)snprintf(text,sizeof(text),DETAIL_COPY("仅本地，有卡录放可用","仅本地，有卡录音回放可用喵"));
+        else if(!network.cloud_credentials)snprintf(text,sizeof(text),"通过USB配置云服务");
+        else if(!network.connected)snprintf(text,sizeof(text),"等待连接 Wi-Fi");
+        else snprintf(text,sizeof(text),"凭据已存，尚未验证");
         text_if_changed(provision_detail_label, text);
         lv_obj_set_y(provision_back, lv_obj_get_y(provision_detail_label) +
             (text[0] ? lv_font_get_line_height(&memo_font) + (MEMO_UI_COMPACT ? 12 : 24) : 0));

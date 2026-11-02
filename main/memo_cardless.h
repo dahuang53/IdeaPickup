@@ -30,8 +30,8 @@ bool memo_cardless_ready(void);
 esp_err_t memo_cardless_observe_id(uint32_t);
 /* Existing single network owner; no Opus task or reconnect/history poller. */
 void memo_cardless_network_step(void);
-esp_err_t memo_cardless_start_pending(void);
-void memo_cardless_config_changed(void);
+/* Refresh saved readiness; interrupt only after an actual committed change. */
+void memo_cardless_configure(bool ready,bool changed);
 esp_err_t memo_cardless_begin(uint32_t floor,uint32_t *id);
 /* Single producer 16kHz PCM16; nonblocking all-or-nothing enqueue. */
 bool memo_cardless_append(const int16_t *,size_t samples);

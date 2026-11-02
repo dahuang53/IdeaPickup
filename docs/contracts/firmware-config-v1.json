@@ -1,4 +1,6 @@
 {
+  "status": "historical-relay-firmware-read-only-reference",
+  "superseded_by": "docs/contracts/firmware-direct-cloud-v1.json",
   "contract": "voice-memo-firmware-current-service",
   "schema": 1,
   "scope": "First public installation and ordinary recovery/compatible updates of this configuration; no old project import, historical services, card registration or migration grants",

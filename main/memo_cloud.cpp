@@ -1,4 +1,5 @@
 #include "memo_cloud.h"
+#include "memo_cloud_secret_json.h"
 #include "memo_cloud_json_names.h"
 #include "cJSON.h"
 #include <algorithm>
@@ -105,10 +106,10 @@ bool json_budget(const char *s,size_t n) {
     return !string && !depth;
 }
 struct JsonArena {
-    char *data;size_t used=0;bool exhausted=false;
+    char *data;size_t used=0;bool exhausted=false;size_t capacity=JSON_HEAP;
     void *take(size_t n){
         size_t aligned=(used+alignof(max_align_t)-1)&~(alignof(max_align_t)-1);
-        if(n>JSON_HEAP-aligned){exhausted=true;return nullptr;}
+        if(aligned>capacity||n>capacity-aligned){exhausted=true;return nullptr;}
         void *p=data+aligned;used=aligned+n;return p;
     }
 };
@@ -116,11 +117,12 @@ thread_local JsonArena *active_json_arena=nullptr;
 void *json_take(size_t n){return active_json_arena?active_json_arena->take(n):nullptr;}
 void json_give(void *){} // One fixed arena, released by Json after tree use.
 struct Json {
-    Buffer storage{JSON_HEAP};
-    JsonArena arena{storage.p};
+    Buffer storage;
+    JsonArena arena;
+    bool sensitive;
     cJSON *root=nullptr;
     Code error=Code::Response;
-    Json(const char *p,size_t n){
+    Json(const char *p,size_t n,size_t cap=JSON_HEAP,bool secure=false):storage(cap),arena{storage.p,0,false,cap},sensitive(secure){
         if(!storage.p){error=Code::Memory;return;}
         if(!utf8(p,n)||!json_budget(p,n))return;
         // This is a private instance of the unmodified SDK parser, never the
@@ -133,7 +135,7 @@ struct Json {
         if(arena.exhausted)error=Code::TooLarge;
         if(root){while(end<p+n && (*end==' '||*end=='\t'||*end=='\r'||*end=='\n'))end++;if(end!=p+n){cJSON_Delete(root);root=nullptr;}}
     }
-    ~Json(){cJSON_Delete(root);}
+    ~Json(){cJSON_Delete(root);if(sensitive&&storage.p){volatile char *p=storage.p;for(size_t i=0;i<arena.capacity;i++)p[i]=0;}}
 };
 cJSON *field(cJSON *o,const char *name){
     if(!cJSON_IsObject(o))return nullptr;
@@ -246,6 +248,11 @@ Result attempted(const IO &io,Result r,bool delivery){
 }
 }
 
+int secret_configuration_json(const char *body,size_t n,int rejected,int (*visit)(void *,void *),void *context){
+ if(!body||n>1024||!visit)return rejected;
+ Json json(body,n,16384,true);
+ return json.root?visit(context,json.root):rejected;
+}
 bool valid_workspace(const char *p){
     if(!p)return false;
     size_t n=strnlen(p,64);if(!n||n>63)return false;

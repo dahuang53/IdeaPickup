@@ -41,3 +41,13 @@ extern "C" bool memo_cloud_config_read(memo_cloud_config_t *v){
  return true; // Native config persistence uses an explicit NVS fixture.
 #endif
 }
+
+extern "C" bool memo_cloud_config_encode(const memo_cloud_config_t *v,uint8_t out[604]){
+ if(!v||!out)return false;
+ memset(out,0,604);memcpy(out,"R1CF",4);
+ auto put=[](uint8_t *p,uint32_t n){for(unsigned i=0;i<4;i++)p[i]=n>>(8*i);};
+ put(out+4,1);put(out+8,v->enabled);put(out+12,v->qwen_generation);put(out+16,v->siyuan_generation);
+ if(!memchr(v->workspace,0,64)||!memchr(v->qwen_key,0,257)||!memchr(v->siyuan_token,0,257))return false;
+ memcpy(out+20,v->workspace,strlen(v->workspace));memcpy(out+84,v->qwen_key,strlen(v->qwen_key));memcpy(out+341,v->siyuan_token,strlen(v->siyuan_token));put(out+600,crc(out,600));
+ memo_cloud_config_t decoded{};bool ok=memo_cloud_config_decode(out,604,&decoded);memo_cloud_config_clear(&decoded);return ok;
+}

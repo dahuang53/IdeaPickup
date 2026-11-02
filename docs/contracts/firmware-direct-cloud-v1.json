@@ -1,0 +1,37 @@
+{
+  "contract": "ideapickup-device-direct-cloud",
+  "schema": 1,
+  "scope": "Current implementation in direct-cloud steps 3-5; real devices/providers remain step 6, distribution step 7",
+  "sources": {
+    "configuration": "main/memo_cloud_config.cpp",
+    "writer": "main/memo_cloud_settings.cpp",
+    "usb": "main/memo_cloud_input.cpp",
+    "helper": "scripts/configure_cloud.py",
+    "public_portal": "main/memo_service_portal.cpp",
+    "activity": "main/memo_activity.c",
+    "sd": "docs/DEVICE_DIRECT_CLOUD_STEP3.md",
+    "cardless": "docs/DEVICE_DIRECT_CLOUD_STEP4.md"
+  },
+  "configuration": {
+    "namespace": "memo_cloud1",
+    "key": "config",
+    "bytes": 604,
+    "format": "R1CF, version 1, explicit little endian: enabled@8, qwen_generation@12, siyuan_generation@16, workspace[64]@20, qwen_key[257]@84, siyuan_token[257]@341, reserved@598..599, CRC32@600 over first600",
+    "input": "USB only, idle with device hotspot open: cloud_config newline -> CLOUD_CONFIG READY -> one JSON line <=1024 bytes -> CLOUD_CONFIG RESULT integer",
+    "usb_fields": ["workspace", "qwen_key", "siyuan_token", "clear_qwen", "clear_siyuan"],
+    "secrets": "ASCII printable nonspace <=256 bytes, no truncation. Workspace follows the frozen 1-63 byte DNS-label rule. Absent/empty strings keep values; explicit clear disables cloud mode. No credential history or old relay-token fallback.",
+    "timeout": "15 seconds without input clears and exits; overflow rejects the whole line. No input echo, secret arguments, file persistence or ordinary diagnostic key output.",
+    "generation": "Qwen generation changes only with workspace/key content, Siyuan only with token. Clear changes its generation when content changes. No-op or mode-only save does not increment either. UINT32 overflow rejects.",
+    "durability": "Single blob; no unchanged write. Free-entry admission197 first blob/162 update, then set/commit/close and fresh handle exact readback. Failure still reloads actual value; original historical namespaces are never erased.",
+    "public_post": "Existing protected AP /service route accepts only local_only, qwen_generation, siyuan_generation, optional clear_qwen/clear_siyuan. Reject duplicate/unknown/secret/legacy URL or pairing fields. Host/Origin/CSRF/content type and bounded request guards unchanged.",
+    "public_get": "Flags, generation counters, actual Wi-Fi status, local/cloud mode and last real task state/error only. Configured means complete saved credentials, never authenticated or delivered. No provider tests on save.",
+    "history": "Settings do not create old recording intents. Existing same-generation intent can continue after enabling; credential change requires explicit SD account selection. Old memo_cfg1, records1 and sync_r1 remain rollback/history data, never live authentication."
+  },
+  "network": {
+    "tls": "Fixed official endpoints, trusted CA bundle, hostname/time checks, redirects/WS reconnect disabled",
+    "hotspot": "Open AP, manually visit http://192.168.4.1 in Safari; no captive auto-popup or wildcard DNS. Existing AP+STA/Wi-Fi lifecycle and four browser connection limit retained.",
+    "ui": "Selected A layout/B palette/outline, equal modes, Wi-Fi signal/lock icons, aligned refresh/show buttons retained. Technical change: secret entry uses the trusted USB channel instead of open HTTP."
+  },
+  "legacy_contracts": ["firmware-config-v1.json", "firmware-tasks-v1.json"],
+  "validation_boundary": "Host/SDK shims, browser fixture and builds are not actual phone/RF, memory/stack, physical NVS or paid-provider evidence"
+}

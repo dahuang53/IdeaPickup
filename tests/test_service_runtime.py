@@ -71,11 +71,14 @@ def extract(text, marker):
         depth += (text[end]=='{')-(text[end]=='}');end+=1
     return text[start:end]
 
+HEADERS['nvs.h']+='\ntypedef struct {size_t free_entries;} nvs_stats_t;\n#ifdef __cplusplus\nextern "C" {\n#endif\nesp_err_t nvs_get_stats(const char *,nvs_stats_t *);\n#ifdef __cplusplus\n}\n#endif\n'
+HEADERS['esp_heap_caps.h']='#pragma once\n#include <stddef.h>\n#define MALLOC_CAP_INTERNAL 1\n#define MALLOC_CAP_8BIT 2\n#ifdef __cplusplus\nextern "C" {\n#endif\nvoid *heap_caps_malloc(size_t,int);\n#ifdef __cplusplus\n}\n#endif\n'
 HARNESS=r'''
+
 #include "network_sync.h"
-#include "memo_network_config_nvs.h"
+#include "memo_cloud_config.h"
 #include "network_sync_state.h"
-#include "memo_service_pairing.h"
+
 #include "ssid_manager.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -100,23 +103,21 @@ static memo_config_activity_gate_t activity_gate{};
 static std::atomic<uint32_t> file_read_active{0};
 static std::atomic<memo_job_state_t> active_state{MEMO_JOB_UNKNOWN};
 static std::atomic<uint32_t> active_record{0};
+static std::map<void *,size_t> json_allocations;
+static bool fail_secret_arena=false;
+static unsigned wiped_arenas=0;
+extern "C" void *memo_cloud_test_allocate(size_t n){if(fail_secret_arena&&n==16384)return nullptr;void *p=malloc(n);if(p)json_allocations[p]=n;return p;}
+extern "C" void memo_cloud_test_free(void *p){if(!p)return;auto i=json_allocations.find(p);assert(i!=json_allocations.end());if(i->second==16384){for(size_t n=0;n<i->second;n++)assert(static_cast<unsigned char *>(p)[n]==0);wiped_arenas++;}json_allocations.erase(i);free(p);}
 static bool unique_audio=false,other_http_owner=false;
-[[maybe_unused]] static std::atomic<bool> power_suspended{false},pairing_http_active{false};
-static std::function<void()> during_clock,during_pair;
-static memo_pair_result_t pair_result=MEMO_PAIR_OK;
-static unsigned pair_runs=0;
-bool ensure_clock(const char *){if(during_clock)during_clock();return true;}
-int pairing_request(void *,const char *,const char *,const char *,const char *,const char *,char *,size_t){return 0;}
-memo_pair_result_t memo_pairing_run(memo_config_snapshot_t pending,const memo_pairing_io_t *io,memo_pairing_receipt_t *out){
-    ++pair_runs;memo_server_uuid_t instance{};
-    assert(memo_config_uuid_parse("11111111-2222-4333-8444-555555555555",&instance));
-    if(io->bind(io->context,&pending,&instance)!=MEMO_CONFIG_OK)return MEMO_PAIR_BUSY;
-    if(during_pair){
-        during_pair();
-    }
-    out->instance=instance;
-    return pair_result;
-}
+[[maybe_unused]] static std::atomic<bool> power_suspended{false};
+static std::atomic<void *> cloud_input_owner{nullptr};
+static std::atomic<bool> cloud_reload_needed{false};
+static bool configuration_bootstrap=true,cardless_ready_cache=false;
+static uint32_t shown_qwen=0,shown_siyuan=0;
+using TaskHandle_t=void *;
+static void *xTaskGetCurrentTaskHandle(){return (void *)7;}
+static int cardless_refreshes=0;
+void memo_cardless_configure(bool ready,bool changed){if(!configuration_bootstrap)assert(memo_config_activity(&activity_gate)==MEMO_ACTIVITY_COMMIT);if(changed)assert(!unique_audio);cardless_ready_cache=ready;cardless_refreshes++;}
 static memo_network_status_t status_value{};
 static memo_sync_queue_t sync_queue{};
 bool audio_busy();
@@ -134,6 +135,7 @@ static int http_claims=0;
 static unsigned wifi_reads=0,first_write_reads=0;
 static bool mark_first_write=false;
 extern "C" {
+void *heap_caps_malloc(size_t n,int){return malloc(n);}
 SemaphoreHandle_t xSemaphoreCreateRecursiveMutex(){return (void *)3;}
 int xSemaphoreTakeRecursive(SemaphoreHandle_t h,int){if(h==http_mutex){if(other_http_owner)return 0;++http_claims;}return 1;}
 int xSemaphoreGiveRecursive(SemaphoreHandle_t h){if(h==http_mutex){assert(http_claims>0);--http_claims;}return 1;}
@@ -141,18 +143,22 @@ int xSemaphoreTake(SemaphoreHandle_t,int){return 1;}
 int xSemaphoreGive(SemaphoreHandle_t){return 1;}
 esp_err_t nvs_flash_init(){if(init_fault)return ESP_FAIL;nvs_ready=true;return ESP_OK;}
 esp_err_t nvs_open(const char *ns,int mode,nvs_handle_t *h){
-    ++opens;assert(!strcmp(ns,"memo_cfg1") || !strcmp(ns,"wifi"));
+    ++opens;assert(!strcmp(ns,"memo_cloud1") || !strcmp(ns,"wifi"));
     assert(nvs_ready); // saved Wi-Fi must never load before NVS initialization
     *h=!strcmp(ns,"wifi")?2:1;
     if(*h==fault_namespace && fault==1 && mode==NVS_READWRITE)return ESP_FAIL;
+    if(mode==NVS_READONLY&&!durable.count(*h))return ESP_ERR_NVS_NOT_FOUND;
     if(mode==NVS_READWRITE){pending[*h]=durable[*h];}
     return ESP_OK;
 }
 void nvs_close(nvs_handle_t){}
+static size_t free_entries=500;
+esp_err_t nvs_get_stats(const char *,nvs_stats_t *stats){stats->free_entries=free_entries;return ESP_OK;}
 esp_err_t nvs_get_blob(nvs_handle_t h,const char *key,void *out,size_t *n){
     if(h==2)++wifi_reads;
     if(h==fault_namespace && (fault==5 || fault==7) && after_commit)return ESP_FAIL;
     auto &d=durable[h];auto found=d.find(key);if(found==d.end())return ESP_ERR_NVS_NOT_FOUND;
+    if(!out){*n=found->second.size();return ESP_OK;}
     if(*n<found->second.size())return ESP_FAIL;
     *n=found->second.size();memcpy(out,found->second.data(),*n);return ESP_OK;
 }
@@ -210,201 +216,64 @@ int esp_wifi_init(wifi_init_config_t *cfg){assert(!cfg->nvs_enable);return ESP_O
 
 // __PRODUCTION_BODIES__
 
-int main(int argc,char **argv){
-    auto wifi_begin=// __WIFI_BEGIN__
-    ;
-    auto wifi_end=// __WIFI_END__
-    ;
-    durable[2]["ssid"]={'o','l','d','-','w','i','f','i',0};durable[2]["password"]={'f','a','k','e',0};durable[2]["channel"]={6};
-    WifiManager manager;WifiManagerConfig options{wifi_begin,wifi_end};
-    init_fault=true;assert(!manager.Initialize(options));assert(opens==0);
-    init_fault=false;assert(manager.Initialize(options));
-    assert(SsidManager::GetInstance().GetSsidList().size()==1);
-    assert(SsidManager::GetInstance().GetSsidList()[0].ssid=="old-wifi");
-    assert(memo_network_config_nvs_init()==ESP_OK);
-    snprintf(status_value.device_id,sizeof(status_value.device_id),"future-model-unit");
-    WifiConfigurationAp portal;
-    assert(portal.Save("synthetic-home","synthetic-password"));
-    auto wifi_saved=durable[2];
-    assert(network_sync_configure_service("https://one.example:9443/memo","23456789AB",false)==MEMO_CONFIG_OK);
-    assert(durable[2]==wifi_saved);
-    memo_config_public_t view{};network_sync_get_service_config(&view);
-    assert(view.pairing && !view.configured);
-    if(argc==2 && !strcmp(argv[1],"M")){
-        recover_pairing();
-        auto snapshot=[](){memo_config_snapshot_t s{};auto *c=memo_network_config_nvs_lock();
-            assert(memo_config_read_snapshot(c,&s)==MEMO_CONFIG_OK);memo_network_config_nvs_unlock();return s;};
-        const auto paired=snapshot();assert(paired.enabled && paired.phase==MEMO_SERVICE_PAIRED);
-        const auto unchanged=durable[1];unsigned saved_writes=writes;
-        other_http_owner=true;assert(network_sync_set_local_only(true)==MEMO_CONFIG_BUSY);other_http_owner=false;
-        for(int cut=0;cut<3;++cut){
-            file_read_active=cut==0;active_record=cut==1?1:0;unique_audio=cut==2;
-            assert(network_sync_set_local_only(true)==MEMO_CONFIG_BUSY);
-            file_read_active=0;unique_audio=false;active_record=0;unique_audio=false;
-        }
-        assert(durable[1]==unchanged && writes==saved_writes && http_claims==0);
-        for(bool local:{true,false}){
-            assert(network_sync_set_local_only(local)==MEMO_CONFIG_OK);
-            auto now=snapshot();assert(now.enabled==!local && now.phase==paired.phase);
-            assert(!strcmp(now.base_url,paired.base_url) && !strcmp(now.token,paired.token));
-            assert(!strcmp(now.enrollment_id,paired.enrollment_id) && memo_config_uuid_equal(&now.instance,&paired.instance));
-            assert(durable[2]==wifi_saved && http_claims==0);
-            unsigned after=writes;assert(network_sync_set_local_only(local)==MEMO_CONFIG_OK);assert(writes==after);
-        }
-        // Pausing/resuming preserves pairing; neither command starts another enrollment.
-        assert(pair_runs==1);puts("PASS maintenance mode: preserved target/token/instance/Wi-Fi, busy guards, idempotent writes");return 0;
-    }
-    if(argc==2 && !strcmp(argv[1],"F4")){
-        assert(portal.Save("old-wifi","updated-synthetic-password"));
-        auto &list=SsidManager::GetInstance().GetSsidList();
-        assert(list.size()==2 && list[0].ssid=="old-wifi" && list[1].ssid=="synthetic-home");
-        assert(durable[2]["ssid"]==std::vector<uint8_t>({'o','l','d','-','w','i','f','i',0}));
-        auto prior=durable[2];fault_namespace=2;fault=2;
-        assert(!portal.Save("synthetic-home","must-not-commit"));fault=0;
-        assert(durable[2]==prior && SsidManager::GetInstance().GetSsidList()[0].ssid=="old-wifi");
-        return 0;
-    }
-    if(argc==2 && !strcmp(argv[1],"F1")){
-        fault_namespace=1;fault=2;
-        assert(network_sync_configure_service("https://failed-write.example","23456789AB",false)==MEMO_CONFIG_STORAGE_ERROR);
-        fault=5;after_commit=true;
-        assert(network_sync_configure_service("https://failed-write.example","23456789AB",false)==MEMO_CONFIG_STORAGE_ERROR);
-        fault=0;after_commit=false;
-        auto recovered=network_sync_configure_service("https://failed-write.example","23456789AB",false);
-        fprintf(stderr,"F1 recovery result=%d (expected OK=0)\n",(int)recovered);
-        assert(recovered==MEMO_CONFIG_OK);return 0;
-    }
-    if(argc==2 && !strcmp(argv[1],"F2")){
-        sync_queue.pending_id=88;fault_namespace=1;fault=4;
-        assert(network_sync_configure_service("https://ack-lost.example","23456789AB",false)==MEMO_CONFIG_STORAGE_ERROR);
-        fault=0;after_commit=false;
-        assert(network_sync_configure_service("https://ack-lost.example","23456789AB",false)==MEMO_CONFIG_OK);
-        fprintf(stderr,"F2 old pending_id=%u (expected 0)\n",sync_queue.pending_id);
-        assert(sync_queue.pending_id==0);return 0;
-    }
-    if(argc==2 && !strcmp(argv[1],"F3")){
-        auto prior=durable[2];fault_namespace=2;fault=7;after_commit=false;
-        assert(!portal.Save("not-durable","synthetic-only"));assert(durable[2]==prior);
-        fault=0;after_commit=false;wifi_reads=0;mark_first_write=true;
-        SsidManager::GetInstance().UpdateSsidChannel("synthetic-home",11);
-        bool copied_pending=durable[2]["ssid"]==std::vector<uint8_t>({'n','o','t','-','d','u','r','a','b','l','e',0});
-        fprintf(stderr,"F3 reads before first write=%u, unconfirmed SSID published=%d\n",first_write_reads,copied_pending);
-        assert(first_write_reads>0 && !copied_pending);return 0;
-    }
-    if(argc==2 && !strcmp(argv[1],"F5")){
-        memo_config_snapshot_t old{};
-        {auto *config=memo_network_config_nvs_lock();assert(memo_config_read_snapshot(config,&old)==MEMO_CONFIG_OK);memo_network_config_nvs_unlock();}
-        assert(network_sync_configure_service("https://one.example:9443/memo","BCDEFGHJKL",false)==MEMO_CONFIG_OK);
-        auto *config=memo_network_config_nvs_lock();memo_config_snapshot_t current{};
-        assert(memo_config_read_snapshot(config,&current)==MEMO_CONFIG_OK);
-        assert(current.generation>old.generation && !strcmp(current.pairing_code,"BCDEFGHJKL"));
-        assert(!strcmp(current.enrollment_id,old.enrollment_id) && !strcmp(current.token,old.token));
-        assert(memo_config_uuid_equal(&current.instance,&old.instance));
-        memo_server_uuid_t instance{};assert(memo_config_uuid_parse("11111111-2222-4333-8444-555555555555",&instance));
-        assert(memo_config_bind_instance(config,old.generation,&instance)==MEMO_CONFIG_CONFLICT);
-        memo_network_config_nvs_unlock();return 0;
-    }
-    if(argc==2 && argv[1][0]=='P'){
-        int scenario=argv[1][1]-'0';
-        auto replace=[&](){
-            // Simulate a portal task during a paused clock/HTTP operation. The
-            // old outer HTTP guard must fail this exact production save.
-            other_http_owner=http_claims>0;
-            bool local=scenario==2 || scenario==4;
-            const char *url=scenario==5?"https://new.example":"https://one.example:9443/memo";
-            assert(network_sync_configure_service(url,"BCDEFGHJKL",local)==MEMO_CONFIG_OK);
-            other_http_owner=false;
-        };
-        if(scenario==1 || scenario==2)during_clock=replace;
-        if(scenario>=3 && scenario<=5)during_pair=replace;
-        if(scenario==4)pair_result=MEMO_PAIR_REJECTED;
-        if(scenario==5 || scenario==6)pair_result=MEMO_PAIR_NETWORK;
-        if(scenario==7)pair_result=MEMO_PAIR_INVALID_RESPONSE;
-        recover_pairing();
-        assert(!pairing_http_active.load() && http_claims==0);
-        memo_config_public_t current{};network_sync_get_service_config(&current);
-        if(scenario==0){assert(current.configured && !current.pairing);}
-        else if(scenario==6){assert(current.pairing && status_value.error[0]);}
-        else if(scenario==7){assert(current.pairing && !current.configured && strstr(status_value.error,"服务接口不兼容"));}
-        else{
-            assert(!current.configured && current.enabled!=(scenario==2 || scenario==4));
-            assert(status_value.error[0]==0); // no stale completion or stale error
-            if(scenario<=2)assert(pair_runs==0);
-            else assert(pair_runs==1);
-        }
-        return 0;
-    }
-    auto before=durable[1];unsigned prior_writes=writes;
-    other_http_owner=true;
-    assert(network_sync_configure_service("https://two.example","23456789AB",false)==MEMO_CONFIG_BUSY);
-    assert(network_sync_prepare_audio(0)); // long HTTP does not hold the short audio gate
-    assert(network_sync_prepare_audio(0)); // emergency audio close re-entry
-    assert(!portal.Save("during-audio","not-saved"));
-    assert(network_sync_configure_service("https://two.example","23456789AB",false)==MEMO_CONFIG_BUSY);
-    network_sync_audio_done();other_http_owner=false;
-    assert(writes==prior_writes && durable[1]==before && durable[2]==wifi_saved);
-    for(int cut=0;cut<3;++cut){
-        file_read_active=cut==0;active_record=cut==1?1:0;unique_audio=cut==2;
-        assert(network_sync_configure_service("https://two.example","23456789AB",false)==MEMO_CONFIG_BUSY);
-        assert(durable[1]==before);
-        file_read_active=false;unique_audio=false;active_record=0;unique_audio=false;
-    }
-    file_read_active=true;assert(!network_sync_prepare_audio(0));assert(!audio_busy());file_read_active=false;
-    sd_scan_requested=false;active_record=7;file_read_active=true;
-    assert(!network_sync_prepare_audio(0)&&sd_abort&&sd_media_abort&&sd_scan_requested&&!sd_resume_after_media);
-    assert(!audio_busy());active_record=0;file_read_active=false;sd_abort=sd_media_abort=false;
-    sd_scan_requested=false;assert(network_sync_prepare_audio(0));sd_resume_after_media=true;network_sync_audio_done();assert(sd_scan_requested);
 
-    // Production probe gate blocks audio/config/SD I/O, but not idle accounting.
-    assert(network_sync_try_sd_probe());assert(audio_busy());
-    assert(!begin_sd_io(nullptr)&&!file_read_active);
-    assert(!network_sync_prepare_audio(0));assert(!network_sync_try_sd_probe());
-    assert(!portal.Save("during-probe","not-saved"));
-    assert(network_sync_configure_service("https://two.example","23456789AB",false)==MEMO_CONFIG_BUSY);
-    assert(!network_sync_power_busy());assert(!network_sync_power_suspend());
-    network_sync_sd_probe_done();assert(!audio_busy());
-    assert(begin_sd_io(nullptr)&&file_read_active);assert(!network_sync_try_sd_probe());
-    assert(begin_sd_io(nullptr)&&file_read_active==2);end_sd_io(nullptr);
-    assert(file_read_active==1&&!network_sync_try_sd_probe());end_sd_io(nullptr);assert(!file_read_active);
-    assert(writes==prior_writes && durable[1]==before && durable[2]==wifi_saved);
-    for(int cut=0;cut<3;++cut){
-        file_read_active=cut==0;power_suspended=cut==1;unique_audio=cut==2;
-        assert(!network_sync_try_sd_probe());assert(memo_config_activity(&activity_gate)==MEMO_ACTIVITY_IDLE);
-        file_read_active=false;power_suspended=false;unique_audio=false;
-    }
-    assert(network_sync_prepare_audio(0));assert(!network_sync_try_sd_probe());network_sync_audio_done();
-    // No-op retries neither rewrite flash nor cancel an unstarted SD request.
-    sync_queue.pending_id=88;
-    assert(network_sync_configure_service("https://one.example:9443/memo","23456789AB",false)==MEMO_CONFIG_OK);
-    assert(sync_queue.pending_id==88 && writes==prior_writes);
-    assert(network_sync_configure_service("http://bad.example","23456789AB",false)==MEMO_CONFIG_INVALID);
-    assert(sync_queue.pending_id==88);
-    assert(network_sync_configure_service("https://two.example","23456789AB",false)==MEMO_CONFIG_OK);
-    assert(sync_queue.pending_id==0 && durable[2]==wifi_saved);
-    // Default-NVS failures cannot acknowledge settings; next request reloads
-    // actual durable facts. No erases or unrelated namespace access.
-    fault_namespace=1;fault=2;
-    assert(network_sync_configure_service("https://three.example","23456789AB",false)==MEMO_CONFIG_STORAGE_ERROR);
-    assert(!audio_busy());assert(network_sync_prepare_audio(0));network_sync_audio_done();
-    fault=0;
-    assert(network_sync_configure_service("https://three.example","23456789AB",false)==MEMO_CONFIG_OK);
-    auto service_saved=durable[1];
-    // Wi-Fi can repair connectivity while unique cardless audio is retained;
-    // changing the service cannot. Neither operation deletes that audio.
-    unique_audio=true;assert(portal.Save("recovery-network","synthetic-recovery-password"));
-    assert(network_sync_configure_service("https://four.example","23456789AB",false)==MEMO_CONFIG_BUSY);
-    unique_audio=false;
-    for(int cut=1;cut<=6;++cut){
-        fault_namespace=2;fault=cut;after_commit=false;
-        assert(!portal.Save("wifi-fault-"+std::to_string(cut),"synthetic-only"));
-        assert(memo_config_activity(&activity_gate)==MEMO_ACTIVITY_IDLE);
-        assert(http_claims==0);
-        assert(durable[1]==service_saved);
-        fault=0;after_commit=false;
-        assert(portal.Save("wifi-retry-"+std::to_string(cut),"synthetic-only"));
-        assert(http_claims==0);
-    }
-    puts("PASS actual runtime/NVS/SSID bodies: short audio gate, busy HTTP/file/stream/unique audio, no-op retention, target change, uncertain reload, six Wi-Fi persistence cuts, namespace isolation");
+'''
+
+RUNTIME_MAIN=r'''
+#include "memo_cloud_input.h"
+#include "memo_cloud.h"
+static memo_cloud_patch_t credentials(){memo_cloud_patch_t p{};p.workspace="llm-fixture";p.qwen_key="synthetic-key";p.siyuan_token="synthetic-token";return p;}
+int main(int argc,char **argv){
+ assert(argc==2);std::string scenario=argv[1];auto begin_wifi=// __WIFI_BEGIN__
+ ;auto end_wifi=// __WIFI_END__
+ ;
+ durable[2]["ssid"]={'o','l','d','-','w','i','f','i',0};durable[2]["password"]={'f','a','k','e',0};durable[2]["channel"]={6};
+ WifiManager manager;WifiManagerConfig options{begin_wifi,end_wifi};init_fault=true;assert(!manager.Initialize(options)&&opens==0);init_fault=false;assert(manager.Initialize(options));
+ assert(SsidManager::GetInstance().GetSsidList().size()==1);auto original_wifi=durable[2];status_value.provisioning=true;refresh_service_status();status_value.initialized=true;configuration_bootstrap=false;
+ auto p=credentials();memo_cloud_public_t pub{};
+ if(scenario=="settings"){
+  assert(network_sync_configure_cloud(&p)==MEMO_CLOUD_OK);network_sync_get_cloud_config(&pub);assert(pub.configured&&!pub.enabled&&pub.qwen_generation==1&&pub.siyuan_generation==1);
+  assert(network_sync_set_local_only(false)==MEMO_CLOUD_OK);network_sync_get_cloud_config(&pub);assert(pub.enabled&&pub.configured);assert(durable[2]==original_wifi);
+  memo_cloud_patch_t change{};change.qwen_key="new-synthetic";assert(network_sync_configure_cloud(&change)==MEMO_CLOUD_OK);network_sync_get_cloud_config(&pub);assert(pub.qwen_generation==2&&pub.siyuan_generation==1);
+  change={};change.clear_siyuan=true;assert(network_sync_configure_cloud(&change)==MEMO_CLOUD_OK);network_sync_get_cloud_config(&pub);assert(!pub.enabled&&!pub.siyuan_set&&pub.siyuan_generation==2&&pub.qwen_generation==2);
+ }
+ else if(scenario=="noop"){
+  assert(network_sync_configure_cloud(&p)==MEMO_CLOUD_OK);auto before=durable[1];unsigned n=writes;memo_cloud_patch_t empty{};empty.workspace="";empty.qwen_key="";empty.siyuan_token="";
+  for(int i=0;i<100;i++)assert(network_sync_configure_cloud(&empty)==MEMO_CLOUD_OK);assert(writes==n&&durable[1]==before);
+ }
+ else if(scenario=="boundaries"){
+  std::string key(256,'x');p.qwen_key=key.c_str();p.siyuan_token=key.c_str();assert(network_sync_configure_cloud(&p)==MEMO_CLOUD_OK);auto before=durable[1];key+='x';assert(network_sync_configure_cloud(&p)==MEMO_CLOUD_INVALID&&durable[1]==before);
+  p=credentials();p.workspace="-bad";assert(network_sync_configure_cloud(&p)==MEMO_CLOUD_INVALID);p.workspace="llm-fixture";p.qwen_key="x\nsecret";assert(network_sync_configure_cloud(&p)==MEMO_CLOUD_INVALID);
+  memo_cloud_config_t value{};assert(memo_cloud_config_read(&value));value.qwen_generation=UINT32_MAX;uint8_t bytes[604];assert(memo_cloud_config_encode(&value,bytes));durable[1]["config"]={bytes,bytes+604};p=credentials();assert(network_sync_configure_cloud(&p)==MEMO_CLOUD_INVALID);
+ }
+ else if(scenario=="capacity"){
+  free_entries=196;assert(network_sync_configure_cloud(&p)==MEMO_CLOUD_NO_SPACE&&!durable.count(1));free_entries=197;assert(network_sync_configure_cloud(&p)==MEMO_CLOUD_OK);
+  p.qwen_key="changed";auto before=durable[1];free_entries=161;assert(network_sync_configure_cloud(&p)==MEMO_CLOUD_NO_SPACE&&durable[1]==before);free_entries=162;assert(network_sync_configure_cloud(&p)==MEMO_CLOUD_OK);
+ }
+ else if(scenario=="failures"){
+  assert(network_sync_configure_cloud(&p)==MEMO_CLOUD_OK);for(int cut=1;cut<=6;cut++){fault_namespace=1;fault=cut;after_commit=false;p.qwen_key=(cut%2)?"changed-one":"changed-two";assert(network_sync_configure_cloud(&p)==MEMO_CLOUD_STORAGE);assert(durable[2]==original_wifi);fault=0;after_commit=false;memo_cloud_config_t actual{};assert(memo_cloud_config_read(&actual));assert(network_sync_configure_cloud(&p)==MEMO_CLOUD_OK);}
+ }
+ else if(scenario=="read_recovery"){
+  assert(network_sync_configure_cloud(&p)==MEMO_CLOUD_OK&&network_sync_set_local_only(false)==MEMO_CLOUD_OK);fault_namespace=1;fault=5;after_commit=false;p.qwen_key="updated-synthetic";assert(network_sync_configure_cloud(&p)==MEMO_CLOUD_STORAGE);assert(cloud_reload_needed&&status_value.cloud_config_error&&!cardless_ready_cache);fault=0;after_commit=false;
+  unsigned before=writes;network_sync_get_cloud_config(&pub);assert(pub.result==MEMO_CLOUD_OK&&pub.enabled&&pub.configured&&!cloud_reload_needed&&!status_value.cloud_config_error&&cardless_ready_cache&&writes==before);
+ }
+ else if(scenario=="gates"){
+  for(int cut=0;cut<4;cut++){file_read_active=cut==0;active_record=cut==1?1:0;unique_audio=cut==2;other_http_owner=cut==3;int refresh=cardless_refreshes;assert(network_sync_configure_cloud(&p)==MEMO_CLOUD_BUSY&&cardless_refreshes==refresh);file_read_active=active_record=0;unique_audio=other_http_owner=false;}
+  assert(network_sync_prepare_audio(0));assert(network_sync_configure_cloud(&p)==MEMO_CLOUD_BUSY);network_sync_audio_done();assert(network_sync_try_sd_probe());assert(network_sync_configure_cloud(&p)==MEMO_CLOUD_BUSY);network_sync_sd_probe_done();
+ }
+ else if(scenario=="wifi"){
+  WifiConfigurationAp ap;for(int cut=1;cut<=7;cut++){fault_namespace=2;fault=cut;after_commit=false;assert(!ap.Save("new-fixture-"+std::to_string(cut),"synthetic-password"));fault=0;after_commit=false;assert(ap.Save("new-fixture-"+std::to_string(cut),"synthetic-password"));}
+ }
+ else if(scenario=="input"){
+  assert(network_sync_cloud_input_begin());const char *json="{\"workspace\":\"llm-fixture\",\"qwen_key\":\"synthetic-key\",\"siyuan_token\":\"synthetic-token\"}";assert(memo_cloud_input_apply(json,strlen(json))==MEMO_CLOUD_OK);network_sync_cloud_input_end();
+  memo_cloud_input_t input;memo_cloud_input_reset(&input,0);for(int i=0;i<1024;i++)assert(!memo_cloud_input_push(&input,'x',1));assert(memo_cloud_input_push(&input,'x',2)==0&&input.overflow);assert(memo_cloud_input_push(&input,'\n',3)==-2);memo_cloud_input_reset(&input,0);assert(memo_cloud_input_push(&input,'x',15000)==-1&&input.used==0);for(char c:std::string("{}\n")){int r=memo_cloud_input_push(&input,c,15001);if(c=='\n')assert(r==1);}memo_cloud_input_reset(&input,0);for(char c:input.bytes)assert(!c);
+  unsigned wiped=wiped_arenas;assert(network_sync_cloud_input_begin());
+  const char *partial="{\"qwen_key\":\"SYNTHETIC_PRIVATE_VALUE\",}";assert(memo_cloud_input_apply(partial,strlen(partial))==MEMO_CLOUD_INVALID);assert(wiped_arenas==wiped+1&&json_allocations.empty());
+  const char *unknown="{\"SYNTHETIC_PRIVATE_FIELD\":\"SYNTHETIC_PRIVATE_VALUE\"}";assert(memo_cloud_input_apply(unknown,strlen(unknown))==MEMO_CLOUD_INVALID);assert(wiped_arenas==wiped+2&&json_allocations.empty());
+  fail_secret_arena=true;assert(memo_cloud_input_apply(json,strlen(json))==MEMO_CLOUD_INVALID&&json_allocations.empty());fail_secret_arena=false;network_sync_cloud_input_end();
+  for(const char *bad:{"{\"qwen_key\":\"a\",\"qwen_key\":\"b\"}","{\"server_url\":\"old\"}","{\"qwen_key\":\"a\\u0000b\"}","{\"clear_qwen\":1}"}){assert(memo_cloud_input_apply(bad,strlen(bad))==MEMO_CLOUD_INVALID);}
+ }
+ assert(http_claims==0&&memo_config_activity(&activity_gate)==MEMO_ACTIVITY_IDLE);puts("PASS direct settings/NVS/USB/activity/SSID scenario");
 }
 '''
 
@@ -440,37 +309,6 @@ int main(){
             subprocess.run(['c++','-std=c++17','-Wall','-Wextra','-Werror','-fsanitize=address,undefined',str(file),'-o',str(binary)],check=True)
             subprocess.run([str(binary)],check=True)
 
-    def test_lan_transport_does_not_wait_for_internet_clock(self):
-        body=extract((ROOT/'main/network_sync.cpp').read_text(),'bool ensure_clock')
-        harness=r'''#include <cstring>
-#include <ctime>
-#include <cassert>
-static int lock_depth=0;struct HttpGuard {HttpGuard(){++lock_depth;}~HttpGuard(){--lock_depth;}};
-using esp_err_t=int;using esp_sntp_config_t=int;
-static bool sntp_initialized=false;static int init_calls=0,wait_calls=0;static time_t current_time=0;
-#define ESP_OK 0
-#define ESP_ERR_INVALID_STATE 1
-#define ESP_NETIF_SNTP_DEFAULT_CONFIG_MULTIPLE(...) 0
-#define ESP_SNTP_SERVER_LIST(...) 0
-#define pdMS_TO_TICKS(x) (x)
-#define ESP_LOGW(...) ((void)0)
-#define ESP_LOGI(...) ((void)0)
-int esp_netif_sntp_init(int*){assert(lock_depth==1);++init_calls;return 0;}
-int esp_netif_sntp_sync_wait(int){assert(lock_depth==0);++wait_calls;return 0;}
-time_t test_time(time_t *p){return *p=current_time;}
-#define time test_time
-// BODY
-int main(){
- assert(ensure_clock("http://192.168.1.20:8765"));assert(init_calls==0&&wait_calls==0);
- assert(!ensure_clock("https://relay.example"));assert(init_calls==1&&wait_calls==1);
- current_time=1800000000;assert(ensure_clock("https://relay.example"));assert(wait_calls==1);
-}
-'''.replace('// BODY',body)
-        with tempfile.TemporaryDirectory(prefix='clock-',dir=ROOT/'private/host-tests') as directory:
-            file=Path(directory)/'clock.cpp';file.write_text(harness);binary=Path(directory)/'clock'
-            subprocess.run(['c++','-std=c++17','-fsanitize=address,undefined',str(file),'-o',str(binary)],check=True)
-            subprocess.run([str(binary)],check=True)
-
     def test_actual_runtime_and_nvs_and_wifi_faults(self):
         (ROOT/'private/host-tests').mkdir(mode=0o700,exist_ok=True)
         with tempfile.TemporaryDirectory(prefix='service-runtime-',dir=ROOT/'private/host-tests') as directory:
@@ -478,10 +316,10 @@ int main(){
             for name,text in HEADERS.items():
                 file=temp/name;file.parent.mkdir(parents=True,exist_ok=True);file.write_text(text)
             source=(ROOT/'main/network_sync.cpp').read_text()
-            markers=['bool audio_busy','class HttpGuard','class ConfigGuard','class ConfigCommitGuard','void status_update','void set_error','void refresh_service_status',
-                     'extern "C" void network_sync_get_status','extern "C" void network_sync_get_service_config',
-                     'bool pairing_is_current','memo_config_result_t pairing_bind','void recover_pairing',
-                     'extern "C" memo_config_result_t network_sync_configure_service','extern "C" memo_config_result_t network_sync_set_local_only',
+            markers=['bool audio_busy','class HttpGuard','class ConfigCommitGuard','void status_update','void set_error','void publish_cloud_status','void refresh_service_status',
+                     'extern "C" void network_sync_get_status','extern "C" void network_sync_get_cloud_config',
+                     'void cloud_saved','extern "C" memo_cloud_result_t network_sync_configure_cloud','extern "C" memo_cloud_result_t network_sync_set_local_only',
+                     'extern "C" bool network_sync_cloud_input_begin','extern "C" memo_cloud_result_t network_sync_cloud_input_save','extern "C" void network_sync_cloud_input_end',
                      'extern "C" bool network_sync_prepare_audio','extern "C" void network_sync_audio_done',
                      'extern "C" bool network_sync_try_sd_probe','extern "C" void network_sync_sd_probe_done',
                      'extern "C" bool network_sync_power_busy','extern "C" bool network_sync_power_suspend',
@@ -493,18 +331,14 @@ int main(){
             bodies+='\n'+extract(manager,'bool WifiManager::Initialize')
             begin=extract(source,'config.config_commit_begin=');begin=begin.split('=',1)[1]
             end=extract(source,'config.config_commit_end=');end=end.split('=',1)[1]
-            harness=HARNESS.replace('// __PRODUCTION_BODIES__',bodies).replace('// __WIFI_BEGIN__',begin).replace('// __WIFI_END__',end)
+            harness=(HARNESS+RUNTIME_MAIN).replace('// __PRODUCTION_BODIES__',bodies).replace('// __WIFI_BEGIN__',begin).replace('// __WIFI_END__',end)
             file=temp/'runtime.cpp';file.write_text(harness)
-            includes=['-I',str(temp),'-I',str(ROOT/'main'),'-I',str(ROOT/'components/esp-wifi-connect/include')]
-            objects=[]
-            for name in ('memo_network_config.c','memo_network_config_nvs.c'):
-                obj=temp/(name+'.o');objects.append(str(obj))
-                subprocess.run(['cc','-std=c11','-g','-O1','-Wall','-Wextra','-Werror','-fsanitize=address,undefined',*includes,'-c',str(ROOT/'main'/name),'-o',str(obj)],check=True)
+            includes=['-I',str(temp),'-I',str(ROOT/'main'),'-I',str(ROOT/'components/esp-wifi-connect/include'),'-I',str(ROOT/'.tools/esp-idf/components/json/cJSON')]
+            from cloud_settings_fixture import compile_objects
+            objects=compile_objects(temp,includes)
             binary=temp/'runtime'
             subprocess.run(['c++','-std=c++17','-g','-O1','-Wall','-Wextra','-Werror','-fsanitize=address,undefined','-DMEMO_HOST_TEST',*includes,str(file),str(ROOT/'components/esp-wifi-connect/ssid_manager.cc'),*objects,'-o',str(binary)],check=True)
-            results={}
-            for scenario in ('','M','F1','F2','F3','F4','F5',*(f'P{i}' for i in range(8))):
-                results[scenario or 'baseline']=subprocess.run([str(binary),*([scenario] if scenario else [])]).returncode
+            results={scenario:subprocess.run([str(binary),scenario]).returncode for scenario in ('settings','noop','boundaries','capacity','failures','wifi','gates','input','read_recovery')}
             self.assertEqual(results,{name:0 for name in results})
 
 if __name__=='__main__': unittest.main(verbosity=2)

@@ -15,7 +15,7 @@
 | [test_all.sh](../scripts/test_all.sh) | 汇总以下现有套件与维护发布拒绝、管理页报告渲染回归；只用合成输入 |
 | [run_host_tests.sh](../tests/run_host_tests.sh) | 真实存储 / WAV 收尾、录放状态、语音门、供电、USB PCM 等 portable C 与 FakeSerial 测试，ASan / UBSan；无旧分区迁移测试 |
 | [test_relay.sh](../scripts/test_relay.sh) | 实际后端 / HTTP / 账本 / broker / 清理 / 权限 / 供应商本地 TLS 替身；保留原有可选一小时测试边界 |
-| [test_service_config.sh](../scripts/test_service_config.sh) | 当前配置 / 配对及 AP handler，实际生产 C/C++ 与 ASGI，ESP / RF / NVS 为显式平台替身 |
+| [test_service_config.sh](../scripts/test_service_config.sh) | 直连配置、USB隐藏输入、NVS故障／容量准入、原Wi-Fi保存及AP请求防护；真实生产C/C++，ESP／RF／NVS为显式替身 |
 | [test_sync_pipeline.sh](../scripts/test_sync_pipeline.sh) | 直连有卡生产状态机与协议的52项合成回归：虚拟WAV分段／文本、持久尝试／检查点、取消／不确定、历史只读与账户变更；无卡使用实际直连实时状态机的独立合成回归。边界见[第三步记录](DEVICE_DIRECT_CLOUD_STEP3.md)，不伪装真实拔电 |
 | [test_cloud.sh](../scripts/test_cloud.sh) | 设备直连协议：生产C++配本地合成HTTPS／WebSocket，最大段流式发送、明确失败／投递不确定；另执行实际ESP适配的SDK／RTOS替身与ASan／UBSan。有卡已在第三步接入，基础协议本身不证明真机／真实供应商通过；边界见[第二步记录](DEVICE_DIRECT_CLOUD_STEP2.md) |
 | [test_firmware_install.sh](../scripts/test_firmware_install.sh) | 打包 / 安装边界、SDK / 生产 stdio 与 SD DMA 无内存回归；不使用设备 |
@@ -62,11 +62,11 @@
 
 镜像检查用 `scripts/audit_container_image.py`，库存用 `scripts/container_sbom.py`；必须指定当前私有归档、实际平台／manifest／config及校验值。Syft固定锁只支持Darwin arm64维护环境，不是运行依赖。系统版权文字、公开测试向量和二进制可能触发启发式命中，必须按具体来源解释，不整体删除结果或据此声称没有风险。材料检查不调用真实供应商或公开推送。
 
-R12 手动配网页回归：`scripts/test_service_config.sh` 执行既有配置／配对／SSID持久化和请求防护，以及生产 AP 生命周期、异步连接、保存失败、保持AP＋STA、退出取消并等待连接结束、重新进入及旧自动弹页代码清理检查。SDK模拟不代替真实DHCP、手机切换应用、普通更新、USB切换和退出后不可达验证。DNS通配解析器已移除，不再以自动弹页作为成功标准。
+R12 手动配网页回归：`scripts/test_service_config.sh` 执行直连配置／SSID持久化和请求防护，以及生产 AP 生命周期、异步连接、保存失败、保持AP＋STA、退出取消并等待连接结束、重新进入及旧自动弹页代码清理检查。SDK模拟不代替真实DHCP、手机切换应用、普通更新、USB切换和退出后不可达验证。DNS通配解析器已移除，不再以自动弹页作为成功标准。
 
 `scripts/test_ui.sh` 验证360、240和vocat16三种生产布局；包括真实网络错误进入录音控制页时的缺字、宽度和状态区域边界，不能只检查配网页的短提示。配网页保留完整手动URL，热点和地址同色、相邻且行距一致，状态与操作分组。主机渲染不代替真实屏幕／触摸。
 
-`tests/test_service_portal_browser.cjs` 配合原生处理器fixture验证手机／桌面页面：提交与连接／保存／配对状态区分，保持热点时进度更新，页面刷新和临时失联恢复，失败重试、重复提交防护和明确退出。fixture的SDK／NVS替身及模拟配对收据不证明真实手机或服务器配对成功；真机须使用精确候选再验。
+`tests/test_service_portal_browser.cjs` 配合原生处理器fixture验证移动宽度／桌面页面：Wi-Fi保存、两项凭据是否已存、模式及真实任务结果分别显示，未调用供应商不显示已验证。覆盖明确清除、退出、无浏览器持久化秘密、320px指引文字实际边界；SDK／NVS为替身，不证明真实手机、USB或供应商成功。实际Safari与设备交互留到直连第六步。
 
 `node tests/test_portal_async.cjs` 直接执行生产配网页脚本，使用可控时钟、请求和DOM替身验证保存期间的新编辑、重复提交、旧读取跨保存返回、Wi-Fi目标及持久化终态、扫描互斥、断连恢复和关闭后的迟到响应。此脚本没有浏览器或硬件依赖；由浏览器回归入口先行调用，不替代原生处理器浏览器和真机验收。
 
@@ -84,6 +84,6 @@ R12 SD探卡回归由`tests/run_host_tests.sh`调用`test_sd_probe.py`，五组�
 
 操作页计时回归另核15秒及55秒仍保持、一次实际LVGL翻页触摸后重新计时、再次55秒仍保持与满60秒关闭并取消存储需求；原两分钟表情待机回归仍执行。60秒真机时长已由本人在合并集中组确认约30秒保持、约60秒返回，并经限定独立结果审查；不称独立秒表测量。主机计时与本人实际观察分别记录。
 
-自动同步状态回归还覆盖固定无卡索引／详情淘汰、本地详情不发 HTTP、同一任务恢复、长录音详情仅读取文件头，以及请求期限。`test_http_deadline.py` 用 socket pair 验证生产中断任务打断嵌套等待及暂时中断失败后的重试，TCP/TLS 与 RTOS 通知／时间调度为明确替身；不将它称为真机 TLS 故障测试。物理换卡、触摸、真实转写与投递证据须分别核验。
+直连状态回归还覆盖固定无卡索引／详情淘汰、本地详情不发 HTTP、有卡同一意图的检查点继续、长录音详情仅读取文件头，以及请求期限；无卡启动只做本地中断收尾，不恢复云会话。`test_http_deadline.py` 用 socket pair 验证生产中断任务打断嵌套等待及暂时中断失败后的重试，TCP/TLS 与 RTOS 通知／时间调度为明确替身；不将它称为真机 TLS 故障测试。物理换卡、触摸、真实转写与投递证据须分别核验。
 
-运行开销回归：`test_cardless_runtime.py` 验证直连有界资源、终态不发请求／不写Flash、无历史轮询、启动只做本地中断收尾。`test_portal_async.cjs`验证页面隐藏、请求中切后台、返回前台、配对快速更新和稳定降频。可见且连接／配对中每2秒查询，稳定后每10秒查询；隐藏时停止新增状态轮询；返回后刷新，若旧请求仍在途则结束后立即补一次。原保存事务及外观不变。合成写计数不是Flash擦除次数或电量实测，模拟重启不是物理断电验收。
+运行开销回归：`test_cardless_runtime.py` 验证直连有界资源、终态不发请求／不写Flash、无历史轮询、启动只做本地中断收尾。`test_portal_async.cjs`验证页面隐藏、请求中切后台、返回前台、模式／实际任务快速更新和稳定降频。可见且连接／任务处理中每2秒查询，稳定后每10秒查询；隐藏时停止新增状态轮询；返回后刷新，若旧请求仍在途则结束后立即补一次。原保存事务及外观不变。合成写计数不是Flash擦除次数或电量实测，模拟重启不是物理断电验收。

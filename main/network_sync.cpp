@@ -2,8 +2,6 @@
 #include "board.h"
 #include "memo_cardless.h"
 #include "network_sync_state.h"
-#include "memo_network_config_nvs.h"
-#include "memo_service_pairing.h"
 #include "memo_service_portal.h"
 extern "C" bool memo_portal_status(char *,size_t);
 extern "C" bool memo_portal_apply(const char *,size_t,char *,size_t);
@@ -27,20 +25,15 @@ extern "C" bool memo_portal_apply(const char *,size_t,char *,size_t);
 #include <ctime>
 #include <sys/stat.h>
 
-#include "cJSON.h"
-#include "esp_crt_bundle.h"
 #include "esp_check.h"
-#include "esp_http_client.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_mac.h"
 #include "esp_netif_sntp.h"
-#include "esp_random.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
-#include "nvs.h"
 
 namespace {
 
@@ -50,7 +43,8 @@ constexpr uint32_t NEW_RECORD_SETTLE_MS = 4'000;
 
 SemaphoreHandle_t status_mutex;
 SemaphoreHandle_t http_mutex;
-std::atomic<bool> pairing_http_active{false};
+std::atomic<TaskHandle_t> cloud_input_owner{nullptr};
+std::atomic<bool> cloud_reload_needed{false};
 std::atomic<uint32_t> selected_cardless{0};
 std::atomic<uint32_t> cancel_request{0};
 std::atomic<bool> sd_abort{false},sd_media_abort{false};
@@ -103,12 +97,6 @@ std::atomic<memo_job_state_t> active_state{MEMO_JOB_UNKNOWN};
 memo_record_sync_t detail_value{};
 uint32_t detail_revision;
 
-class ConfigGuard {
-public:
-    memo_config_t *value;
-    ConfigGuard():value(memo_network_config_nvs_lock()) {}
-    ~ConfigGuard(){if(value)memo_network_config_nvs_unlock();}
-};
 class ConfigCommitGuard {
 public:
     bool acquired;
@@ -142,24 +130,9 @@ void set_error(const char *message)
     if (message && *message) ESP_LOGW(TAG, "%s", message);
 }
 
-esp_err_t read_http_body(esp_http_client_handle_t client, std::string &body)
-{
-    char block[384];
-    body.clear();
-    for (;;) {
-        int count = esp_http_client_read(client, block, sizeof(block));
-        if (count < 0) return ESP_FAIL;
-        if (count == 0) return esp_http_client_is_complete_data_received(client)?ESP_OK:ESP_FAIL;
-        if (body.size() + static_cast<size_t>(count) > 2048) return ESP_ERR_INVALID_SIZE;
-        body.append(block, count);
-    }
-    return ESP_OK;
-}
-
 bool ensure_clock(const char *base)
 {
-    // The validated literal LAN HTTP path does not depend on internet NTP.
-    if (base && !strncmp(base,"http://",7)) return true;
+    (void)base;
     constexpr time_t MIN_VALID_TIME = 1'704'067'200; // 2024-01-01 UTC
     time_t now = 0;
     time(&now);
@@ -170,7 +143,7 @@ bool ensure_clock(const char *base)
     if (!sntp_initialized) {
         /* Some home proxy/DNS setups return 198.18.0.0/15 fake-IP answers for
            hostnames but do not proxy UDP/123.  Literal public NTP endpoints
-           keep first-time HTTPS enrollment independent of that DNS mode. */
+           keep HTTPS provider access independent of that DNS mode. */
         esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG_MULTIPLE(
             3, ESP_SNTP_SERVER_LIST("203.107.6.88", "106.55.184.199", "162.159.200.1"));
         esp_err_t error = esp_netif_sntp_init(&config);
@@ -188,95 +161,16 @@ bool ensure_clock(const char *base)
     return now >= MIN_VALID_TIME;
 }
 
-void refresh_service_status()
-{
-    memo_config_public_t config;network_sync_get_service_config(&config);
-    status_update([&config](memo_network_status_t &s){s.configured=config.configured;});
+uint32_t shown_qwen=0,shown_siyuan=0;
+void publish_cloud_status(const memo_cloud_public_t &config,bool changed){
+ status_update([&](memo_network_status_t &s){s.configured=config.result==MEMO_CLOUD_OK&&config.enabled&&config.configured;
+  s.cloud_enabled=config.enabled;s.cloud_credentials=config.configured;s.cloud_config_error=config.result!=MEMO_CLOUD_OK;
+  if(shown_qwen!=config.qwen_generation||shown_siyuan!=config.siyuan_generation){s.last_task_id=0;s.last_task_state=MEMO_JOB_UNKNOWN;s.last_task_error[0]=0;}});
+ shown_qwen=config.qwen_generation;shown_siyuan=config.siyuan_generation;
+ cloud_reload_needed=config.result!=MEMO_CLOUD_OK;
+ memo_cardless_configure(config.result==MEMO_CLOUD_OK&&config.enabled&&config.configured,changed);
 }
-bool pairing_is_current(const memo_config_snapshot_t &expected)
-{
-    ConfigGuard guard;memo_config_snapshot_t current{};
-    return guard.value && memo_config_read_snapshot(guard.value,&current)==MEMO_CONFIG_OK &&
-        current.enabled && current.phase==MEMO_SERVICE_PAIRING &&
-        current.generation==expected.generation && !strcmp(current.enrollment_id,expected.enrollment_id);
-}
-int pairing_request(void *context,const char *base,const char *method,const char *path,const char *token,
-                    const char *payload,char *response,size_t capacity)
-{
-    auto *expected=static_cast<memo_config_snapshot_t *>(context);
-    if(!response || !capacity)return 0;
-    // The already-paired SD retry caller shares this transport while holding
-    // HttpGuard; only enrollment requests carry a pending-generation guard.
-    if(expected && !pairing_is_current(*expected))return 0;
-    response[0]=0;char url[1024];
-    if(memo_config_join_url(base,path,url,sizeof(url))!=MEMO_CONFIG_OK)return 0;
-    esp_http_client_config_t cfg{};cfg.url=url;cfg.crt_bundle_attach=esp_crt_bundle_attach;
-    cfg.disable_auto_redirect=true;cfg.timeout_ms=15000;cfg.buffer_size=1024;
-    MemoHttpTransport transport(cfg);if(!transport.ready())return 0;
-    esp_http_client_handle_t client=esp_http_client_init(&cfg);if(!client)return 0;
-    if(!strcmp(method,"POST"))esp_http_client_set_method(client,HTTP_METHOD_POST);
-    if(token && *token){std::string auth=std::string("Bearer ")+token;esp_http_client_set_header(client,"Authorization",auth.c_str());}
-    esp_http_client_set_header(client,"User-Agent","VoiceMemoDevice/0.4");
-    if(payload)esp_http_client_set_header(client,"Content-Type","application/json");
-    size_t length=payload?strlen(payload):0,sent=0;
-    esp_err_t result=esp_http_client_open(client,(int)length);
-    while(result==ESP_OK && sent<length){int n=esp_http_client_write(client,payload+sent,length-sent);if(n<=0){result=ESP_FAIL;break;}sent+=(size_t)n;}
-    int code=0;std::string body;
-    if(result==ESP_OK && esp_http_client_fetch_headers(client)>=0){
-        code=esp_http_client_get_status_code(client);
-        if(read_http_body(client,body)!=ESP_OK || body.size()>=capacity)code=0;
-    }
-    if(code)memcpy(response,body.c_str(),body.size()+1);
-    esp_http_client_close(client);esp_http_client_cleanup(client);
-    // A save can supersede this snapshot while its private HTTP handle waits.
-    if(expected && !pairing_is_current(*expected)){response[0]=0;return 0;}
-    return code;
-}
-memo_config_result_t pairing_bind(void *context,memo_config_snapshot_t *pending,const memo_server_uuid_t *instance)
-{
-    ConfigCommitGuard commit;if(!commit.acquired)return MEMO_CONFIG_BUSY;
-    ConfigGuard guard;if(!guard.value)return MEMO_CONFIG_STORAGE_ERROR;
-    memo_config_result_t result=memo_config_bind_instance(guard.value,pending->generation,instance);
-    if(result==MEMO_CONFIG_OK)result=memo_config_read_snapshot(guard.value,pending);
-    if(result==MEMO_CONFIG_OK && context)*static_cast<memo_config_snapshot_t *>(context)=*pending;
-    return result;
-}
-void recover_pairing()
-{
-    if(power_suspended.load())return;
-    auto &wifi=WifiManager::GetInstance();if(!wifi.IsConnected())return;
-    // Pairing runs on this one worker with a private HTTP handle. Keep only
-    // short configuration locks; snapshots/generations reject obsolete results.
-    memo_config_snapshot_t pending{};
-    {ConfigGuard guard;if(!guard.value)return;
-        if(guard.value->needs_reload){ConfigCommitGuard commit;if(!commit.acquired)return;memo_network_config_nvs_reload();}
-        if(memo_config_read_snapshot(guard.value,&pending)!=MEMO_CONFIG_OK){refresh_service_status();return;}}
-    refresh_service_status();
-    if(!pending.enabled || pending.phase!=MEMO_SERVICE_PAIRING)return;
-    struct PairingActivity {
-        PairingActivity(){pairing_http_active.store(true);}
-        ~PairingActivity(){pairing_http_active.store(false);}
-    } active_pairing;
-    bool clock_ready=ensure_clock(pending.base_url);
-    if(!pairing_is_current(pending))return;
-    memo_pairing_io_t io{&pending,pairing_request,pairing_bind};memo_pairing_receipt_t receipt{};
-    memo_pair_result_t result=clock_ready?memo_pairing_run(pending,&io,&receipt):MEMO_PAIR_NETWORK;
-    ConfigCommitGuard commit;if(!commit.acquired)return;
-    ConfigGuard guard;if(!guard.value || !pairing_is_current(pending))return;
-    memo_config_snapshot_t current{};
-    if(memo_config_read_snapshot(guard.value,&current)!=MEMO_CONFIG_OK)return;
-    if(!clock_ready){set_error("网络时间同步失败，配对将自动重试");return;}
-    if(result==MEMO_PAIR_OK || result==MEMO_PAIR_REJECTED || result==MEMO_PAIR_INSTANCE_CHANGED){
-        memo_config_result_t saved=result==MEMO_PAIR_OK?memo_config_finish_pairing(guard.value,current.generation,&receipt.instance):
-            memo_config_reject_pairing(guard.value,current.generation);
-        if(saved!=MEMO_CONFIG_OK){set_error("服务配置保存结果未确认，稍后自动读取恢复");refresh_service_status();return;}
-        refresh_service_status();set_error(result==MEMO_PAIR_OK?nullptr:result==MEMO_PAIR_INSTANCE_CHANGED?
-            "服务实例已更换，请使用新的配对码":"配对码无效、过期或设备已撤销，请重新配对");
-    } else if(result==MEMO_PAIR_INVALID_RESPONSE)set_error("服务接口不兼容，请检查中继版本；更换配对码无法解决");
-    else if(result!=MEMO_PAIR_BUSY)set_error("配对尚未完成，将自动重试；本地录音可用");
-}
-
-
+void refresh_service_status(){memo_cloud_public_t config{};memo_cloud_settings_public(&config);publish_cloud_status(config,false);}
 bool begin_sd_io(void *) {file_read_active.fetch_add(1);if(memo_config_activity(&activity_gate)!=MEMO_ACTIVITY_IDLE){file_read_active.fetch_sub(1);return false;}return true;}
 void end_sd_io(void *) {file_read_active.fetch_sub(1);}
 const char *sync_error(memo_sd::Error error){
@@ -332,7 +226,7 @@ bool sync_one(uint32_t id,bool cancel=false){
  sd_step_blocked=result.error==memo_sd::Error::Storage||result.needs_rebind||
      (result.pending&&(!config.valid||!config.value.enabled||!memo_cloud_config_ready(&config.value)||
                       !WifiManager::GetInstance().IsConnected()||sd_control(nullptr)==memo_sd::Control::Media));
- job_state(id,result.state);
+ job_state(id,result.state);network_sync_task_result(id,result.state,sync_error(result.error));
  xSemaphoreTake(status_mutex,portMAX_DELAY);
  if(detail_value.id==id){
   detail_value.can_retry=result.can_retry;detail_value.can_cancel=result.can_cancel;
@@ -413,13 +307,11 @@ bool persist_manual(uint32_t id){
 }
 void sync_task(void *)
 {
-    int64_t next_pairing_us=0,next_scan_us=0,next_sd_us=0;
+    int64_t next_scan_us=0,next_sd_us=0;
     bool previously_eligible=false;
     for(;;){
         auto &wifi=WifiManager::GetInstance();wifi.ProcessConfigConnection();
         bool connected=wifi.IsConnected();status_update([connected](memo_network_status_t &s){s.connected=connected;});
-        int64_t now=esp_timer_get_time();
-        if(now>=next_pairing_us){recover_pairing();next_pairing_us=esp_timer_get_time()+RETRY_DELAY_MS*1000LL;}
         uint32_t cancelled=cancel_request.load();
         // SD cancellation is local metadata work: it does not require Wi-Fi,
         // provider credentials or closing the configuration hotspot.
@@ -522,14 +414,11 @@ extern "C" esp_err_t network_sync_init(uint32_t existing_latest_id)
         set_error("网络配置存储初始化失败");
         return ESP_FAIL;
     }
-    esp_err_t service_init=memo_network_config_nvs_init();
     refresh_service_status();
-    uint32_t cursor=0,last_ok=0;
-    memo_config_public_t current;network_sync_get_service_config(&current);bool configured=current.configured;
-    if(service_init!=ESP_OK)set_error("服务配置不可读；本地录音仍可用");
-    status_update([configured, cursor, last_ok](memo_network_status_t &s) {
-        s.configured = configured; s.cursor_id = cursor; s.last_uploaded_id = last_ok;
-    });
+    memo_cloud_public_t current{};memo_cloud_settings_public(&current);
+    bool configured=current.result==MEMO_CLOUD_OK&&current.enabled&&current.configured;
+    uint32_t cursor=0;
+    if(current.result!=MEMO_CLOUD_OK)set_error("云配置不可读");
     manager.SetEventCallback([](WifiEvent event, const std::string &data) {
         auto &wifi = WifiManager::GetInstance();
         switch (event) {
@@ -610,10 +499,19 @@ extern "C" void network_sync_get_status(memo_network_status_t *out)
     xSemaphoreGive(status_mutex);
 }
 
-extern "C" void network_sync_get_service_config(memo_config_public_t *out)
-{
-    if(!out)return;
-    ConfigGuard guard;memo_config_public_status(guard.value,out);
+extern "C" void network_sync_task_result(uint32_t id,memo_job_state_t state,const char *error){
+ status_update([&](memo_network_status_t &s){s.last_task_id=id;s.last_task_state=state;snprintf(s.last_task_error,sizeof(s.last_task_error),"%s",error?error:"");});
+}
+extern "C" void network_sync_get_cloud_config(memo_cloud_public_t *out){
+ if(!out)return;
+ if(!cloud_reload_needed.load()){memo_cloud_settings_public(out);return;}
+ if(!http_mutex||xSemaphoreTakeRecursive(http_mutex,0)!=pdTRUE){memo_cloud_settings_public(out);if(out->result==MEMO_CLOUD_OK)out->result=MEMO_CLOUD_BUSY;return;}
+ {ConfigCommitGuard commit;
+  memo_cloud_settings_public(out);
+  if(commit.acquired&&out->result==MEMO_CLOUD_OK)publish_cloud_status(*out,false);
+  else if(out->result==MEMO_CLOUD_OK)out->result=MEMO_CLOUD_BUSY;
+ }
+ xSemaphoreGiveRecursive(http_mutex);
 }
 
 // Recording pipelines adopt direct calls in steps 3/4, using the existing
@@ -625,61 +523,35 @@ extern "C" bool network_sync_cloud_acquire() {
 }
 extern "C" void network_sync_cloud_release() {xSemaphoreGiveRecursive(http_mutex);}
 extern "C" bool network_sync_cloud_clock_ready() {return ensure_clock("https://cloud");}
-extern "C" memo_config_result_t network_sync_configure_service(const char *url,const char *code,bool local_only)
-{
-    // A request is accepted only after the durable snapshot is read back. No
-    // Wi-Fi credentials, SD files or old-service permissions are involved.
-    if(!http_mutex || !status_mutex)return MEMO_CONFIG_STORAGE_ERROR;
-    if(xSemaphoreTakeRecursive(http_mutex,0)!=pdTRUE)return MEMO_CONFIG_BUSY;
-    memo_config_result_t result=MEMO_CONFIG_BUSY;
-    {
-        ConfigCommitGuard commit;
-        if(commit.acquired){
-            ConfigGuard guard;
-            if(!guard.value)result=MEMO_CONFIG_STORAGE_ERROR;
-            else {
-                if(guard.value->needs_reload)memo_network_config_nvs_reload();
-                uint8_t random[48];char identifier[37],token[65];esp_fill_random(random,sizeof(random));
-                random[6]=(random[6]&15U)|64U;random[8]=(random[8]&63U)|128U;
-                snprintf(identifier,sizeof(identifier),"%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
-                    random[0],random[1],random[2],random[3],random[4],random[5],random[6],random[7],random[8],random[9],random[10],random[11],random[12],random[13],random[14],random[15]);
-                for(unsigned i=0;i<32;++i)snprintf(token+i*2,3,"%02x",random[16+i]);
-                memo_network_status_t current;network_sync_get_status(&current);
-                const uint64_t before=guard.value->value.generation;
-                result=memo_config_set_service(guard.value,current.device_id,url,code,identifier,token,local_only);
-                memset(random,0,sizeof(random));memset(token,0,sizeof(token));
-                if(result==MEMO_CONFIG_OK && before!=guard.value->value.generation)set_error(nullptr);
-                if((result==MEMO_CONFIG_OK && before!=guard.value->value.generation) || result==MEMO_CONFIG_STORAGE_ERROR){
-                    // Queued SD attempts have not sent any bytes; cancel their
-                    // old target intent even when the new durable outcome is
-                    // uncertain, retain the files. Active/unique audio
-                    // was refused by the admission guard above.
-                    xSemaphoreTake(status_mutex,portMAX_DELAY);sync_queue={};
-                    status_value.cursor_id=0;status_value.last_uploaded_id=0;
-                    xSemaphoreGive(status_mutex);
-                }
-            }
-        }
-    }
-    refresh_service_status();xSemaphoreGiveRecursive(http_mutex);
-    if(result==MEMO_CONFIG_OK) {
-        sd_scan_requested.store(true);
-        if(sync_task_handle)xTaskNotifyGive(sync_task_handle);
-    }
-    return result;
+namespace {
+void cloud_saved(bool changed){
+ memo_cloud_public_t config{};memo_cloud_settings_public(&config);publish_cloud_status(config,changed);
+ if(changed){sd_scan_requested.store(true);if(sync_task_handle)xTaskNotifyGive(sync_task_handle);}
 }
-
-extern "C" memo_config_result_t network_sync_set_local_only(bool local_only) {
-    if(!http_mutex || !status_mutex)return MEMO_CONFIG_STORAGE_ERROR;
-    // Serialize the read and save with portal writes so maintenance cannot
-    // accidentally restore an address changed between those two operations.
-    if(xSemaphoreTakeRecursive(http_mutex,0)!=pdTRUE)return MEMO_CONFIG_BUSY;
-    memo_config_public_t service{};network_sync_get_service_config(&service);
-    memo_config_result_t result=service.result;
-    if(result==MEMO_CONFIG_OK)
-        result=network_sync_configure_service(service.base_url,"",local_only);
-    xSemaphoreGiveRecursive(http_mutex);
-    return result;
+}
+extern "C" memo_cloud_result_t network_sync_configure_cloud(const memo_cloud_patch_t *patch){
+ if(!http_mutex||!status_mutex)return MEMO_CLOUD_STORAGE;
+ if(xSemaphoreTakeRecursive(http_mutex,0)!=pdTRUE)return MEMO_CLOUD_BUSY;
+ memo_cloud_result_t result=MEMO_CLOUD_BUSY;bool changed=false;
+ {ConfigCommitGuard commit;if(commit.acquired){result=memo_cloud_settings_apply(patch,&changed);cloud_saved(changed);}}
+ xSemaphoreGiveRecursive(http_mutex);return result;
+}
+extern "C" memo_cloud_result_t network_sync_set_local_only(bool local){
+ memo_cloud_patch_t patch{};patch.set_mode=true;patch.enabled=!local;return network_sync_configure_cloud(&patch);
+}
+extern "C" bool network_sync_cloud_input_begin(){
+ if(!http_mutex||cloud_input_owner||xSemaphoreTakeRecursive(http_mutex,0)!=pdTRUE)return false;
+ memo_network_status_t s{};network_sync_get_status(&s);
+ if(!s.provisioning||file_read_active.load()||active_record.load()||memo_cardless_busy()||!memo_config_activity_acquire(&activity_gate,MEMO_ACTIVITY_COMMIT)){xSemaphoreGiveRecursive(http_mutex);return false;}
+ cloud_input_owner=xTaskGetCurrentTaskHandle();return true;
+}
+extern "C" memo_cloud_result_t network_sync_cloud_input_save(const memo_cloud_patch_t *patch){
+ if(!cloud_input_owner||cloud_input_owner!=xTaskGetCurrentTaskHandle())return MEMO_CLOUD_BUSY;
+ bool changed=false;auto result=memo_cloud_settings_apply(patch,&changed);cloud_saved(changed);return result;
+}
+extern "C" void network_sync_cloud_input_end(){
+ if(!cloud_input_owner||cloud_input_owner!=xTaskGetCurrentTaskHandle())return;
+ cloud_input_owner=nullptr;memo_config_activity_release(&activity_gate,MEMO_ACTIVITY_COMMIT);xSemaphoreGiveRecursive(http_mutex);
 }
 
 extern "C" void network_sync_select_record(uint32_t id) {
@@ -847,7 +719,7 @@ extern "C" bool network_sync_power_busy(void)
     auto owner=memo_config_activity(&activity_gate);
     // A periodic media query must not restart the user inactivity timer.
     return snapshot.provisioning || snapshot.syncing || owner==MEMO_ACTIVITY_AUDIO || owner==MEMO_ACTIVITY_COMMIT || file_read_active.load() ||
-           pairing_http_active.load() || memo_cardless_busy();
+           memo_cardless_busy();
 }
 
 extern "C" bool network_sync_power_suspend(void)

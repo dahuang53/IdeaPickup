@@ -306,7 +306,7 @@
     "historical task import/rebinding",
     "split save/activate/discard"
   ],
-  "transport": "Bare LAN IPv4 defaults to HTTP port 8765; bare domain defaults to trusted HTTPS. HTTP only for literal RFC1918 IPv4, never public/domain HTTP. Normalization: relay/identity.py and main/memo_network_config.c, shared tests/service-url-cases.json. Pairing/token/instance/task persistence unchanged.",
+  "transport": "Bare LAN IPv4 defaults to HTTP port 8765; bare domain defaults to trusted HTTPS. HTTP only for literal RFC1918 IPv4, never public/domain HTTP. Backend normalization: relay/identity.py, shared tests/service-url-cases.json. This is the retained relay/legacy-firmware contract; direct-cloud firmware no longer loads relay URLs or pairing tokens, and uses firmware-direct-cloud-v1.json. Pairing/token/instance/task persistence in the retained backend is unchanged.",
   "storage_upgrade": "Runtime schema 2 -> 3 adds a nullable cancellation token in the existing task ledger; preserves data, credentials and IDs. Old runtime rejects schema 3. Deploy backend before new firmware. Rollback to schema-2 code requires its matching pre-upgrade data backup, not only an old image.",
   "explicit_resubmission": "Before deliberately retrying a failed WAV, device uses the existing cancellation barrier to distinguish its old failure from a new accepted attempt. GET cancelled exposes delivery_retry_available; matching cancel_token permits delivery-only retry with retained text, otherwise reupload. Persist WAITING only after this barrier is acknowledged. Lost request before admission remains cancelled and may resume; a subsequent failed receipt is the actual new attempt result and stops. No new recording ID or device metadata field."
 }

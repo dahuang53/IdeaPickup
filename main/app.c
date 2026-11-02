@@ -4,6 +4,7 @@
 #include "memo_usb_mic.h"
 #include "memo_store.h"
 #include "memo_cardless.h"
+#include "memo_cloud_input.h"
 #include "network_sync.h"
 #include "memo_record_ids.h"
 #include "power_policy.h"
@@ -16,6 +17,7 @@
 #include <string.h>
 #include <stdatomic.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
@@ -90,7 +92,6 @@ static void network_boot(void *arg) {
     vTaskDelay(pdMS_TO_TICKS(100));
     if(network_sync_init(latest)!=ESP_OK)
         ESP_LOGE(TAG,"NETWORK_UNAVAILABLE offline recording remains available");
-    else memo_cardless_start_pending();
     memory_checkpoint("network_init_done");
     vTaskDelete(NULL);
 }
@@ -725,7 +726,7 @@ static void handle_command(command_t *c) {
     }
     if (!memo_can_command(s.state,c->cmd)) {
         ESP_LOGW(TAG,"REJECT state=%d cmd=%d",s.state,c->cmd);
-        if(c->cmd==CMD_SYNC_MODE){printf("SYNC_MODE result=%d\n",(int)MEMO_CONFIG_BUSY);fflush(stdout);}
+        if(c->cmd==CMD_SYNC_MODE){printf("SYNC_MODE result=%d\n",(int)MEMO_CLOUD_BUSY);fflush(stdout);}
         return;
     }
     if(c->cmd>=CMD_NEXT && c->cmd<=CMD_REBOOT)voice_set_mode(VOICE_OFF);
@@ -787,7 +788,7 @@ static void handle_command(command_t *c) {
             // NVS save/readback runs on the existing 10 KiB worker, never on
             // the 4 KiB console parser. The original commit/busy guards apply.
             int result=c->arg<=1 && !s.recovering ?
-                (int)network_sync_set_local_only(c->arg!=0):(int)MEMO_CONFIG_BUSY;
+                (int)network_sync_set_local_only(c->arg!=0):(int)MEMO_CLOUD_BUSY;
             printf("SYNC_MODE result=%d\nSYNC_MODE_STACK free=%u\n",result,
                    (unsigned)(uxTaskGetStackHighWaterMark(NULL)*sizeof(StackType_t)));
             fflush(stdout);break;
@@ -1033,6 +1034,24 @@ static void print_status(void) {
         detail.cardless,detail.can_retry,detail.interrupted,detail.error);
     fflush(stdout);
 }
+static void cloud_input(void){
+    if(!network_sync_cloud_input_begin()){printf("CLOUD_CONFIG BUSY\n");fflush(stdout);return;}
+    memo_cloud_input_t *input=calloc(1,sizeof(*input));
+    if(!input){network_sync_cloud_input_end();printf("CLOUD_CONFIG MEMORY\n");fflush(stdout);return;}
+#if !CONFIG_MEMO_VOCAT16
+    const int input_flags=fcntl(fileno(stdin),F_GETFL);
+    if(input_flags<0||fcntl(fileno(stdin),F_SETFL,input_flags|O_NONBLOCK)<0){free(input);network_sync_cloud_input_end();printf("CLOUD_CONFIG INPUT_UNAVAILABLE\n");fflush(stdout);return;}
+#endif
+    memo_cloud_input_reset(input,esp_timer_get_time()/1000);printf("CLOUD_CONFIG READY\n");fflush(stdout);
+    int state=0;while(!state){int ch=getchar();if(ch==EOF){clearerr(stdin);vTaskDelay(pdMS_TO_TICKS(20));}state=memo_cloud_input_push(input,ch,esp_timer_get_time()/1000);}
+    memo_cloud_result_t result=state==1?memo_cloud_input_apply(input->bytes,input->used):MEMO_CLOUD_INVALID;
+    memo_cloud_input_reset(input,0);free(input);
+#if !CONFIG_MEMO_VOCAT16
+    (void)fcntl(fileno(stdin),F_SETFL,input_flags);
+#endif
+    network_sync_cloud_input_end();
+    printf("CLOUD_CONFIG RESULT %d\n",(int)result);fflush(stdout);
+}
 static void console(void *arg) {
     (void)arg; char line[96];size_t len=0;
     for(;;) {
@@ -1041,6 +1060,7 @@ static void console(void *arg) {
         if(ch!='\n'){if(len<sizeof(line)-1)line[len++]=(char)ch;else len=0;continue;}
         line[len]=0;len=0;char verb[32];uint32_t val=0;
         if(sscanf(line,"%31s %"SCNu32,verb,&val)<1)continue;
+        if(!strcmp(verb,"cloud_config")){cloud_input();continue;}
         if(!strcmp(verb,"gauge_diag")) {
             board_battery_diagnostics_t gauge={0};
             esp_err_t err=board_battery_diagnostics(&gauge);
@@ -1071,7 +1091,7 @@ static void console(void *arg) {
             bool valid=sscanf(line,"%*s %11s %c",mode,&extra)==1 &&
                        (!strcmp(mode,"local") || !strcmp(mode,"service"));
             if(!valid || !app_command(CMD_SYNC_MODE,!strcmp(mode,"local"),"serial")) {
-                printf("SYNC_MODE result=%d\n",valid?(int)MEMO_CONFIG_BUSY:-1);fflush(stdout);
+                printf("SYNC_MODE result=%d\n",valid?(int)MEMO_CLOUD_BUSY:-1);fflush(stdout);
             }
             continue;
         }
@@ -1087,7 +1107,7 @@ static void console(void *arg) {
         if(!strcmp(verb,"resume")){app_command(CMD_RESUME,0,"serial");continue;}
         const char *names[]={"start","stop","play","next","prev","refresh","fault_write","fault_space","dump","partial","recover","discard","reboot"};
         bool found=false;for(unsigned i=0;i<sizeof(names)/sizeof(names[0]);i++)if(!strcmp(verb,names[i])){app_command((memo_cmd_t)i,val,"serial");found=true;break;}
-        if(!found)printf("HELP status list net_status gauge_diag memory sync_mode local|service provision start stop play ID pause resume usb_open usb_close usb_mute usb_unmute next prev refresh fault_write BYTES fault_space dump ID partial ID recover ID discard ID reboot bootloader\n");
+        if(!found)printf("HELP status list net_status gauge_diag memory cloud_config sync_mode local|service provision start stop play ID pause resume usb_open usb_close usb_mute usb_unmute next prev refresh fault_write BYTES fault_space dump ID partial ID recover ID discard ID reboot bootloader\n");
     }
 }
 /* Healthy mounted cards need only CMD13; no FAT scan or write. The task
@@ -1145,7 +1165,7 @@ void app_main(void) {
     esp_err_t usb_result=memo_usb_init();
     if(usb_result!=ESP_OK)ESP_LOGE(TAG,"USB microphone unavailable: %s",esp_err_to_name(usb_result));
 #else
-    usb_serial_jtag_driver_config_t usb={.rx_buffer_size=256,.tx_buffer_size=8192};
+    usb_serial_jtag_driver_config_t usb={.rx_buffer_size=1152,.tx_buffer_size=8192};
     ESP_ERROR_CHECK(usb_serial_jtag_driver_install(&usb));usb_serial_jtag_vfs_use_driver();
 #endif
     setvbuf(stdin,NULL,_IONBF,0);

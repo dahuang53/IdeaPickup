@@ -23,7 +23,7 @@
 #include "tusb.h"
 #include "usb_device_uac.h"
 
-#define CDC_RX_CAPACITY 1024U
+#define CDC_RX_CAPACITY 1152U /* bounded 1024-byte secret line plus newline/USB packet headroom */
 #define CDC_TX_CAPACITY 16384U
 
 static portMUX_TYPE lock = portMUX_INITIALIZER_UNLOCKED;

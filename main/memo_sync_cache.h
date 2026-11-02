@@ -14,7 +14,8 @@ typedef enum {
 }
 #endif
 
-#include "memo_network_config.h"
+/* Historical target fields are decoded only; no service configuration runtime. */
+typedef struct {uint8_t bytes[16];} memo_server_uuid_t;
 #ifdef __cplusplus
 extern "C" {
 #endif
