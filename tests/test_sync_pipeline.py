@@ -95,7 +95,7 @@ class SyncTests(unittest.TestCase):
 for _name in ('segments','offline','details','legacy','retry','clock','limited','limited_boot','limited_long',
               'credentials','invalid','empty','uncertain','lost','delivery_retry','crash_asr','crash_delivery',
               'cancel_offline','cancel_asr','cancel_success','cancel_lost','config','qwen_config','pause',
-              'storage','cleanup','codec','scan','cycles','config_blob','failed_rebind','text_limit','scan_partial','legacy_future','audio_read_fail','media_401','media_301','media_headers_401','media_headers_403','id_floor','wait_429','wait_503','wait_408','wait_429_reboot','wait_503_reboot','wait_408_reboot','timeout_401','timeout_403','timeout_400','limited_clock','clean','clean_empty'):
+              'storage','cleanup','codec','scan','cycles','config_blob','failed_rebind','text_limit','scan_partial','legacy_future','audio_read_fail','headers_disconnect','media_401','media_301','media_headers_401','media_headers_403','id_floor','wait_429','wait_503','wait_408','wait_429_reboot','wait_503_reboot','wait_408_reboot','timeout_401','timeout_403','timeout_400','limited_clock','clean','clean_empty'):
     setattr(SyncTests,'test_'+_name,lambda self,name=_name:run_case(name))
 
 if __name__=='__main__':unittest.main(verbosity=2)

@@ -50,7 +50,7 @@ extern "C" int nvs_entry_next(void **p){auto *it=static_cast<Iterator *>(*p);ret
 extern "C" int nvs_entry_info(void *p,nvs_entry_info_t *out){auto *it=static_cast<Iterator *>(p);snprintf(out->key,sizeof(out->key),"%s",it->keys[it->at].c_str());return ESP_OK;}
 extern "C" void nvs_release_iterator(void *p){delete static_cast<Iterator *>(p);}
 extern "C" bool memo_record_ids_reserve(uint32_t floor,uint32_t *id){*id=highwater=std::max(highwater,floor)+1;return true;}
-extern "C" bool memo_cloud_config_read(memo_cloud_config_t *c){*c={};c->enabled=config_enabled;c->qwen_generation=c->siyuan_generation=1;strcpy(c->workspace,"llm-test");strcpy(c->qwen_key,"synthetic-key");strcpy(c->siyuan_token,"synthetic-token");return true;}
+extern "C" bool memo_cloud_config_read(memo_cloud_config_t *c){*c={};c->enabled=config_enabled;c->qwen_generation=c->siyuan_generation=1;strcpy(c->qwen_key,"synthetic-key");strcpy(c->siyuan_token,"synthetic-token");return true;}
 extern "C" bool memo_cloud_config_ready(const memo_cloud_config_t *c){return c&&c->qwen_generation&&c->siyuan_generation&&c->qwen_key[0]&&c->siyuan_token[0];}
 extern "C" void memo_cloud_config_clear(memo_cloud_config_t *c){memset(c,0,sizeof(*c));}
 #include "network_sync.h"

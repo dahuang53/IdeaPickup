@@ -108,7 +108,10 @@ void finish_record(memo_job_state_t state,const char *reason){
  bool saved=save_current();if(saved&&!marker(0))fault();release();
 }
 const char *reason(memo_cloud::Code c){using memo_cloud::Code;switch(c){case Code::Credentials:return "凭据无效";case Code::Limited:return "服务限流";case Code::TooLarge:return "内容超出上限";case Code::Memory:return "录音内存不足";case Code::Empty:return "未识别到语音";case Code::Uncertain:return "投递待核对";case Code::Timeout:return "处理等待超时";default:return "处理已中断";}}
-void fail_asr(memo_cloud::Code code){finish_record(cancelled?MEMO_JOB_CANCELLED:code==memo_cloud::Code::Empty?MEMO_JOB_REJECTED:MEMO_JOB_FAILED,cancelled?"":reason(code));}
+void fail_asr(const memo_cloud::Result &result,const char *stage){
+ const auto code=result.code;
+ printf("CARDLESS_ASR_ERROR stage=%s code=%d detail=%s\n",stage,int(code),result.provider_code);
+ finish_record(cancelled?MEMO_JOB_CANCELLED:code==memo_cloud::Code::Empty?MEMO_JOB_REJECTED:MEMO_JOB_FAILED,cancelled?"":reason(code));}
 bool append_text(void *,const char *s,size_t n){if(n>TEXT_BYTES-text_bytes)return false;memcpy(text+text_bytes,s,n);text_bytes+=n;return true;}
 struct Clean {size_t n=0;};
 bool clean_text(void *p,const char *s,size_t n){auto &v=*static_cast<Clean *>(p);memmove(text+v.n,s,n);v.n+=n;return true;}
@@ -211,8 +214,8 @@ extern "C" void memo_cardless_network_step(){
  if(!ws_started&&!finalized){
   platform=new(std::nothrow) MemoCloudEsp(abort_io);if(platform)realtime=new(std::nothrow) memo_cloud::Realtime(platform->io());
   if(!realtime){finish_record(MEMO_JOB_FAILED,"录音内存不足");return;}
-  auto result=realtime->begin(config.workspace,config.qwen_key,{nullptr,append_text});
-  if(result.code!=memo_cloud::Code::Ok){fail_asr(result.code);return;}
+  auto result=realtime->begin(config.qwen_key,{nullptr,append_text});
+  if(result.code!=memo_cloud::Code::Ok){fail_asr(result,"handshake");return;}
   current.state=MEMO_JOB_TRANSCRIBING;if(!save_current()){release();return;}
   ws_started=true;prepared=true;return;
  }
@@ -223,16 +226,16 @@ extern "C" void memo_cardless_network_step(){
    if(!got)break;
    if(!capturing&&now()-stopped_at.load()>=5000){finish_record(MEMO_JOB_FAILED,"处理等待超时");return;}
    uint32_t send_left=capturing?2000:uint32_t(std::min<int64_t>(2000,5000-(now()-stopped_at.load())));
-   auto result=realtime->audio(block,got,send_left);if(result.code!=memo_cloud::Code::Ok){fail_asr(result.code);return;}
+   auto result=realtime->audio(block,got,send_left);if(result.code!=memo_cloud::Code::Ok){fail_asr(result,"append");return;}
    if(stopped||cancelled)break;
   }
   if(stopped||cancelled)return;
-  auto result=realtime->poll();if(result.code!=memo_cloud::Code::Ok){fail_asr(result.code);return;}
+  auto result=realtime->poll();if(result.code!=memo_cloud::Code::Ok){fail_asr(result,"poll");return;}
   if(capturing)return;
   int64_t left=30000-(now()-stopped_at.load());if(left<=0){finish_record(MEMO_JOB_FAILED,"处理等待超时");return;}
   result=realtime->finish(uint32_t(left));delete realtime;realtime=nullptr;delete platform;platform=nullptr;
   {Lock lock(pcm_mutex);vStreamBufferDelete(pcm_stream);pcm_stream=nullptr;free(pcm_storage);pcm_storage=nullptr;}
-  if(result.code!=memo_cloud::Code::Ok){fail_asr(result.code);return;}
+  if(result.code!=memo_cloud::Code::Ok){fail_asr(result,"finish");return;}
   if(cancelled){finish_record(MEMO_JOB_CANCELLED,"");return;}
   Clean cleaned;text_bytes=memo_transcript_clean(text,text_bytes,clean_text,&cleaned);
   if(text_bytes==SIZE_MAX||!text_bytes){finish_record(MEMO_JOB_REJECTED,"未识别到语音");return;}

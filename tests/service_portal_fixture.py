@@ -99,7 +99,7 @@ int main(){
             if(cJSON_IsTrue(cJSON_GetObjectItem(j,"wifi_process"))){ap.ProcessConnection();status_value.connected=ap.GetConnectionStatus().connected;}
             wifi_connect_fault=cJSON_IsTrue(cJSON_GetObjectItem(j,"wifi_fail"));
             if(cJSON_IsString(cJSON_GetObjectItem(j,"network_error")))set_error(text("network_error",""));
-            if(cJSON_IsTrue(cJSON_GetObjectItem(j,"credentials"))){memo_cloud_patch_t p{};p.workspace="llm-fixture";p.qwen_key="synthetic-key";p.siyuan_token="synthetic-token";assert(network_sync_configure_cloud(&p)==MEMO_CLOUD_OK);}
+            if(cJSON_IsTrue(cJSON_GetObjectItem(j,"credentials"))){memo_cloud_patch_t p{};p.qwen_key="synthetic-key";p.siyuan_token="synthetic-token";assert(network_sync_configure_cloud(&p)==MEMO_CLOUD_OK);}
             v=cJSON_GetObjectItem(j,"task_state");if(cJSON_IsNumber(v))network_sync_task_result(1,memo_job_state_t(v->valueint),"");
             req.response="{\"success\":true}";
         }else if(!strcmp(route,"/service")) {if(!strcmp(method,"POST"))service_post(&req);else service_get(&req);}

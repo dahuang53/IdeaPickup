@@ -15,7 +15,7 @@ bool secret(const char *s){size_t n=strnlen(s,257);if(n>256)return false;for(siz
 extern "C" void memo_cloud_settings_public(memo_cloud_public_t *out){
  if(!out)return;
  *out={};Config c;if(!memo_cloud_config_read(&c.value)){out->result=MEMO_CLOUD_STORAGE;return;}
- out->enabled=c.value.enabled;out->configured=memo_cloud_config_ready(&c.value);out->workspace_set=c.value.workspace[0];out->qwen_set=c.value.qwen_key[0];out->siyuan_set=c.value.siyuan_token[0];out->qwen_generation=c.value.qwen_generation;out->siyuan_generation=c.value.siyuan_generation;
+ out->enabled=c.value.enabled;out->configured=memo_cloud_config_ready(&c.value);out->qwen_set=c.value.qwen_key[0];out->siyuan_set=c.value.siyuan_token[0];out->qwen_generation=c.value.qwen_generation;out->siyuan_generation=c.value.siyuan_generation;
 }
 extern "C" memo_cloud_result_t memo_cloud_settings_apply(const memo_cloud_patch_t *patch,bool *changed){
  if(changed)*changed=false;
@@ -29,13 +29,12 @@ extern "C" memo_cloud_result_t memo_cloud_settings_apply(const memo_cloud_patch_
  if(!memo_cloud_config_read(&old.value))return MEMO_CLOUD_STORAGE;
  next.value=old.value;
  if(patch->check_generation&&(patch->expected_qwen!=old.value.qwen_generation||patch->expected_siyuan!=old.value.siyuan_generation))return MEMO_CLOUD_CONFLICT;
- if((patch->clear_qwen&&((patch->workspace&&patch->workspace[0])||(patch->qwen_key&&patch->qwen_key[0])))||(patch->clear_siyuan&&patch->siyuan_token&&patch->siyuan_token[0]))return MEMO_CLOUD_INVALID;
- if(patch->workspace&&patch->workspace[0]){if(!memo_cloud::valid_workspace(patch->workspace))return MEMO_CLOUD_INVALID;strcpy(next.value.workspace,patch->workspace);}
+ if((patch->clear_qwen&&(patch->qwen_key&&patch->qwen_key[0]))||(patch->clear_siyuan&&patch->siyuan_token&&patch->siyuan_token[0]))return MEMO_CLOUD_INVALID;
  for(auto pair:{0,1}){const char *s=pair?patch->siyuan_token:patch->qwen_key;if(s&&s[0]){if(!secret(s))return MEMO_CLOUD_INVALID;strcpy(pair?next.value.siyuan_token:next.value.qwen_key,s);}}
- if(patch->clear_qwen){memset(next.value.workspace,0,sizeof(next.value.workspace));memset(next.value.qwen_key,0,sizeof(next.value.qwen_key));}
+ if(patch->clear_qwen){memset(next.value.qwen_key,0,sizeof(next.value.qwen_key));}
  if(patch->clear_siyuan)memset(next.value.siyuan_token,0,sizeof(next.value.siyuan_token));
  if(patch->clear_qwen||patch->clear_siyuan)next.value.enabled=false;
- bool q=strcmp(old.value.workspace,next.value.workspace)||strcmp(old.value.qwen_key,next.value.qwen_key),s=strcmp(old.value.siyuan_token,next.value.siyuan_token);
+ bool q=strcmp(old.value.qwen_key,next.value.qwen_key),s=strcmp(old.value.siyuan_token,next.value.siyuan_token);
  if((q&&old.value.qwen_generation==UINT32_MAX)||(s&&old.value.siyuan_generation==UINT32_MAX))return MEMO_CLOUD_INVALID;
  next.value.qwen_generation+=q;next.value.siyuan_generation+=s;
  if(patch->set_mode)next.value.enabled=patch->enabled;

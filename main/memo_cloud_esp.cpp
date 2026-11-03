@@ -17,6 +17,7 @@
 #error "Cloud WS sends and SDK control frames require the official TX lock"
 #endif
 #ifdef ESP_PLATFORM
+#include "freertos/task.h"
 static_assert(CONFIG_ESP_WS_CLIENT_TX_LOCK_TIMEOUT_MS==pdMS_TO_TICKS(2000),
               "WS 1.5.0 uses ticks for its nominal-ms TX lock timeout");
 #endif
@@ -27,6 +28,9 @@ extern "C" bool network_sync_cloud_clock_ready();
 namespace {
 std::atomic<bool> cloud_owner{false};
 constexpr size_t EVENT_MAX=65536;
+// Keep room for a small following event while a maximum event is queued.
+// The per-event limit stays independent of this receive-queue capacity.
+constexpr size_t EVENT_QUEUE_BYTES=EVENT_MAX+4096+2*sizeof(size_t)+1;
 MemoCloudEsp &self(void *p){return *static_cast<MemoCloudEsp *>(p);}
 }
 bool MemoCloudEsp::ready_clock(int64_t deadline){
@@ -86,8 +90,8 @@ MemoCloudEsp::MemoCloudEsp(const std::atomic<bool> &cancelled):cancelled_(cancel
     io_.ws_open=[](void *p,const char *url,const char *auth,int64_t deadline){
         auto &s=self(p);if(!s.ready_clock(deadline))return -1;
         s.fragment_=static_cast<char *>(heap_caps_malloc(EVENT_MAX,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT));
-        s.incoming_storage_=static_cast<uint8_t *>(heap_caps_malloc(EVENT_MAX+sizeof(size_t)+1,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT));
-        if(s.incoming_storage_)s.incoming_=xMessageBufferCreateStatic(EVENT_MAX+sizeof(size_t)+1,s.incoming_storage_,&s.incoming_control_);
+        s.incoming_storage_=static_cast<uint8_t *>(heap_caps_malloc(EVENT_QUEUE_BYTES,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT));
+        if(s.incoming_storage_)s.incoming_=xMessageBufferCreateStatic(EVENT_QUEUE_BYTES,s.incoming_storage_,&s.incoming_control_);
         if(!s.fragment_||!s.incoming_){s.failure_=Code::Memory;return -1;}
         esp_http_client_config_t tls{};tls.url="https://cloud";tls.crt_bundle_attach=esp_crt_bundle_attach;
         s.ws_guard_=new(std::nothrow) MemoHttpTransport(tls,0,true);
@@ -124,6 +128,14 @@ MemoCloudEsp::MemoCloudEsp(const std::atomic<bool> &cancelled):cancelled_(cancel
 }
 void MemoCloudEsp::event(void *p,esp_event_base_t,int32_t type,void *event_data){
     auto &s=self(p);
+#ifdef ESP_PLATFORM
+    // The pinned SDK dispatches FINISH synchronously from its WS task.
+    if(type==WEBSOCKET_EVENT_FINISH){
+        ESP_LOGI("MEMO_CLOUD", "WS_STACK free=%u",
+                 static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)*sizeof(StackType_t)));
+        return;
+    }
+#endif
     auto fail=[&](memo_cloud::Code code){
         auto old=s.failure_.load();
         if(!s.failed_||old==memo_cloud::Code::Transport||code==memo_cloud::Code::Tls)s.failure_=code;

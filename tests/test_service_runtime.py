@@ -4,9 +4,11 @@ Only ESP/NVS/RTOS/RF and unrelated UI/transport types are host shims. No hardwar
 claims. Small runtime methods are extracted unchanged, as in the donor harness.
 """
 from pathlib import Path
+import struct
 import subprocess
 import tempfile
 import unittest
+import zlib
 
 ROOT = Path(__file__).resolve().parents[1]
 HEADERS = {
@@ -222,7 +224,7 @@ int esp_wifi_init(wifi_init_config_t *cfg){assert(!cfg->nvs_enable);return ESP_O
 RUNTIME_MAIN=r'''
 #include "memo_cloud_input.h"
 #include "memo_cloud.h"
-static memo_cloud_patch_t credentials(){memo_cloud_patch_t p{};p.workspace="llm-fixture";p.qwen_key="synthetic-key";p.siyuan_token="synthetic-token";return p;}
+static memo_cloud_patch_t credentials(){memo_cloud_patch_t p{};p.qwen_key="synthetic-key";p.siyuan_token="synthetic-token";return p;}
 int main(int argc,char **argv){
  assert(argc==2);std::string scenario=argv[1];auto begin_wifi=// __WIFI_BEGIN__
  ;auto end_wifi=// __WIFI_END__
@@ -238,13 +240,31 @@ int main(int argc,char **argv){
   change={};change.clear_siyuan=true;assert(network_sync_configure_cloud(&change)==MEMO_CLOUD_OK);network_sync_get_cloud_config(&pub);assert(!pub.enabled&&!pub.siyuan_set&&pub.siyuan_generation==2&&pub.qwen_generation==2);
  }
  else if(scenario=="noop"){
-  assert(network_sync_configure_cloud(&p)==MEMO_CLOUD_OK);auto before=durable[1];unsigned n=writes;memo_cloud_patch_t empty{};empty.workspace="";empty.qwen_key="";empty.siyuan_token="";
+  assert(network_sync_configure_cloud(&p)==MEMO_CLOUD_OK);auto before=durable[1];unsigned n=writes;memo_cloud_patch_t empty{};empty.qwen_key="";empty.siyuan_token="";
   for(int i=0;i<100;i++)assert(network_sync_configure_cloud(&empty)==MEMO_CLOUD_OK);assert(writes==n&&durable[1]==before);
  }
  else if(scenario=="boundaries"){
   std::string key(256,'x');p.qwen_key=key.c_str();p.siyuan_token=key.c_str();assert(network_sync_configure_cloud(&p)==MEMO_CLOUD_OK);auto before=durable[1];key+='x';assert(network_sync_configure_cloud(&p)==MEMO_CLOUD_INVALID&&durable[1]==before);
-  p=credentials();p.workspace="-bad";assert(network_sync_configure_cloud(&p)==MEMO_CLOUD_INVALID);p.workspace="llm-fixture";p.qwen_key="x\nsecret";assert(network_sync_configure_cloud(&p)==MEMO_CLOUD_INVALID);
+  p=credentials();p.qwen_key="x\nsecret";assert(network_sync_configure_cloud(&p)==MEMO_CLOUD_INVALID);
   memo_cloud_config_t value{};assert(memo_cloud_config_read(&value));value.qwen_generation=UINT32_MAX;uint8_t bytes[604];assert(memo_cloud_config_encode(&value,bytes));durable[1]["config"]={bytes,bytes+604};p=credentials();assert(network_sync_configure_cloud(&p)==MEMO_CLOUD_INVALID);
+ }
+ else if(scenario=="platform_migration"){
+  durable[1]["config"]={__BEIJING_V1__};
+  auto old_blob=durable[1]["config"];
+  network_sync_get_cloud_config(&pub);
+  assert(!pub.enabled&&!pub.configured&&!pub.qwen_set&&pub.siyuan_set);
+  assert(pub.qwen_generation==4&&pub.siyuan_generation==7);
+  assert(network_sync_set_local_only(false)==MEMO_CLOUD_NOT_CONFIGURED);
+  assert(durable[1]["config"]==old_blob);
+  memo_cloud_patch_t platform{};
+  platform.qwen_key="new-platform-key";
+  assert(network_sync_configure_cloud(&platform)==MEMO_CLOUD_OK);
+  memo_cloud_config_t current{};
+  assert(memo_cloud_config_read(&current)&&!current.enabled&&memo_cloud_config_ready(&current));
+  assert(current.qwen_generation==5&&current.siyuan_generation==7);
+  assert(!strcmp(current.qwen_key,"new-platform-key")&&!strcmp(current.siyuan_token,"keep-token"));
+  assert(durable[1]["config"][4]==2&&durable[2]==original_wifi);
+  assert(network_sync_set_local_only(false)==MEMO_CLOUD_OK);
  }
  else if(scenario=="capacity"){
   free_entries=196;assert(network_sync_configure_cloud(&p)==MEMO_CLOUD_NO_SPACE&&!durable.count(1));free_entries=197;assert(network_sync_configure_cloud(&p)==MEMO_CLOUD_OK);
@@ -265,7 +285,7 @@ int main(int argc,char **argv){
   WifiConfigurationAp ap;for(int cut=1;cut<=7;cut++){fault_namespace=2;fault=cut;after_commit=false;assert(!ap.Save("new-fixture-"+std::to_string(cut),"synthetic-password"));fault=0;after_commit=false;assert(ap.Save("new-fixture-"+std::to_string(cut),"synthetic-password"));}
  }
  else if(scenario=="input"){
-  assert(network_sync_cloud_input_begin());const char *json="{\"workspace\":\"llm-fixture\",\"qwen_key\":\"synthetic-key\",\"siyuan_token\":\"synthetic-token\"}";assert(memo_cloud_input_apply(json,strlen(json))==MEMO_CLOUD_OK);network_sync_cloud_input_end();
+  assert(network_sync_cloud_input_begin());const char *json="{\"qwen_key\":\"synthetic-key\",\"siyuan_token\":\"synthetic-token\"}";assert(memo_cloud_input_apply(json,strlen(json))==MEMO_CLOUD_OK);network_sync_cloud_input_end();
   memo_cloud_input_t input;memo_cloud_input_reset(&input,0);for(int i=0;i<1024;i++)assert(!memo_cloud_input_push(&input,'x',1));assert(memo_cloud_input_push(&input,'x',2)==0&&input.overflow);assert(memo_cloud_input_push(&input,'\n',3)==-2);memo_cloud_input_reset(&input,0);assert(memo_cloud_input_push(&input,'x',15000)==-1&&input.used==0);for(char c:std::string("{}\n")){int r=memo_cloud_input_push(&input,c,15001);if(c=='\n')assert(r==1);}memo_cloud_input_reset(&input,0);for(char c:input.bytes)assert(!c);
   unsigned wiped=wiped_arenas;assert(network_sync_cloud_input_begin());
   const char *partial="{\"qwen_key\":\"SYNTHETIC_PRIVATE_VALUE\",}";assert(memo_cloud_input_apply(partial,strlen(partial))==MEMO_CLOUD_INVALID);assert(wiped_arenas==wiped+1&&json_allocations.empty());
@@ -332,13 +352,20 @@ int main(){
             begin=extract(source,'config.config_commit_begin=');begin=begin.split('=',1)[1]
             end=extract(source,'config.config_commit_end=');end=end.split('=',1)[1]
             harness=(HARNESS+RUNTIME_MAIN).replace('// __PRODUCTION_BODIES__',bodies).replace('// __WIFI_BEGIN__',begin).replace('// __WIFI_END__',end)
+            legacy = bytearray(604)
+            struct.pack_into('<4sIIII', legacy, 0, b'R1CF', 1, 1, 4, 7)
+            legacy[20:29] = b'old-space'
+            legacy[84:99] = b'old-beijing-key'
+            legacy[341:351] = b'keep-token'
+            struct.pack_into('<I', legacy, 600, zlib.crc32(legacy[:600]))
+            harness = harness.replace('__BEIJING_V1__', ','.join(map(str, legacy)))
             file=temp/'runtime.cpp';file.write_text(harness)
             includes=['-I',str(temp),'-I',str(ROOT/'main'),'-I',str(ROOT/'components/esp-wifi-connect/include'),'-I',str(ROOT/'.tools/esp-idf/components/json/cJSON')]
             from cloud_settings_fixture import compile_objects
             objects=compile_objects(temp,includes)
             binary=temp/'runtime'
             subprocess.run(['c++','-std=c++17','-g','-O1','-Wall','-Wextra','-Werror','-fsanitize=address,undefined','-DMEMO_HOST_TEST',*includes,str(file),str(ROOT/'components/esp-wifi-connect/ssid_manager.cc'),*objects,'-o',str(binary)],check=True)
-            results={scenario:subprocess.run([str(binary),scenario]).returncode for scenario in ('settings','noop','boundaries','capacity','failures','wifi','gates','input','read_recovery')}
+            results={scenario:subprocess.run([str(binary),scenario]).returncode for scenario in ('settings','noop','boundaries','capacity','failures','wifi','gates','input','read_recovery','platform_migration')}
             self.assertEqual(results,{name:0 for name in results})
 
 if __name__=='__main__': unittest.main(verbosity=2)

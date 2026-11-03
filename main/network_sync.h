@@ -49,6 +49,7 @@ bool network_sync_cloud_input_begin(void);
 memo_cloud_result_t network_sync_cloud_input_save(const memo_cloud_patch_t *);
 void network_sync_cloud_input_end(void);
 /* Numeric maintenance measurement; minimum unused detail-task stack in bytes. */
+uint32_t network_sync_worker_stack_free(void);
 uint32_t network_sync_detail_stack_free(void);
 uint32_t network_sync_http_stack_free(void);
 /* Wake the single HTTP worker after cardless audio/state becomes available. */

@@ -256,7 +256,7 @@ void step(const char *root,uint32_t id,const memo_cloud_config_t &cfg,const IO &
   File wav(p.wav,"rb",true);uint32_t end=0;
   if(!wav.p||!boundary(wav.p,e.next_sample,total,end)){fail(root,e,Error::Audio,r,cfg);rt.forget();return;}
   Segment segment(wav.p,e.next_sample,end);Append append{p.text,e.text_bytes};
-  result=memo_cloud::file_asr(*io.cloud,cfg.workspace,cfg.qwen_key,segment.source(),{&append,Append::text});
+  result=memo_cloud::file_asr(*io.cloud,cfg.qwen_key,segment.source(),{&append,Append::text});
   control=io.control?io.control(io.context):Control::Run;
   if(control==Control::Cancel){if(!cancel(root,id)||read(root,id,&e)!=MEMO_CACHE_OK)storage_error(r);else cancelled(root,e,p,r,cfg);rt.forget();return;}
   if(result.code==memo_cloud::Code::Ok||result.code==memo_cloud::Code::Empty){

@@ -13,6 +13,7 @@ import re
 import time
 
 DUMP_IDLE_SECONDS = 15.0
+DUMP_DIAGNOSTIC_SECONDS = 6.0
 # Conservative rate below 115200-baud base64 throughput. Firmware also yields
 # one 10 ms tick per 384-byte block (about 38 kB/s).
 DUMP_BYTES_PER_SECOND = 8000.0
@@ -143,7 +144,22 @@ def run_session(connection, log, *, commands=(), seconds=5.0, dump_id=None,
         for line in lines.feed(chunk):
             clean = ANSI_COLOR.sub(b"", line).strip()
             if dump_started:
-                event = receiver.consume(clean)
+                try:
+                    event = receiver.consume(clean)
+                except RuntimeError:
+                    if clean.startswith(b"DATA "):
+                        # An asynchronous fault can split an audio frame. Keep
+                        # the following diagnostics in the private log.
+                        diagnostic_deadline = clock() + DUMP_DIAGNOSTIC_SECONDS
+                        while clock() < diagnostic_deadline:
+                            try:
+                                diagnostic = connection.readline()
+                            except OSError:
+                                break
+                            if diagnostic:
+                                log.write(diagnostic)
+                        log.flush()
+                    raise
                 if event is not None:
                     last_dump_progress = clock()
                     if event == "begin":

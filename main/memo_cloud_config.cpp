@@ -11,18 +11,22 @@ bool secret(const char *p){size_t n=strnlen(p,257);if(n==257)return false;for(si
 }
 extern "C" void memo_cloud_config_clear(memo_cloud_config_t *v){if(v){volatile uint8_t *p=reinterpret_cast<volatile uint8_t *>(v);for(size_t i=0;i<sizeof(*v);i++)p[i]=0;}}
 extern "C" bool memo_cloud_config_ready(const memo_cloud_config_t *v){
- return v&&v->qwen_generation&&v->siyuan_generation&&memo_cloud::valid_workspace(v->workspace)&&v->qwen_key[0]&&v->siyuan_token[0]&&secret(v->qwen_key)&&secret(v->siyuan_token);
+ return v&&v->qwen_generation&&v->siyuan_generation&&v->qwen_key[0]&&v->siyuan_token[0]&&secret(v->qwen_key)&&secret(v->siyuan_token);
 }
 extern "C" bool memo_cloud_config_decode(const void *bytes,size_t n,memo_cloud_config_t *v){
  if(!v)return false;
  memo_cloud_config_clear(v);if(!bytes||n!=604)return false;
  const auto *p=static_cast<const uint8_t *>(bytes);
- if(memcmp(p,"R1CF",4)||u32(p+4)!=1||u32(p+8)>1||p[598]||p[599]||u32(p+600)!=crc(p,600))return false;
+ const uint32_t version=u32(p+4);
+ if(memcmp(p,"R1CF",4)||(version!=1&&version!=2)||u32(p+8)>1||p[598]||p[599]||u32(p+600)!=crc(p,600))return false;
  v->enabled=u32(p+8);v->qwen_generation=u32(p+12);v->siyuan_generation=u32(p+16);
- memcpy(v->workspace,p+20,64);memcpy(v->qwen_key,p+84,257);memcpy(v->siyuan_token,p+341,257);
- bool valid=memchr(v->workspace,0,64)&&secret(v->qwen_key)&&secret(v->siyuan_token)&&
-     (!v->workspace[0]||memo_cloud::valid_workspace(v->workspace))&&
-     ((!v->workspace[0]&&!v->qwen_key[0])||v->qwen_generation)&&(!v->siyuan_token[0]||v->siyuan_generation);
+ // V1 used the Beijing endpoint. Preserve generations and Siyuan, but require
+ // an explicit Qianwen AI Platform key before enabling the new endpoint.
+ if(version==2)memcpy(v->qwen_key,p+84,257);
+ else v->enabled=false;
+ memcpy(v->siyuan_token,p+341,257);
+ bool valid=secret(v->qwen_key)&&secret(v->siyuan_token)&&
+     (!v->qwen_key[0]||v->qwen_generation)&&(!v->siyuan_token[0]||v->siyuan_generation);
  if(!valid)memo_cloud_config_clear(v);
  return valid;
 }
@@ -46,8 +50,8 @@ extern "C" bool memo_cloud_config_encode(const memo_cloud_config_t *v,uint8_t ou
  if(!v||!out)return false;
  memset(out,0,604);memcpy(out,"R1CF",4);
  auto put=[](uint8_t *p,uint32_t n){for(unsigned i=0;i<4;i++)p[i]=n>>(8*i);};
- put(out+4,1);put(out+8,v->enabled);put(out+12,v->qwen_generation);put(out+16,v->siyuan_generation);
- if(!memchr(v->workspace,0,64)||!memchr(v->qwen_key,0,257)||!memchr(v->siyuan_token,0,257))return false;
- memcpy(out+20,v->workspace,strlen(v->workspace));memcpy(out+84,v->qwen_key,strlen(v->qwen_key));memcpy(out+341,v->siyuan_token,strlen(v->siyuan_token));put(out+600,crc(out,600));
+ put(out+4,2);put(out+8,v->enabled);put(out+12,v->qwen_generation);put(out+16,v->siyuan_generation);
+ if(!memchr(v->qwen_key,0,257)||!memchr(v->siyuan_token,0,257))return false;
+ memcpy(out+84,v->qwen_key,strlen(v->qwen_key));memcpy(out+341,v->siyuan_token,strlen(v->siyuan_token));put(out+600,crc(out,600));
  memo_cloud_config_t decoded{};bool ok=memo_cloud_config_decode(out,604,&decoded);memo_cloud_config_clear(&decoded);return ok;
 }

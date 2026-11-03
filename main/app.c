@@ -78,9 +78,11 @@ static int64_t usb_suspended_since_us;
 
 static void memory_checkpoint(const char *stage) {
     const uint32_t caps=MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT;
-    ESP_LOGI(TAG,"MEMORY stage=%s internal_free=%zu internal_largest=%zu internal_min=%zu psram_free=%zu",
+    const uint32_t psram=MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT;
+    ESP_LOGI(TAG,"MEMORY stage=%s internal_free=%zu internal_largest=%zu internal_min=%zu psram_free=%zu psram_min=%zu",
         stage,heap_caps_get_free_size(caps),heap_caps_get_largest_free_block(caps),
-        heap_caps_get_minimum_free_size(caps),heap_caps_get_free_size(MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT));
+        heap_caps_get_minimum_free_size(caps),heap_caps_get_free_size(psram),
+        heap_caps_get_minimum_free_size(psram));
 }
 
 #define RECORD_CHECKPOINT_BYTES (60ULL * MEMO_SAMPLE_RATE * 2ULL)
@@ -1054,6 +1056,7 @@ static void cloud_input(void){
 }
 static void console(void *arg) {
     (void)arg; char line[96];size_t len=0;
+    bool memory_window=false;
     for(;;) {
         int ch=getchar();if(ch==EOF){clearerr(stdin);vTaskDelay(pdMS_TO_TICKS(20));continue;}
         if(ch=='\r')continue;
@@ -1081,9 +1084,22 @@ static void console(void *arg) {
         }
         if(!strcmp(verb,"status")||!strcmp(verb,"list")||!strcmp(verb,"net_status")){print_status();continue;}
         if(!strcmp(verb,"memory")){
-            memory_checkpoint("serial");
-            printf("MEMORY_TASK detail_stack_free=%"PRIu32" http_stop_stack_free=%"PRIu32" reset_reason=%d\n",
-                   network_sync_detail_stack_free(),network_sync_http_stack_free(),(int)esp_reset_reason());
+            if(val==1){
+                if(memory_window||heap_caps_monitor_local_minimum_free_size_start()!=ESP_OK){
+                    puts("MEMORY_WINDOW start_failed");fflush(stdout);continue;
+                }
+                memory_window=true;
+            }else if(val>2||(val==2&&!memory_window)){
+                puts("MEMORY_WINDOW invalid");fflush(stdout);continue;
+            }
+            memory_checkpoint(val==1?"window_start":val==2?"window_end":"serial");
+            if(val==2){
+                esp_err_t result=heap_caps_monitor_local_minimum_free_size_stop();
+                printf("MEMORY_WINDOW stop_result=%d\n",(int)result);
+                memory_window=result!=ESP_OK;
+            }
+            printf("MEMORY_TASK detail_stack_free=%"PRIu32" http_stop_stack_free=%"PRIu32" sync_stack_free=%"PRIu32" reset_reason=%d\n",
+                   network_sync_detail_stack_free(),network_sync_http_stack_free(),network_sync_worker_stack_free(),(int)esp_reset_reason());
             fflush(stdout);continue;
         }
         if(!strcmp(verb,"sync_mode")) {

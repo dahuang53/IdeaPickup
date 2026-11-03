@@ -95,7 +95,7 @@ extern "C" void network_sync_cloud_release(){assert(!in_callback);leases--;}
 extern "C" bool network_sync_cloud_clock_ready(){return clock_ready;}
 int esp_crt_bundle_attach(void*){return 0;}
 int64_t esp_timer_get_time(){return 1000000;}
-void*heap_caps_malloc(size_t n,int caps){assert(caps==(MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT));if(fail_alloc)return nullptr;if(fail_arena&&n==196608){arena_failures++;return nullptr;}void*p=malloc(n);allocations.insert(p);return p;}
+void*heap_caps_malloc(size_t n,int caps){assert(caps==(MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT));if(fail_alloc)return nullptr;if(fail_arena&&n<7168){arena_failures++;return nullptr;}void*p=malloc(n);allocations.insert(p);return p;}
 void shim_free(void*p){if(p){assert(allocations.erase(p)==1);free(p);}}
 MemoHttpTransport::MemoHttpTransport(esp_http_client_config_t&c,int64_t,bool){slot_=0;outer_=reinterpret_cast<T*>(1);inner_=reinterpret_cast<T*>(2);c.transport=outer_;}
 MemoHttpTransport::~MemoHttpTransport(){}
@@ -145,6 +145,17 @@ int main(){std::atomic<bool>cancelled{false};
   // SDK chunks within a frame, then a continuation frame; UTF-8 may split.
   data("ab",2,1,false,3,0);data("c",1,1,false,3,2);data("def",3,0,true,3,0);
   char out[65536];assert(io.ws_read(io.context,out,sizeof(out),0)==6&&!memcmp(out,"abcdef",6));
+  if(round==0){
+   std::string first(32768,'a'),second(32768,'b');
+   data(first.data(),first.size(),1,false,first.size(),0);
+   data(second.data(),second.size(),0,true,second.size(),0);
+   constexpr char finished[]="{\"type\":\"session.finished\"}";
+   data(finished,sizeof(finished)-1,1,true,sizeof(finished)-1,0);
+   assert(io.ws_read(io.context,out,sizeof(out),0)==sizeof(out));
+   assert(!memcmp(out,first.data(),first.size())&&!memcmp(out+first.size(),second.data(),second.size()));
+   assert(io.ws_read(io.context,out,sizeof(out),0)==sizeof(finished)-1);
+   assert(!memcmp(out,finished,sizeof(finished)-1));
+  }
   data("final",5,1,true,5,0);emit(WEBSOCKET_EVENT_CLOSED);
   assert(io.ws_read(io.context,out,sizeof(out),0)==5);assert(io.ws_read(io.context,out,sizeof(out),0)<0);
   io.ws_close(io.context);io.release(io.context);
@@ -157,7 +168,7 @@ int main(){std::atomic<bool>cancelled{false};
   if(fault==0){emit(WEBSOCKET_EVENT_DISCONNECTED);assert(io.failure(io.context)==memo_cloud::Code::Tls);}
   if(fault==1)data("x",1,0,true,1,0); // continuation without start
   if(fault==2)data("x",1,1,true,1,1); // impossible offset
-  if(fault==3){std::string large(65536,'x');data(large.data(),large.size(),1,true,large.size(),0);data("x",1,1,true,1,0);}
+  if(fault==3){std::string large(65536,'x');data(large.data(),large.size(),1,true,large.size(),0);data(large.data(),large.size(),1,true,large.size(),0);}
   // Actual SDK dispatch initializes TLS flags only for TCP_TRANSPORT. Poison
   // the other types as an explicit validity test, rather than zero-fill them.
   if(fault==4||fault==5){esp_websocket_event_data_t e{};e.error_handle.esp_ws_handshake_status_code=fault==4?401:429;e.error_handle.esp_tls_cert_verify_flags=0x5a5a;emit(WEBSOCKET_EVENT_ERROR,&e);e.error_handle.error_type=WEBSOCKET_ERROR_TYPE_TCP_TRANSPORT;e.error_handle.esp_tls_cert_verify_flags=0;emit(WEBSOCKET_EVENT_DISCONNECTED,&e);assert(io.failure(io.context)==(fault==4?memo_cloud::Code::Credentials:memo_cloud::Code::Limited));}
@@ -175,7 +186,7 @@ int main(){std::atomic<bool>cancelled{false};
  {MemoCloudEsp platform(cancelled);char wav[64]{};http_status=200;fail_arena=true;
   memo_cloud::Source source{wav,sizeof(wav),[](void*p,uint64_t at,void*out,size_t n){memcpy(out,static_cast<char*>(p)+at,n);return static_cast<int>(n);}};
   memo_cloud::Sink sink{nullptr,[](void*,const char*,size_t){return true;}};
-  assert(memo_cloud::file_asr(platform.io(),"llm-test","synthetic",source,sink).code==memo_cloud::Code::Memory);
+  assert(memo_cloud::file_asr(platform.io(),"synthetic",source,sink).code==memo_cloud::Code::Memory);
   assert(arena_failures==1&&allocations.empty()&&!leases&&logs_restored());fail_arena=false;http_status=429;
  }
  assert(!handles&&!leases&&allocations.empty()&&closes>0);

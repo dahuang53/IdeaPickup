@@ -54,7 +54,7 @@ struct Fixture {
  std::vector<int64_t> delivery_starts;
  explicit Fixture(std::string path):root(std::move(path)){
   config.enabled=true;config.qwen_generation=config.siyuan_generation=1;
-  strcpy(config.workspace,"llm-test");strcpy(config.qwen_key,"synthetic-key");strcpy(config.siyuan_token,"synthetic-token");
+  strcpy(config.qwen_key,"synthetic-key");strcpy(config.siyuan_token,"synthetic-token");
   env.context=this;env.cloud=&cloud;env.now_ms=[](void*p){return static_cast<Fixture*>(p)->now;};
   env.unix_seconds=[](void*){return int64_t(1800000000);};env.connected=[](void*p){return static_cast<Fixture*>(p)->online;};
   env.clock_ready=[](void*p){auto &s=*static_cast<Fixture*>(p);s.clock_calls++;return s.clock;};env.control=[](void*p){return static_cast<Fixture*>(p)->control;};
@@ -75,6 +75,7 @@ struct Fixture {
     if(s.mode=="delivery_lost"||s.mode=="cancel_lost"){if(s.mode=="cancel_lost")s.control=Control::Cancel;return -1;}
    }else{
     s.asr++;s.response="{\"choices\":[{\"finish_reason\":\"stop\",\"message\":{\"content\":\"segment "+std::to_string(s.asr)+"\"}}]}";
+    if(s.mode=="headers_disconnect"){s.control=Control::Media;return -1;}
     if(s.capture){std::ofstream f(s.root+"/asr-"+std::to_string(s.asr)+".json");f<<s.request;}
     if(s.mode=="asr_500")s.status=500;
     if(s.mode=="asr_401"||s.mode=="media_401"||s.mode=="media_headers_401")s.status=401;
@@ -197,6 +198,11 @@ static void scenario(const std::string &name,const std::string &root){
  }else if(name=="id_floor"){
   f.start();assert(!unlink(f.wav().c_str()));memo_store_t store;assert(!memo_store_init(&store,f.root.c_str()));
   uint32_t floor=0;assert(!memo_store_max_id(&store,&floor)&&floor==1);assert(!memo_store_begin(&store)&&store.id==2);memo_store_abort(&store);
+ }else if(name=="headers_disconnect"){
+  f.start();f.mode=name;f.tick();
+  assert(f.result.pending&&f.entry().pause==Pause::Media&&f.asr==1&&!f.posted);
+  f.mode="ok";f.control=Control::Run;f.now+=f.result.delay_ms;
+  f.finish();assert(f.entry().state==MEMO_JOB_SENT&&f.asr==2&&f.posted==1);
  }else if(name=="pause"){
   f.start();f.mode="pause_asr";f.tick();assert(f.result.pending&&f.entry().pause==Pause::Mode);f.config.enabled=false;f.reboot();f.tick();assert(f.asr==1);f.config.enabled=true;f.mode="ok";f.finish();assert(f.entry().state==MEMO_JOB_SENT);
  }else if(name=="storage"){
@@ -224,7 +230,8 @@ static void scenario(const std::string &name,const std::string &root){
  }else if(name=="config_blob"){
   memo_cloud_config_t cfg{};assert(memo_cloud_config_read(&cfg)&&!cfg.enabled&&!memo_cloud_config_ready(&cfg));nvs_mode=1;assert(memo_cloud_config_read(&cfg));nvs_mode=2;assert(!memo_cloud_config_read(&cfg));nvs_mode=0;
   nvs_data.assign(604,0);memcpy(nvs_data.data(),"R1CF",4);put32(nvs_data.data()+4,1);put32(nvs_data.data()+8,1);put32(nvs_data.data()+12,1);put32(nvs_data.data()+16,1);
-  strcpy(reinterpret_cast<char*>(nvs_data.data()+20),"llm-test");strcpy(reinterpret_cast<char*>(nvs_data.data()+84),"synthetic-key");strcpy(reinterpret_cast<char*>(nvs_data.data()+341),"synthetic-token");put32(nvs_data.data()+600,crc(nvs_data.data(),600));assert(memo_cloud_config_read(&cfg)&&memo_cloud_config_ready(&cfg));
+  strcpy(reinterpret_cast<char*>(nvs_data.data()+20),"llm-test");strcpy(reinterpret_cast<char*>(nvs_data.data()+84),"synthetic-key");strcpy(reinterpret_cast<char*>(nvs_data.data()+341),"synthetic-token");put32(nvs_data.data()+600,crc(nvs_data.data(),600));assert(memo_cloud_config_read(&cfg)&&!cfg.enabled&&!cfg.qwen_key[0]&&cfg.siyuan_token[0]&&cfg.qwen_generation==1);
+  uint8_t updated[604];cfg.enabled=true;strcpy(cfg.qwen_key,"platform-key");assert(memo_cloud_config_encode(&cfg,updated));nvs_data.assign(updated,updated+sizeof(updated));assert(memo_cloud_config_read(&cfg)&&memo_cloud_config_ready(&cfg));
   nvs_data[90]^=1;assert(!memo_cloud_config_read(&cfg)&&!cfg.qwen_key[0]);assert(!handles);memo_cloud_config_clear(&cfg);
  }else assert(false);
  assert(!f.leased&&files.empty()&&!conflicts&&!handles);

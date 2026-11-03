@@ -18,7 +18,7 @@ extern "C" int memo_cloud_input_push(memo_cloud_input_t *s,int ch,int64_t now){
  return 0;
 }
 namespace {
-bool known(const char *s){return s&&(!strcmp(s,"workspace")||!strcmp(s,"qwen_key")||!strcmp(s,"siyuan_token")||!strcmp(s,"clear_qwen")||!strcmp(s,"clear_siyuan"));}
+bool known(const char *s){return s&&(!strcmp(s,"qwen_key")||!strcmp(s,"siyuan_token")||!strcmp(s,"clear_qwen")||!strcmp(s,"clear_siyuan"));}
 }
 extern "C" memo_cloud_result_t memo_cloud_input_apply(const char *body,size_t n){
  if(!body||n>1024||!memo_service_json_text_safe(body,n))return MEMO_CLOUD_INVALID;
@@ -28,8 +28,7 @@ extern "C" memo_cloud_result_t memo_cloud_input_apply(const char *body,size_t n)
  for(auto *p=json->child;p&&valid;p=p->next){
   valid=known(p->string);for(auto *q=json->child;q!=p&&valid;q=q->next)if(!strcmp(q->string,p->string))valid=false;
   if(!valid)break;
-  if(!strcmp(p->string,"workspace")){valid=cJSON_IsString(p);patch.workspace=p->valuestring;}
-  else if(!strcmp(p->string,"qwen_key")){valid=cJSON_IsString(p);patch.qwen_key=p->valuestring;}
+  if(!strcmp(p->string,"qwen_key")){valid=cJSON_IsString(p);patch.qwen_key=p->valuestring;}
   else if(!strcmp(p->string,"siyuan_token")){valid=cJSON_IsString(p);patch.siyuan_token=p->valuestring;}
   else if(!strcmp(p->string,"clear_qwen")){valid=cJSON_IsBool(p);patch.clear_qwen=cJSON_IsTrue(p);}
   else {valid=cJSON_IsBool(p);patch.clear_siyuan=cJSON_IsTrue(p);}

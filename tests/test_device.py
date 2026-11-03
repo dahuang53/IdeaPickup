@@ -85,6 +85,22 @@ class DeviceProtocolTests(unittest.TestCase):
             device.run_session(connection, io.BytesIO(), dump_id=7, clock=clock)
         self.assertLess(clock.now, 1)
 
+    def test_malformed_audio_keeps_following_watchdog_diagnostics(self):
+        clock = Clock()
+        chunks = [
+            (0.1, b"DUMP_BEGIN 7 44\n"),
+            (0.2, b"DATA 0 broken task_wdt: triggered\n"),
+            (0.3, b"task_wdt: CPU 0: task\n"),
+            (0.4, b"Backtrace: synthetic\n"),
+        ]
+        connection = FakeSerial(clock, chunks)
+        log = io.BytesIO()
+        with self.assertRaises(RuntimeError):
+            device.run_session(connection, log, dump_id=7, clock=clock)
+        self.assertEqual(log.getvalue(), b"".join(chunk for _, chunk in chunks))
+        self.assertEqual(connection.commands, [b"dump 7\n"])
+        self.assertLess(clock.now, 7)
+
     def test_idle_timeout_ignores_unrelated_logs(self):
         clock = Clock()
         events = [(0.1, b"DUMP_BEGIN 7 44\n")] + [(i, b"STATUS state=0 sd=1\n") for i in range(1, 20)]

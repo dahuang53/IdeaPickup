@@ -9,7 +9,7 @@ extern "C" {
 typedef struct {
  bool enabled;
  uint32_t qwen_generation,siyuan_generation;
- char workspace[64],qwen_key[257],siyuan_token[257];
+ char qwen_key[257],siyuan_token[257];
 } memo_cloud_config_t;
 bool memo_cloud_config_ready(const memo_cloud_config_t *);
 void memo_cloud_config_clear(memo_cloud_config_t *);
@@ -19,14 +19,14 @@ bool memo_cloud_config_decode(const void *,size_t,memo_cloud_config_t *);
 bool memo_cloud_config_encode(const memo_cloud_config_t *,uint8_t out[604]);
 typedef enum {MEMO_CLOUD_OK,MEMO_CLOUD_INVALID,MEMO_CLOUD_BUSY,MEMO_CLOUD_STORAGE,MEMO_CLOUD_CONFLICT,MEMO_CLOUD_NO_SPACE,MEMO_CLOUD_NOT_CONFIGURED} memo_cloud_result_t;
 typedef struct {
- const char *workspace,*qwen_key,*siyuan_token; /* NULL/empty keep current. */
+ const char *qwen_key,*siyuan_token; /* NULL/empty keep current. */
  bool clear_qwen,clear_siyuan,set_mode,enabled;
  bool check_generation;
  uint32_t expected_qwen,expected_siyuan;
 } memo_cloud_patch_t;
 typedef struct {
  memo_cloud_result_t result;
- bool enabled,configured,workspace_set,qwen_set,siyuan_set;
+ bool enabled,configured,qwen_set,siyuan_set;
  uint32_t qwen_generation,siyuan_generation;
 } memo_cloud_public_t;
 /* Caller serializes commits using the existing network/activity gate. */

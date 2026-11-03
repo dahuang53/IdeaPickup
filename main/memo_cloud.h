@@ -47,9 +47,8 @@ struct IO {
     void (*ws_close)(void *)=nullptr;
     Code (*failure)(void *)=nullptr;
 };
-bool valid_workspace(const char *);
 uint32_t retry_after(const char *,int64_t unix_seconds);
-Result file_asr(const IO &,const char *workspace,const char *key,Source wav,Sink text);
+Result file_asr(const IO &,const char *key,Source wav,Sink text);
 Result deliver(const IO &,const char *token,const char *title,Source text);
 
 class Realtime {
@@ -58,7 +57,7 @@ public:
     ~Realtime();
     Realtime(const Realtime &)=delete;
     Realtime &operator=(const Realtime &)=delete;
-    Result begin(const char *workspace,const char *key,Sink final_text);
+    Result begin(const char *key,Sink final_text);
     Result audio(const void *pcm,size_t bytes,uint32_t remaining_ms=2000); // <=3200, even length, includes tail
     Result poll();
     // Caller stops capture and drains its PCM queue before finish(). No new

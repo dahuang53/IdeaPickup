@@ -1,3 +1,4 @@
+import urllib.parse
 """Production cloud protocol over real local TLS/WS; ESP/RF are not emulated PASS.
 
 Only IO is replaced. Its destination rewrite and private CA live in this test,
@@ -183,16 +184,31 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if peer.mode == 'ws_timeout':
             time.sleep(1)
             return
-        send({'type': 'input_audio_buffer.committed', 'item_id': 'one', 'previous_item_id': None})
+        commit = {'type': 'input_audio_buffer.committed', 'item_id': 'one'}
+        if peer.mode != 'ws_omitted_previous':
+            commit['previous_item_id'] = None
+        send(commit)
         if peer.mode == 'ws_missing':
             send({'type': 'session.finished'})
             return
         send({'type': 'conversation.item.input_audio_transcription.text', 'item_id': 'one', 'text': '旧草稿', 'stash': '不会投递'})
-        # Final #2 arrives before final #1; duplicate final #1 is ignored.
-        send({'type': 'input_audio_buffer.committed', 'item_id': 'two', 'previous_item_id': 'one'})
-        send({'type': 'conversation.item.input_audio_transcription.completed', 'item_id': 'two', 'transcript': '世界😀'}, True)
         final = {'type': 'conversation.item.input_audio_transcription.completed', 'item_id': 'one', 'transcript': '你好'}
-        send(final);send(final)
+        if peer.mode == 'ws_omitted_after_final':
+            send(final)
+        commit = {'type': 'input_audio_buffer.committed', 'item_id': 'two'}
+        if peer.mode not in ('ws_omitted_previous', 'ws_omitted_after_final'):
+            commit['previous_item_id'] = {'ws_bad_previous': 7, 'ws_wrong_previous': 'other'}.get(peer.mode, 'one')
+        send(commit)
+        # Final #2 may arrive before final #1. Duplicate final #1 is ignored.
+        second = {'type': 'conversation.item.input_audio_transcription.completed', 'item_id': 'two', 'transcript': '世界😀'}
+        if peer.mode == 'ws_max_event':
+            second['padding'] = ''
+            size = len(json.dumps(second, ensure_ascii=False).encode())
+            second['padding'] = 'x' * (65536 - size)
+            assert len(json.dumps(second, ensure_ascii=False).encode()) == 65536
+        send(second, True)
+        send(final)
+        send(final)
         send({'type': 'session.finished'})
 
 class Platform:
@@ -244,12 +260,12 @@ class Platform:
         callback = APPEND(put);self.refs.append(callback)
         return Sink(None, callback)
     def open(self, _, url, auth, length, deadline):
-        self.opens += 1;self.sent = False
+        self.url = url.decode();self.opens += 1;self.sent = False
         if self.peer.mode == 'connect_fail':
             return -1
         self.connection = http.client.HTTPSConnection('localhost', self.peer.server_port, context=self.context(), timeout=2)
         self.connection.connect()
-        path = url.decode().split('.com', 1)[-1] if b'.com' in url else '/apis/siyuan/inbox/addCloudShorthand'
+        path = urllib.parse.urlsplit(self.url).path
         self.connection.putrequest('POST', path)
         self.connection.putheader('Authorization', auth.decode())
         self.connection.putheader('Content-Type', 'application/json')
@@ -281,7 +297,7 @@ class Platform:
             self.connection.close();self.connection = None
         self.closes += 1
     def ws_open(self, _, url, auth, deadline):
-        self.opens += 1
+        self.url = url.decode();self.opens += 1
         raw = socket.create_connection(('localhost', self.peer.server_port), timeout=2)
         try:
             self.ws = self.context().wrap_socket(raw, server_hostname='localhost')
@@ -338,12 +354,12 @@ class CloudTests(unittest.TestCase):
         subprocess.run([*common, '-DCLOUD_UNIT', '-fsanitize=address,undefined', *sources,str(cls.directory/'private-json-asan.o'), '-o', str(cls.directory/'unit')], check=True)
         subprocess.run([str(cls.directory/'unit')], check=True)
         cls.lib = C.CDLL(str(cls.directory/'cloud.so'));cls.lib.cloud_setup()
-        cls.lib.cloud_file.argtypes = [C.POINTER(IO), C.c_char_p, C.c_char_p, C.POINTER(Source), C.POINTER(Sink)]
+        cls.lib.cloud_file.argtypes = [C.POINTER(IO), C.c_char_p, C.POINTER(Source), C.POINTER(Sink)]
         cls.lib.cloud_deliver.argtypes = [C.POINTER(IO), C.c_char_p, C.c_char_p, C.POINTER(Source)]
         for name in ('cloud_file', 'cloud_deliver', 'cloud_rt_begin', 'cloud_rt_audio', 'cloud_rt_poll', 'cloud_rt_finish'):
             getattr(cls.lib, name).restype = Result
         cls.lib.cloud_rt_new.argtypes = [C.POINTER(IO)];cls.lib.cloud_rt_new.restype = PTR
-        cls.lib.cloud_rt_begin.argtypes = [PTR, C.c_char_p, C.c_char_p, C.POINTER(Sink)]
+        cls.lib.cloud_rt_begin.argtypes = [PTR, C.c_char_p, C.POINTER(Sink)]
         cls.lib.cloud_rt_audio.argtypes = [PTR, PTR, C.c_size_t]
         for name in ('cloud_rt_delete', 'cloud_rt_poll', 'cloud_rt_finish', 'cloud_rt_cancel'):
             getattr(cls.lib, name).argtypes = [PTR]
@@ -367,7 +383,7 @@ class CloudTests(unittest.TestCase):
         self.server.mode = mode;p = Platform(self, trusted=trusted)
         data = data if data is not None else b'RIFF'+bytes(range(46))
         source = p.source(data, short=short);sink = p.sink()
-        result = self.lib.cloud_file(C.byref(p.io), b'llm-test', b'synthetic-key', C.byref(source), C.byref(sink))
+        result = self.lib.cloud_file(C.byref(p.io), b'synthetic-key', C.byref(source), C.byref(sink))
         self.assertFalse(p.lease);self.assertEqual(p.opens, 1);self.assertEqual(p.closes, 1)
         return p, result
     def deliver(self, mode='ok', data='合成"\\\n😀'.encode(), trusted=True):
@@ -379,7 +395,7 @@ class CloudTests(unittest.TestCase):
         self.server.mode = mode;p = Platform(self, trusted=trusted);sink = p.sink()
         rt = self.lib.cloud_rt_new(C.byref(p.io))
         try:
-            result = self.lib.cloud_rt_begin(rt, b'llm-test', key, C.byref(sink))
+            result = self.lib.cloud_rt_begin(rt, key, C.byref(sink))
             if result.code == OK:
                 self.assertEqual(self.lib.cloud_rt_audio(rt, b'\0'*3200, 3200).code, OK)
                 self.assertEqual(self.lib.cloud_rt_audio(rt, b'\1\0'*7, 14).code, OK)
@@ -390,12 +406,16 @@ class CloudTests(unittest.TestCase):
         finally:
             self.lib.cloud_rt_delete(rt)
         self.assertFalse(p.lease);self.assertEqual(p.closes, 1)
+        self.assertEqual(p.url, "wss://maas.qianwenaiapi.com/api-ws/v1/realtime?model=qwen3-asr-flash-realtime")
         return p, result
     def test_file_streaming_partial_writes_and_reads(self):
         data = b'RIFF'+bytes(range(256))*100
         p, r = self.file(data=data, short=True)
         self.assertEqual(r.code, OK);self.assertEqual(p.output.decode(), '合成转写😀')
-        payload = json.loads(self.server.requests[-1][2]);audio = payload['messages'][0]['content'][0]['input_audio']['data']
+        self.assertEqual(p.url, 'https://maas.qianwenaiapi.com/compatible-mode/v1/chat/completions')
+        payload = json.loads(self.server.requests[-1][2])
+        self.assertEqual(payload['model'], 'qwen3-asr-flash')
+        audio = payload['messages'][0]['content'][0]['input_audio']['data']
         self.assertEqual(base64.b64decode(audio.split(',', 1)[1]), data)
         self.assertLessEqual(p.max_source, 3072);self.assertLessEqual(p.max_write, 4096)
     def test_maximum_segment_streams_without_full_request_buffer(self):
@@ -435,29 +455,42 @@ class CloudTests(unittest.TestCase):
         self.assertEqual(messages[-1]['type'], 'session.finish')
         audio = [base64.b64decode(m['audio']) for m in messages if m['type'] == 'input_audio_buffer.append']
         self.assertEqual(list(map(len, audio)), [3200, 14])
+    def test_realtime_omitted_commit_predecessors(self):
+        for mode in ('ws_omitted_previous', 'ws_omitted_after_final'):
+            with self.subTest(mode=mode):
+                p, result = self.realtime(mode)
+                self.assertEqual(result.code, OK)
+                self.assertEqual(p.output.decode(), '你好世界😀')
+
+    def test_realtime_maximum_fragmented_event(self):
+        platform, result = self.realtime('ws_max_event')
+        self.assertEqual(result.code, OK)
+        self.assertEqual(platform.output.decode(), '你好世界😀')
+
     def test_realtime_faults(self):
         for mode, expected in {'ws_credentials': CREDENTIALS, 'ws_oversize': TOO_LARGE,
                                'ws_missing': RESPONSE, 'ws_timeout': TIMEOUT, 'ws_limited': LIMITED,
-                               'ws_order': RESPONSE, 'ws_utf8': RESPONSE}.items():
+                               'ws_order': RESPONSE, 'ws_utf8': RESPONSE,
+                               'ws_bad_previous': RESPONSE, 'ws_wrong_previous': RESPONSE}.items():
             with self.subTest(mode=mode):
                 p, r = self.realtime(mode);self.assertEqual(r.code, expected)
         p, r = self.realtime(cancel=True);self.assertEqual(r.code, CANCELLED)
     def test_admission_cancellation_and_unreadable_sources(self):
-        for workspace, key in [(b'-bad', b'key'), (b'a'*64, b'key'), (b'test', b'key\r\nInjected: bad')]:
+        for key in [b'', b'a'*257, b'key\r\nInjected: bad']:
             p = Platform(self);source = p.source(b'x'*50);sink = p.sink()
-            r = self.lib.cloud_file(C.byref(p.io), workspace, key, C.byref(source), C.byref(sink))
+            r = self.lib.cloud_file(C.byref(p.io), key, C.byref(source), C.byref(sink))
             self.assertEqual(r.code, INVALID);self.assertEqual(p.opens, 0);self.assertFalse(p.lease)
         p = Platform(self);p.lease = True;source = p.source(b'x'*50);sink = p.sink()
-        r = self.lib.cloud_file(C.byref(p.io), b'test', b'key', C.byref(source), C.byref(sink))
+        r = self.lib.cloud_file(C.byref(p.io), b'key', C.byref(source), C.byref(sink))
         self.assertEqual(r.code, BUSY);self.assertTrue(p.lease);self.assertEqual(p.opens, 0)
         for raw in [b'\xed\xa0\x80', b'\xf0\x80\x80\x80', b'\xe7\x8c']:
             p, r = self.deliver(data=raw);self.assertEqual(r.code, INVALID);self.assertEqual(p.opens, 0)
         p = Platform(self);source = p.source(b'');source.size = 50;sink = p.sink()
-        r = self.lib.cloud_file(C.byref(p.io), b'test', b'key', C.byref(source), C.byref(sink))
+        r = self.lib.cloud_file(C.byref(p.io), b'key', C.byref(source), C.byref(sink))
         self.assertEqual(r.code, SOURCE);self.assertFalse(p.lease);self.assertEqual(p.closes, 1)
         p = Platform(self);p.cancel = True;sink = p.sink();rt = self.lib.cloud_rt_new(C.byref(p.io))
         try:
-            r = self.lib.cloud_rt_begin(rt, b'test', b'key', C.byref(sink))
+            r = self.lib.cloud_rt_begin(rt, b'key', C.byref(sink))
             self.assertEqual(r.code, CANCELLED);self.assertEqual(p.opens, 0);self.assertFalse(p.lease)
         finally:
             self.lib.cloud_rt_delete(rt)

@@ -708,6 +708,10 @@ extern "C" void network_sync_wake(void) {
 
 extern "C" uint32_t network_sync_http_stack_free(void) {return MemoHttpTransport::stack_free();}
 
+extern "C" uint32_t network_sync_worker_stack_free(void) {
+    return sync_task_handle ? uxTaskGetStackHighWaterMark(sync_task_handle)*sizeof(StackType_t) : 0;
+}
+
 extern "C" uint32_t network_sync_detail_stack_free(void) {
     return detail_task_handle ? uxTaskGetStackHighWaterMark(detail_task_handle)*sizeof(StackType_t) : 0;
 }

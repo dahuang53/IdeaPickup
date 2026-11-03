@@ -67,8 +67,7 @@ def main():
     payload={'clear_qwen':args.clear_qwen,'clear_siyuan':args.clear_siyuan}
     try:
         if not args.clear_qwen:
-            payload['workspace']=input('千问Workspace ID（留空保留）：').strip()
-            payload['qwen_key']=hidden('千问Key（隐藏输入，留空保留）：')
+            payload['qwen_key']=hidden('千问 AI 平台通用 API Key（隐藏输入，留空保留）：')
         if not args.clear_siyuan:
             payload['siyuan_token']=hidden('思源Token（隐藏输入，留空保留）：')
         port=open_port(serial.Serial,name)

@@ -11,7 +11,8 @@ namespace {
 struct alignas(max_align_t) Allocation {size_t bytes;};
 size_t live=0,peak=0,objects=0;
 bool fail_arena=false;
-void *take(size_t n){if(fail_arena&&n==196608)return nullptr;auto *p=static_cast<Allocation *>(malloc(sizeof(Allocation)+n));if(!p)return nullptr;p->bytes=n;live+=n;if(live>peak)peak=live;return p+1;}
+bool fail_scratch=false;
+void *take(size_t n){assert(n>0);if((fail_arena&&n<7168)||(fail_scratch&&n==7168))return nullptr;auto *p=static_cast<Allocation *>(malloc(sizeof(Allocation)+n));if(!p)return nullptr;p->bytes=n;live+=n;if(live>peak)peak=live;return p+1;}
 void give(void *p){if(!p)return;auto *a=static_cast<Allocation *>(p)-1;live-=a->bytes;free(a);}
 }
 struct PlainResult {int code,status;uint32_t retry;bool sent;char provider[48];};
@@ -22,11 +23,11 @@ void memo_cloud_test_free(void *p){give(p);}
 void cloud_setup(){cJSON_Hooks hooks{take,give};cJSON_InitHooks(&hooks);}
 size_t cloud_live(){return live+objects;}
 size_t cloud_peak(){return peak;}
-PlainResult cloud_file(const IO *io,const char *workspace,const char *key,const Source *source,const Sink *sink){return plain(file_asr(*io,workspace,key,*source,*sink));}
+PlainResult cloud_file(const IO *io,const char *key,const Source *source,const Sink *sink){return plain(file_asr(*io,key,*source,*sink));}
 PlainResult cloud_deliver(const IO *io,const char *key,const char *title,const Source *source){return plain(deliver(*io,key,title,*source));}
 void *cloud_rt_new(const IO *io){objects++;return new Realtime(*io);}
 void cloud_rt_delete(void *p){delete static_cast<Realtime *>(p);objects--;}
-PlainResult cloud_rt_begin(void *p,const char *workspace,const char *key,const Sink *sink){return plain(static_cast<Realtime *>(p)->begin(workspace,key,*sink));}
+PlainResult cloud_rt_begin(void *p,const char *key,const Sink *sink){return plain(static_cast<Realtime *>(p)->begin(key,*sink));}
 PlainResult cloud_rt_audio(void *p,const void *pcm,size_t n){return plain(static_cast<Realtime *>(p)->audio(pcm,n));}
 PlainResult cloud_rt_poll(void *p){return plain(static_cast<Realtime *>(p)->poll());}
 PlainResult cloud_rt_finish(void *p){return plain(static_cast<Realtime *>(p)->finish());}
@@ -60,39 +61,44 @@ struct Unit {
     Sink sink(){return {this,[](void*p,const char*text,size_t n){static_cast<Unit*>(p)->output.append(text,n);return true;}};}
 };
 int main(){
-    cloud_setup();assert(valid_workspace("llm-workspace"));assert(!valid_workspace("-bad"));assert(!valid_workspace("bad-"));
-    char label[65];memset(label,'a',64);label[64]=0;assert(!valid_workspace(label));label[63]=0;assert(valid_workspace(label));
+    cloud_setup();
     assert(retry_after("10",0)==10);assert(retry_after("301",0)==301);assert(retry_after("bad",0)==0);
     assert(retry_after("Thu, 01 Jan 1970 00:00:10 GMT",0)==10);
     assert(retry_after("Wed, 21 Oct 2015 07:28:00 GMT",1445412470)==10);
     assert(retry_after("Wed, 31 Feb 2024 07:28:00 GMT",0)==0);
     assert(retry_after("42949672960",0)==UINT32_MAX);
     IO io{};Source source{};Sink sink{};
-    assert(file_asr(io,"x","key",source,sink).code==Code::Invalid);
+    assert(file_asr(io,"key",source,sink).code==Code::Invalid);
     assert(deliver(io,"key","title",source).code==Code::Invalid);
     {
         Unit u;auto wav=u.source("RIFF....................................................");
         auto *shared=cJSON_Parse("{\"kept\":true}");assert(shared);
-        fail_arena=true;assert(file_asr(u.io,"llm-test","key",wav,u.sink()).code==Code::Memory);fail_arena=false;
+        const size_t shared_live=cloud_live();
+        fail_scratch=true;
+        assert(file_asr(u.io,"key",wav,u.sink()).code==Code::Memory);
+        assert(deliver(u.io,"key","title",wav).code==Code::Memory);
+        assert(!u.leased&&!u.sent&&cloud_live()==shared_live);
+        fail_scratch=false;
+        fail_arena=true;assert(file_asr(u.io,"key",wav,u.sink()).code==Code::Memory);fail_arena=false;
         u.response="{\"padding\":[";
         for(int n=0;n<2770;n++)u.response+=n?",\"\"":"\"\"";
         u.response+="]}";
-        assert(file_asr(u.io,"llm-test","key",wav,u.sink()).code==Code::TooLarge);
+        assert(file_asr(u.io,"key",wav,u.sink()).code==Code::TooLarge);
         assert(cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(shared,"kept")));cJSON_Delete(shared);
         assert(!u.leased&&cloud_live()==0);
     }
-    for(int i=0;i<100;i++){Realtime rt(io);assert(rt.begin("x","key",sink).code==Code::Invalid);rt.cancel();}
+    for(int i=0;i<100;i++){Realtime rt(io);assert(rt.begin("key",sink).code==Code::Invalid);rt.cancel();}
     for(int i=0;i<20;i++){
         Unit u;auto wav=u.source("RIFF....................................................");
-        assert(file_asr(u.io,"llm-test","key",wav,u.sink()).code==Code::Ok);assert(!u.leased);
-        u.response="{broken";assert(file_asr(u.io,"llm-test","key",wav,u.sink()).code==Code::Response);assert(!u.leased);
+        assert(file_asr(u.io,"key",wav,u.sink()).code==Code::Ok);assert(!u.leased);
+        u.response="{broken";assert(file_asr(u.io,"key",wav,u.sink()).code==Code::Response);assert(!u.leased);
         u.response="{\"code\":0}";assert(deliver(u.io,"token","title",u.source("text")).code==Code::Ok);
-        {Realtime rt(u.io);assert(rt.begin("llm-test","key",u.sink()).code==Code::Ok);assert(rt.audio("\0\0",2).code==Code::Ok);assert(rt.finish().code==Code::Ok);}
-        {Realtime rt(u.io);assert(rt.begin("llm-test","key",u.sink()).code==Code::Ok);u.cancelled=true;assert(rt.poll().code==Code::Cancelled);}
+        {Realtime rt(u.io);assert(rt.begin("key",u.sink()).code==Code::Ok);assert(rt.audio("\0\0",2).code==Code::Ok);assert(rt.finish().code==Code::Ok);}
+        {Realtime rt(u.io);assert(rt.begin("key",u.sink()).code==Code::Ok);u.cancelled=true;assert(rt.poll().code==Code::Cancelled);}
         assert(!u.leased&&cloud_live()==0);
     }
     for(int fault=0;fault<2;fault++){
-        Unit u;Realtime rt(u.io);assert(rt.begin("llm-test","key",u.sink()).code==Code::Ok);
+        Unit u;Realtime rt(u.io);assert(rt.begin("key",u.sink()).code==Code::Ok);
         if(fault==0)u.io.ws_send=[](void*p,const char*,size_t,int){static_cast<Unit*>(p)->now+=2001;return -1;};
         else u.io.ws_send=[](void*p,const char*,size_t,int){static_cast<Unit*>(p)->cancelled=true;return -1;};
         assert(rt.audio("\0\0",2).code==(fault==0?Code::Timeout:Code::Cancelled));

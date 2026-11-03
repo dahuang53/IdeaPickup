@@ -21,6 +21,7 @@ extern "C" void memo_cloud_test_free(void *);
 namespace memo_cloud {
 namespace {
 constexpr size_t RESPONSE=65536,TEXT=262144,SEGMENT=16384,JSON_HEAP=196608;
+constexpr size_t HTTP_INPUT=3072,HTTP_CHUNK=4096,HTTP_SCRATCH=HTTP_INPUT+HTTP_CHUNK;
 void *allocate(size_t n) {
 #ifdef MEMO_CLOUD_TEST
     return memo_cloud_test_allocate(n);
@@ -41,7 +42,7 @@ void release_memory(void *p){
 }
 struct Buffer {
     char *p;
-    explicit Buffer(size_t n):p(static_cast<char *>(allocate(n))) {}
+    explicit Buffer(size_t n):p(n?static_cast<char *>(allocate(n)):nullptr) {}
     ~Buffer(){release_memory(p);}
     Buffer(const Buffer &)=delete;
 };
@@ -82,7 +83,7 @@ bool json_number(const char *p,size_t n){
 }
 // Allocation upper bound before the existing cJSON parser: count every value,
 // container AND property string as a node (overestimate). Bound nesting too.
-bool json_budget(const char *s,size_t n) {
+bool json_budget(const char *s,size_t n,size_t &arena_bytes) {
     size_t nodes=0;int depth=0;bool string=false,escape=false,token=false;
     for(size_t i=0;i<n;i++){
         char c=s[i];
@@ -103,7 +104,13 @@ bool json_budget(const char *s,size_t n) {
         }
         if(2*n+nodes*sizeof(cJSON)>JSON_HEAP)return false;
     }
-    return !string && !depth;
+    if(string||depth)return false;
+    // Count one cJSON node and at most one extra allocation per counted
+    // token (string or number). String/number bytes come from disjoint input
+    // ranges, plus a terminator. Allow alignment padding for both allocations.
+    const size_t per_token=sizeof(cJSON)+1+2*(alignof(max_align_t)-1);
+    arena_bytes=std::min(JSON_HEAP,n+(nodes+1)*per_token);
+    return true;
 }
 struct JsonArena {
     char *data;size_t used=0;bool exhausted=false;size_t capacity=JSON_HEAP;
@@ -122,9 +129,17 @@ struct Json {
     bool sensitive;
     cJSON *root=nullptr;
     Code error=Code::Response;
-    Json(const char *p,size_t n,size_t cap=JSON_HEAP,bool secure=false):storage(cap),arena{storage.p,0,false,cap},sensitive(secure){
-        if(!storage.p){error=Code::Memory;return;}
-        if(!utf8(p,n)||!json_budget(p,n))return;
+    Json(const char *p,size_t n,size_t cap=JSON_HEAP,bool secure=false)
+        :storage(secure?cap:0),arena{storage.p,0,false,cap},sensitive(secure){
+        if(secure&&!storage.p){error=Code::Memory;return;}
+        size_t needed=0;
+        if(!utf8(p,n)||!json_budget(p,n,needed))return;
+        if(!secure){
+            arena.capacity=std::min(cap,needed);
+            storage.p=static_cast<char *>(allocate(arena.capacity));
+            if(!storage.p){error=Code::Memory;return;}
+            arena.data=storage.p;
+        }
         // This is a private instance of the unmodified SDK parser, never the
         // shared SDK allocator hooks used by HTTPD/configuration consumers.
         static const bool initialized=[](){cJSON_Hooks hooks{json_take,json_give};cJSON_InitHooks(&hooks);return true;}();
@@ -188,38 +203,38 @@ size_t escaped(unsigned char c,char *out){
     if(c<32){memcpy(out,"\\u00",4);out[4]=hex[c>>4];out[5]=hex[c&15];return 6;}
     out[0]=c;return 1;
 }
-Code quoted(Source s,Writer *writer,size_t &length){
-    char in[3072],out[4096];size_t used=0;length=0;
+Code quoted(Source s,Writer *writer,size_t &length,char *scratch){
+    char *in=scratch,*out=scratch+HTTP_INPUT;size_t used=0;length=0;
     // Validate UTF-8 incrementally, including when a scalar spans read blocks.
     uint32_t scalar=0;unsigned remaining=0,total=0;
     for(uint64_t at=0;at<s.size;){
-        size_t n=std::min<uint64_t>(sizeof(in),s.size-at);
+        size_t n=std::min<uint64_t>(HTTP_INPUT,s.size-at);
         if(!read_exact(s,at,in,n))return Code::Source;
         for(size_t i=0;i<n;i++){
             unsigned char c=in[i];
             if(remaining){if((c&0xc0)!=0x80)return Code::Invalid;scalar=(scalar<<6)|(c&63);if(!--remaining && ((total==1&&scalar<128)||(total==2&&scalar<2048)||(total==3&&scalar<65536)||scalar>0x10ffff||(scalar>=0xd800&&scalar<=0xdfff)))return Code::Invalid;}
             else if(c>=128){if(c>=0xc2&&c<=0xdf){scalar=c&31;remaining=total=1;}else if(c>=0xe0&&c<=0xef){scalar=c&15;remaining=total=2;}else if(c>=0xf0&&c<=0xf4){scalar=c&7;remaining=total=3;}else return Code::Invalid;}
             char unit[6];size_t k=escaped(c,unit);length+=k;
-            if(writer){if(used+k>sizeof(out)){if(!writer->put(out,used))return writer->code;used=0;}memcpy(out+used,unit,k);used+=k;}
+            if(writer){if(used+k>HTTP_CHUNK){if(!writer->put(out,used))return writer->code;used=0;}memcpy(out+used,unit,k);used+=k;}
         }at+=n;
     }
     if(remaining)return Code::Invalid;
     return writer && used && !writer->put(out,used)?writer->code:Code::Ok;
 }
-Result response(const IO &io,int64_t deadline,bool delivery,Sink sink,const char *secret){
+Result response(const IO &io,int64_t deadline,bool delivery,Sink sink,const char *secret,char *chunk){
     Result r;Code c=control(io,deadline);
     if(c!=Code::Ok){r.code=c;return r;}
     r.status=io.http_headers(io.context,&r.retry_after,timeout(io,deadline));
     r.may_have_sent=io.http_sent(io.context);
-    if(r.status<=0){r.code=failure(io);return r;}
+    if(r.status<=0){r.status=0;r.code=failure(io);return r;}
     bool success=r.status>=200&&r.status<300;
     Code rejection=r.status==401||r.status==403?Code::Credentials:r.status==429?Code::Limited:delivery&&r.status>=500?Code::Uncertain:Code::Rejected;
     size_t limit=success?RESPONSE:8192;
     Buffer body(limit+1);if(!body.p){r.code=success?Code::Memory:rejection;return r;}size_t used=0;
     while(true){c=control(io,deadline);if(c!=Code::Ok){r.code=c;return r;}
-        char chunk[4096];int n=io.http_read(io.context,chunk,sizeof(chunk),timeout(io,deadline));
+        int n=io.http_read(io.context,chunk,HTTP_CHUNK,timeout(io,deadline));
         if(n<0){r.code=success?failure(io):rejection;return r;}if(!n)break;
-        if(static_cast<size_t>(n)>sizeof(chunk)||used+static_cast<size_t>(n)>limit){r.code=success?Code::TooLarge:rejection;return r;}
+        if(static_cast<size_t>(n)>HTTP_CHUNK||used+static_cast<size_t>(n)>limit){r.code=success?Code::TooLarge:rejection;return r;}
         memcpy(body.p+used,chunk,n);used+=n;
         if(io.http_complete(io.context))break;
     }
@@ -253,14 +268,6 @@ int secret_configuration_json(const char *body,size_t n,int rejected,int (*visit
  Json json(body,n,16384,true);
  return json.root?visit(context,json.root):rejected;
 }
-bool valid_workspace(const char *p){
-    if(!p)return false;
-    size_t n=strnlen(p,64);if(!n||n>63)return false;
-    auto alnum=[](char c){return (c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9');};
-    if(!alnum(p[0])||!alnum(p[n-1]))return false;
-    for(size_t i=0;i<n;i++)if(!alnum(p[i])&&p[i]!='-')return false;
-    return true;
-}
 uint32_t retry_after(const char *p,int64_t now){
     if(!p||!p[0]||strnlen(p,128)==128)return 0;
     uint64_t seconds=0;bool digits=true;
@@ -279,32 +286,36 @@ uint32_t retry_after(const char *p,int64_t now){
     int64_t difference=days*86400+date.tm_hour*3600+date.tm_min*60+date.tm_sec-now;
     return difference>0?static_cast<uint32_t>(std::min<int64_t>(difference,UINT32_MAX)):0;
 }
-Result file_asr(const IO &io,const char *workspace,const char *key,Source wav,Sink text){
-    if(!http_valid(io)||!valid_workspace(workspace)||!credentials(key)||!wav.read||!text.append||wav.size<46||wav.size>5760044)return {Code::Invalid};
+Result file_asr(const IO &io,const char *key,Source wav,Sink text){
+    if(!http_valid(io)||!credentials(key)||!wav.read||!text.append||wav.size<46||wav.size>5760044)return {Code::Invalid};
     Lease lease(io);if(!lease.ok)return {Code::Busy};
+    // A single PSRAM scratch block keeps the TLS caller within its task stack.
+    Buffer scratch(HTTP_SCRATCH);if(!scratch.p)return {Code::Memory};
     int64_t deadline=io.now(io.context)+240000;
-    const char *prefix="{\"model\":\"qwen3-asr-flash-2026-02-10\",\"stream\":false,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_audio\",\"input_audio\":{\"data\":\"data:audio/wav;base64,";
+    const char *prefix="{\"model\":\"qwen3-asr-flash\",\"stream\":false,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_audio\",\"input_audio\":{\"data\":\"data:audio/wav;base64,";
     const char *suffix="\"}}]}]}";
     size_t length=strlen(prefix)+4*((wav.size+2)/3)+strlen(suffix);
-    char url[192];Secret auth;snprintf(url,sizeof(url),"https://%s.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/chat/completions",workspace);snprintf(auth.value,sizeof(auth.value),"Bearer %s",key);
+    const char *url="https://maas.qianwenaiapi.com/compatible-mode/v1/chat/completions";Secret auth;snprintf(auth.value,sizeof(auth.value),"Bearer %s",key);
     Code c=control(io,deadline);if(c!=Code::Ok)return {c};lease.opened=true;
     if(io.http_open(io.context,url,auth.value,length,deadline)<0)return attempted(io,{failure(io)},false);
     Writer w{io,deadline};if(!w.put(prefix,strlen(prefix)))return attempted(io,{w.code},false);
-    uint8_t in[3072];char out[4096];
-    for(uint64_t at=0;at<wav.size;){size_t n=std::min<uint64_t>(sizeof(in),wav.size-at);
-        if(!read_exact(wav,at,reinterpret_cast<char *>(in),n))return attempted(io,{Code::Source},false);
-        if(!w.put(out,base64(in,n,out)))return attempted(io,{w.code},false);
+    char *in=scratch.p,*out=scratch.p+HTTP_INPUT;
+    for(uint64_t at=0;at<wav.size;){size_t n=std::min<uint64_t>(HTTP_INPUT,wav.size-at);
+        if(!read_exact(wav,at,in,n))return attempted(io,{Code::Source},false);
+        if(!w.put(out,base64(reinterpret_cast<const uint8_t *>(in),n,out)))return attempted(io,{w.code},false);
         at+=n;
     }
     if(!w.put(suffix,strlen(suffix)))return attempted(io,{w.code},false);
-    return attempted(io,response(io,deadline,false,text,key),false);
+    return attempted(io,response(io,deadline,false,text,key,scratch.p),false);
 }
 Result deliver(const IO &io,const char *token,const char *title,Source text){
     if(!http_valid(io)||!credentials(token)||!title||strlen(title)>128||!utf8(title,strlen(title))||!text.read||!text.size||text.size>TEXT)return {Code::Invalid};
     Lease lease(io);if(!lease.ok)return {Code::Busy};
+    // A single PSRAM scratch block keeps the TLS caller within its task stack.
+    Buffer scratch(HTTP_SCRATCH);if(!scratch.p)return {Code::Memory};
     int64_t deadline=io.now(io.context)+30000;
     Source heading{const_cast<char *>(title),strlen(title),[](void *p,uint64_t at,void *to,size_t n){memcpy(to,static_cast<char *>(p)+at,n);return static_cast<int>(n);}};
-    size_t title_len=0,text_len=0;Code c=quoted(heading,nullptr,title_len);if(c==Code::Ok)c=quoted(text,nullptr,text_len);if(c!=Code::Ok)return {c};
+    size_t title_len=0,text_len=0;Code c=quoted(heading,nullptr,title_len,scratch.p);if(c==Code::Ok)c=quoted(text,nullptr,text_len,scratch.p);if(c!=Code::Ok)return {c};
     c=control(io,deadline);if(c!=Code::Ok)return {c};
     const char *a="{\"title\":\"",*b="\",\"content\":\"",*z="\"}";
     size_t length=strlen(a)+title_len+strlen(b)+text_len+strlen(z);
@@ -312,11 +323,11 @@ Result deliver(const IO &io,const char *token,const char *title,Source text){
     if(io.http_open(io.context,"https://ld246.com/apis/siyuan/inbox/addCloudShorthand",auth.value,length,deadline)<0)return attempted(io,{failure(io)},true);
     Writer w{io,deadline};
     if(!w.put(a,strlen(a)))return attempted(io,{w.code},true);
-    c=quoted(heading,&w,title_len);if(c!=Code::Ok)return attempted(io,{c},true);
+    c=quoted(heading,&w,title_len,scratch.p);if(c!=Code::Ok)return attempted(io,{c},true);
     if(!w.put(b,strlen(b)))return attempted(io,{w.code},true);
-    c=quoted(text,&w,text_len);if(c!=Code::Ok)return attempted(io,{c},true);
+    c=quoted(text,&w,text_len,scratch.p);if(c!=Code::Ok)return attempted(io,{c},true);
     if(!w.put(z,strlen(z)))return attempted(io,{w.code},true);
-    return attempted(io,response(io,deadline,true,{},token),true);
+    return attempted(io,response(io,deadline,true,{},token,scratch.p),true);
 }
 
 struct Realtime::State {
@@ -347,16 +358,16 @@ bool Realtime::send(const char *p,size_t n,int64_t deadline){
     if(sent!=static_cast<int>(n)){result_.code=failure(io_);return false;}
     return true;
 }
-Result Realtime::begin(const char *workspace,const char *key,Sink sink){
+Result Realtime::begin(const char *key,Sink sink){
     if(state_||leased_)return {Code::Busy};
-    if(!valid_workspace(workspace)||!credentials(key)||!sink.append||!io_.now||!io_.acquire||!io_.release||!io_.ws_open||!io_.ws_send||!io_.ws_read||!io_.ws_close)return {Code::Invalid};
+    if(!credentials(key)||!sink.append||!io_.now||!io_.acquire||!io_.release||!io_.ws_open||!io_.ws_send||!io_.ws_read||!io_.ws_close)return {Code::Invalid};
     if(!io_.acquire(io_.context))return {Code::Busy};
     leased_=true;result_={};
     void *storage=allocate(sizeof(State));if(!storage)return stop(Code::Memory);
     state_=new(storage) State;
     if(!state_->message.p||!state_->pending.p)return stop(Code::Memory);
     state_->sink=sink;state_->deadline=io_.now(io_.context)+15000;
-    char url[192];Secret auth;snprintf(url,sizeof(url),"wss://%s.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime?model=qwen3-asr-flash-realtime-2026-02-10",workspace);
+    const char *url="wss://maas.qianwenaiapi.com/api-ws/v1/realtime?model=qwen3-asr-flash-realtime";Secret auth;
     int auth_length=snprintf(auth.value,sizeof(auth.value),"Authorization: Bearer %s\r\n",key);
     if(auth_length<0||static_cast<size_t>(auth_length)>=sizeof(auth.value))return stop(Code::Invalid);
     Code admission=control(io_,state_->deadline);if(admission!=Code::Ok)return stop(admission);
@@ -366,6 +377,10 @@ Result Realtime::begin(const char *workspace,const char *key,Sink sink){
 }
 Result Realtime::event(int wait){
     if(!state_)return result_;
+    auto invalid_event=[this](const char *reason){
+        snprintf(result_.provider_code,sizeof(result_.provider_code),"%s",reason);
+        return stop(Code::Response);
+    };
     Code c=control(io_,state_->deadline);if(c!=Code::Ok)return stop(c);
     int n=io_.ws_read(io_.context,state_->message.p,RESPONSE,std::min(wait,timeout(io_,state_->deadline)));
     c=control(io_,state_->deadline);if(c!=Code::Ok)return stop(c);
@@ -373,10 +388,11 @@ Result Realtime::event(int wait){
     if(!n)return result_;
     if(static_cast<size_t>(n)>RESPONSE)return stop(Code::TooLarge);
     state_->message.p[n]=0;Json json(state_->message.p,n);
-    if(!json.root)return stop(json.error);
-    const char *type=str(json.root,"type");if(!type)return stop(Code::Response);
+    if(!json.root)return json.error==Code::Response?invalid_event("invalid_json"):stop(json.error);
+    const char *type=str(json.root,"type");if(!type)return invalid_event("missing_type");
     if(!strcmp(type,"error")||!strcmp(type,"conversation.item.input_audio_transcription.failed")){
         const char *code=str(field(json.root,"error"),"code");
+        snprintf(result_.provider_code,sizeof(result_.provider_code),"%s",!strcmp(type,"error")?"provider_error_event":"provider_transcription_failed");
         return stop(code&&(!strcmp(code,"invalid_api_key")||!strcmp(code,"invalid_api_key_error"))?Code::Credentials:code&&(!strcmp(code,"rate_limit_exceeded")||!strcmp(code,"rate_limit_error"))?Code::Limited:Code::Rejected);
     }
     if(!strcmp(type,"session.created")){
@@ -390,20 +406,25 @@ Result Realtime::event(int wait){
     }else if(!strcmp(type,"input_audio_buffer.committed")){
         const char *id=str(json.root,"item_id"),*prev=str(json.root,"previous_item_id");
         auto *previous=field(json.root,"previous_item_id");
-        if(!state_->updated||!id||!id[0]||strlen(id)>96||(!prev&&!cJSON_IsNull(previous))||(prev&&strlen(prev)>96)||state_->count==16)return stop(Code::Response);
+        if(!state_->updated||!id||!id[0]||strlen(id)>96||state_->count==16)return invalid_event("commit_state_or_id");
+        if(!prev&&previous&&!cJSON_IsNull(previous))return invalid_event("commit_bad_previous");
+        // Qianwen may omit the predecessor. WebSocket commit events arrive in
+        // order, so use the latest pending commit (or last emitted item).
+        if(!previous)prev=state_->count?state_->items[state_->count-1].id:state_->last;
+        if(prev&&strlen(prev)>96)return invalid_event("commit_previous_too_long");
         for(size_t i=0;i<state_->count;i++)if(!strcmp(id,state_->items[i].id))return stop(Code::Response);
         if(!strcmp(id,state_->last))return stop(Code::Response);
         auto &item=state_->items[state_->count++];item={};snprintf(item.id,sizeof(item.id),"%s",id);snprintf(item.previous,sizeof(item.previous),"%s",prev?prev:"");
     }else if(!strcmp(type,"conversation.item.input_audio_transcription.completed")){
         const char *id=str(json.root,"item_id"),*text=str(json.root,"transcript");
-        if(!id||!text||!utf8(text,strlen(text)))return stop(Code::Response);
+        if(!id||!text||!utf8(text,strlen(text)))return invalid_event("completed_fields");
         State::Item *item=nullptr;for(size_t i=0;i<state_->count;i++)if(!strcmp(id,state_->items[i].id))item=&state_->items[i];
-        if(!item){for(auto &done:state_->completed)if(!strcmp(id,done))return result_;return stop(Code::Response);}
+        if(!item){for(auto &done:state_->completed)if(!strcmp(id,done))return result_;return invalid_event("completed_unknown_item");}
         if(item->final)return result_;
         size_t length=strlen(text);if(length>SEGMENT||state_->used+length>SEGMENT||state_->total+length>TEXT)return stop(Code::TooLarge);
         item->offset=state_->used;item->length=length;item->final=true;memcpy(state_->pending.p+state_->used,text,length);state_->used+=length;state_->total+=length;
         while(state_->count && state_->items[0].final){
-            auto &first=state_->items[0];if(strcmp(first.previous,state_->last))return stop(Code::Response);
+            auto &first=state_->items[0];if(strcmp(first.previous,state_->last))return invalid_event("completed_previous_mismatch");
             if(first.length && !state_->sink.append(state_->sink.context,state_->pending.p+first.offset,first.length))return stop(Code::Source);
             snprintf(state_->last,sizeof(state_->last),"%s",first.id);
             snprintf(state_->completed[state_->completed_at++%16],sizeof(state_->completed[0]),"%s",first.id);
@@ -413,7 +434,7 @@ Result Realtime::event(int wait){
             state_->count--;
         }
     }else if(!strcmp(type,"session.finished")){
-        if(!state_->finishing||state_->count)return stop(Code::Response);
+        if(!state_->finishing||state_->count)return invalid_event("finished_before_all_items");
         state_->finished=true;
     }
     return result_;

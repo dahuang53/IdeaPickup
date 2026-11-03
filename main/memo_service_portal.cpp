@@ -13,7 +13,7 @@ bool generation(cJSON *p,uint32_t &out){if(!cJSON_IsNumber(p)||!std::isfinite(p-
 extern "C" bool memo_portal_status(char *out,size_t capacity){
  memo_cloud_public_t c{};network_sync_get_cloud_config(&c);memo_network_status_t n{};network_sync_get_status(&n);
  cJSON *j=cJSON_CreateObject();if(!j)return false;cJSON_AddBoolToObject(j,"success",true);
- cJSON_AddBoolToObject(j,"local_only",!c.enabled);cJSON_AddBoolToObject(j,"configured",c.configured);cJSON_AddBoolToObject(j,"qwen_set",c.qwen_set&&c.workspace_set);cJSON_AddBoolToObject(j,"siyuan_set",c.siyuan_set);
+ cJSON_AddBoolToObject(j,"local_only",!c.enabled);cJSON_AddBoolToObject(j,"configured",c.configured);cJSON_AddBoolToObject(j,"qwen_set",c.qwen_set);cJSON_AddBoolToObject(j,"siyuan_set",c.siyuan_set);
  cJSON_AddNumberToObject(j,"qwen_generation",c.qwen_generation);cJSON_AddNumberToObject(j,"siyuan_generation",c.siyuan_generation);
  cJSON_AddBoolToObject(j,"connected",n.connected);
  const char *phase=c.result!=MEMO_CLOUD_OK?"error":!c.enabled?"local":!c.configured?"unconfigured":"ready";
