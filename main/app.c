@@ -786,6 +786,7 @@ static void handle_command(command_t *c) {
         }
         case CMD_IDLE:state(MEMO_IDLE,NULL);break;
         case CMD_PROVISION:network_sync_toggle_provisioning();break;
+        case CMD_ROTATE_AP_PASSWORD:network_sync_rotate_ap_password();break;
         case CMD_SYNC_MODE: {
             // NVS save/readback runs on the existing 10 KiB worker, never on
             // the 4 KiB console parser. The original commit/busy guards apply.

@@ -24,7 +24,9 @@ public:
     WifiConfigurationAp& operator=(const WifiConfigurationAp&) = delete;
     void SetSsidPrefix(const std::string& prefix);
     void SetLanguage(const std::string& language);
-    void Start();
+    bool Start();
+    bool RotatePassword();
+    const char* GetPassword() const { return password_; }
     void Stop();
     bool RequestConnection(const std::string& ssid, const std::string& password, bool save = true);
     void ProcessConnection(); // Called only by the existing application network worker.
@@ -35,7 +37,7 @@ public:
     std::vector<wifi_ap_record_t> GetAccessPoints();
     std::string GetSsid();
     std::string GetWebServerUrl();
-    void OnExitRequested(std::function<void()> callback);
+    bool ExitRequested() const { return exit_requested_.load(); }
 private:
     std::mutex mutex_;
     std::mutex connection_mutex_; // Joins the worker before Stop tears down the driver.
@@ -52,7 +54,9 @@ private:
     std::atomic<bool> running_{false}, is_connecting_{false};
     std::vector<wifi_ap_record_t> ap_records_;
     uint8_t last_connected_channel_ = 0;
-    std::function<void()> on_exit_requested_;
+    std::atomic<bool> exit_requested_{false};
+    char password_[9] = {};
+    bool StoreFreshPassword();
     void StartWebServer();
     static void WifiEventHandler(void*, esp_event_base_t, int32_t, void*);
     static void IpEventHandler(void*, esp_event_base_t, int32_t, void*);

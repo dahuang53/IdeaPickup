@@ -7,12 +7,12 @@
 
 在[千问 AI 平台](<https://platform.qianwenai.com/home>)创建可使用文件与实时语音识别的通用 API Key，并确认账号权限和额度。设备使用该平台的兼容 HTTPS 接口和实时 WebSocket。Workspace ID 无需填写。按[思源云端收集箱说明](https://github.com/siyuan-note/siyuan/blob/d3af9d5782082b379d45a69eedf4ebcfe8ba6889/app/guide/20210808180117-czj9bvb/20200812220555-lj3enxa/20230805222417-2lj3dvk/20230808120348-orm8sjf/20230808120348-hynr7og.sy)准备 Token，并确认对应账号可接收笔记。
 
-设备将音频发送给千问，将转写文字发送给思源。仅本地有卡录放无需这两项凭据。准备完成后按[设备 USB 配置流程](DEVICE_INSTALL.md#direct-setup)操作。
+设备将音频发送给千问，将转写文字发送给思源。仅本地有卡录放无需这两项凭据。准备完成后按[设备网页配置流程](DEVICE_INSTALL.md#direct-setup)操作。
 
 <a id="legacy-relay"></a>
 ## 旧中继的独立维护入口
 
-以下 Docker、后台和配对码说明供旧公开固件及独立中继部署使用。直连固件使用上面的 USB 配置流程。
+以下 Docker、后台和配对码说明供旧公开固件及独立中继部署使用。直连固件使用上面的网页配置流程。
 
 ## 1. 准备环境与项目文件
 

@@ -10,7 +10,7 @@ IdeaPickup 是运行在 ESP32-S3 上的录音工具。插入 microSD 卡即可�
 
 1. 按[设备安装说明](docs/DEVICE_INSTALL.md)选择正确板型并刷写固件。[直连版](docs/DEVICE_DIRECT_CLOUD_DELIVERY.md)是本地验收候选，公开的 [2026.10.27-rc1](docs/PUBLIC_RELEASE.md) 仍是旧中继版。
 2. 只需录放时，插卡并保持「仅本地使用」。需要转写时，先[准备千问与思源凭据](docs/DEPLOYMENT.md#direct-credentials)。
-3. [连接 Wi-Fi 并通过 USB 保存凭据](docs/DEVICE_INSTALL.md#direct-setup)，然后在配网页启用转写服务。
+3. [连接 Wi-Fi 并在配网页保存凭据](docs/DEVICE_INSTALL.md#direct-setup)，然后在配网页启用转写服务。
 4. 录一条适合送往云服务的短语音，查看设备详情的处理状态，并在思源云端收集箱核对文字。
 
 ## 支持的硬件

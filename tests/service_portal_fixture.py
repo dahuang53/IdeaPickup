@@ -35,7 +35,7 @@ class WifiConfigurationAp {''')
     bool request_pending_=false,request_active_=false,persist_request_=false;
     std::atomic<bool> running_{true},is_connecting_{false},connected_{false};
 public:
-    std::function<void()> on_exit_requested_;
+    std::atomic<bool> exit_requested_{false};
     bool ConnectToWifi(const std::string &,const std::string &){connected_.store(!wifi_connect_fault);return !wifi_connect_fault;}
     bool RequestConnection(const std::string&,const std::string&,bool save=true);
     void ProcessConnection();

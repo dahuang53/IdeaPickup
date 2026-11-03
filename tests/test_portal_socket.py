@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 HARNESS = r'''
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <net/if.h>
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <cassert>
@@ -25,7 +26,19 @@ static esp_netif_t netif;static bool available=true,readable=true;
 static uint32_t expected=inet_addr("127.0.0.1");
 esp_netif_t* esp_netif_get_handle_from_ifkey(const char* key){assert(!strcmp(key,"WIFI_AP_DEF"));return available?&netif:nullptr;}
 int esp_netif_get_ip_info(esp_netif_t* n,esp_netif_ip_info_t* out){assert(n==&netif);out->ip.addr=expected;return readable?ESP_OK:ESP_FAIL;}
+static bool interface_readable=true,bind_success=true;
+int esp_netif_get_netif_impl_name(esp_netif_t* n,char *name){assert(n==&netif);strcpy(name,"ap1");return interface_readable?ESP_OK:ESP_FAIL;}
+#ifndef SO_BINDTODEVICE
+#define SO_BINDTODEVICE 0x7fff
+#endif
+int bind_interface(int fd,int level,int opt,const void *value,socklen_t size){
+ assert(fd>=0&&level==SOL_SOCKET&&opt==SO_BINDTODEVICE&&size==sizeof(struct ifreq));
+ assert(!strcmp(static_cast<const struct ifreq*>(value)->ifr_name,"ap1"));
+ return bind_success?0:-1;
+}
+#define setsockopt bind_interface
 static auto check = // PRODUCTION
+#undef setsockopt
 int connect_pair(int family,bool native_v6){
  int listener=socket(family,SOCK_STREAM,0);assert(listener>=0);
  if(family==AF_INET6){
@@ -61,7 +74,9 @@ int main(){
   assert(result==(mode==2?ESP_FAIL:ESP_OK));
   expected=inet_addr("127.0.0.2");assert(check(nullptr,fd)==ESP_FAIL); // Non-AP destination.
   expected=inet_addr("127.0.0.1");available=false;assert(check(nullptr,fd)==ESP_FAIL);available=true;
-  readable=false;assert(check(nullptr,fd)==ESP_FAIL);readable=true;close(fd);
+  readable=false;assert(check(nullptr,fd)==ESP_FAIL);readable=true;
+  interface_readable=false;assert(check(nullptr,fd)==ESP_FAIL);interface_readable=true;
+  bind_success=false;assert(check(nullptr,fd)==ESP_FAIL);bind_success=true;close(fd);
  }
  assert(check(nullptr,-1)==ESP_FAIL);
  puts("PASS real IPv4/mapped IPv4 AP destinations; reject non-AP/native IPv6/netif and socket errors");

@@ -9,6 +9,7 @@
 #include <esp_log.h>
 #include <esp_mac.h>
 #include <esp_random.h>
+#include <nvs.h>
 #include <lwip/sockets.h>
 #include <cJSON.h>
 #include "ssid_manager.h"
@@ -59,11 +60,59 @@ std::string WifiConfigurationAp::GetSsid() {
     return ssid;
 }
 std::string WifiConfigurationAp::GetWebServerUrl() { return "http://192.168.4.1"; }
-void WifiConfigurationAp::OnExitRequested(std::function<void()> callback) {
-    on_exit_requested_ = std::move(callback);
+bool WifiConfigurationAp::StoreFreshPassword() {
+    static constexpr char alphabet[] = "abcdefghjkmnpqrstuvwxyz23456789";
+    constexpr uint32_t count = sizeof(alphabet) - 1;
+    char next[sizeof(password_)] = {};
+    bool has_letter, has_digit;
+    do {
+        has_letter = has_digit = false;
+        for (size_t i = 0; i < sizeof(next) - 1; ++i) {
+            uint32_t value;
+            do { value = esp_random(); } while (value >= UINT32_MAX - UINT32_MAX % count);
+            next[i] = alphabet[value % count];
+            has_letter |= next[i] >= 'a';
+            has_digit |= next[i] <= '9';
+        }
+    } while (!has_letter || !has_digit || !strcmp(next, password_));
+    nvs_handle_t handle;
+    if (nvs_open("memo_ap", NVS_READWRITE, &handle) != ESP_OK) return false;
+    esp_err_t result = nvs_set_str(handle, "password", next);
+    if (result == ESP_OK) result = nvs_commit(handle);
+    nvs_close(handle);
+    if (result != ESP_OK) return false;
+    memcpy(password_, next, sizeof(password_));
+    return true;
 }
-void WifiConfigurationAp::Start() {
-    if (running_.load()) return;
+bool WifiConfigurationAp::RotatePassword() {
+    if (!running_.load() || !StoreFreshPassword()) return false;
+    Stop();
+    return Start();
+}
+bool WifiConfigurationAp::Start() {
+    if (running_.load()) return true;
+    if (!password_[0]) {
+        nvs_handle_t handle;
+        esp_err_t result = nvs_open("memo_ap", NVS_READONLY, &handle);
+        if (result == ESP_OK) {
+            size_t size = sizeof(password_);
+            result = nvs_get_str(handle, "password", password_, &size);
+            nvs_close(handle);
+            if (result == ESP_OK && size != sizeof(password_)) result = ESP_ERR_INVALID_SIZE;
+        }
+        if (result == ESP_ERR_NVS_NOT_FOUND) {
+            // Enable the RF entropy source before generating the first password.
+            // Station mode here neither connects nor starts a provisioning AP.
+            ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+            ESP_ERROR_CHECK(esp_wifi_start());
+            const bool saved = StoreFreshPassword();
+            ESP_ERROR_CHECK(esp_wifi_stop());
+            if (!saved) return false;
+        } else if (result != ESP_OK) {
+            memset(password_, 0, sizeof(password_));
+            return false;
+        }
+    }
     // WifiManager creates the default interfaces once, as in IDF's APSTA example.
     // The SDK's AP_START/AP_STOP actions own DHCP; do not stop/restart it by hand.
     ap_netif_ = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
@@ -83,7 +132,8 @@ void WifiConfigurationAp::Start() {
     config.ap.ssid_len = ssid.size();
     config.ap.channel = 1;
     config.ap.max_connection = 4;
-    config.ap.authmode = WIFI_AUTH_OPEN;
+    memcpy(config.ap.password, password_, sizeof(password_));
+    config.ap.authmode = WIFI_AUTH_WPA2_PSK;
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &config));
     ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
@@ -98,6 +148,7 @@ void WifiConfigurationAp::Start() {
     const auto& saved = SsidManager::GetInstance().GetSsidList();
     if (!saved.empty()) RequestConnection(saved.front().ssid, saved.front().password, false);
     ESP_LOGI(TAG, "Provisioning AP ready");
+    return true;
 }
 std::vector<wifi_ap_record_t> WifiConfigurationAp::GetAccessPoints() {
     // Use the SDK scan API only when the existing web page requests a list.
@@ -149,6 +200,7 @@ void WifiConfigurationAp::Stop() {
     // Join all HTTP callbacks before invalidating session state or stopping Wi-Fi.
     if (server_) { ESP_ERROR_CHECK(httpd_stop(server_)); server_ = nullptr; }
     memset(portal_csrf, 0, sizeof(portal_csrf));
+    exit_requested_.store(false);
     std::lock_guard<std::mutex> operation(connection_mutex_);
     { std::lock_guard<std::mutex> lock(mutex_);
       pending_password_.assign(pending_password_.size(), '\0'); pending_password_.clear();
@@ -185,6 +237,10 @@ void WifiConfigurationAp::StartWebServer()
         if (!netif || esp_netif_get_ip_info(netif, &ap) != ESP_OK ||
             getsockname(socket, reinterpret_cast<sockaddr*>(&local), &size) != 0)
             return ESP_FAIL;
+        struct ifreq iface{};
+        if (esp_netif_get_netif_impl_name(netif, iface.ifr_name) != ESP_OK ||
+            setsockopt(socket, SOL_SOCKET, SO_BINDTODEVICE, &iface, sizeof(iface)) != 0)
+            return ESP_FAIL;
         if (local.ss_family == AF_INET && size >= sizeof(sockaddr_in)) {
             const auto* address = reinterpret_cast<const sockaddr_in*>(&local);
             return address->sin_addr.s_addr == ap.ip.addr ? ESP_OK : ESP_FAIL;
@@ -200,8 +256,7 @@ void WifiConfigurationAp::StartWebServer()
         return ESP_FAIL;
     };
     config.lru_purge_enable = true;
-    // Public mode/clear settings use the bounded NVS adapter synchronously.
-    // Provider credentials are accepted only on the dedicated USB channel.
+    // The protected hotspot uses the same bounded NVS adapter as USB.
     config.stack_size = 8192;
     config.uri_match_fn = httpd_uri_match_wildcard;
     // 5G Network takes longer to connect
@@ -244,10 +299,11 @@ void WifiConfigurationAp::StartWebServer()
             char body[1025]={},response[1024]={};size_t at=0;
             while(at<req->content_len) {
                 int n=httpd_req_recv(req,body+at,req->content_len-at);
-                if(n<=0)return httpd_resp_send_408(req);
+                if(n<=0){for (volatile char &byte : body) byte = 0;return httpd_resp_send_408(req);}
                 at+=static_cast<size_t>(n);
             }
             bool accepted=service_apply(body,at,response,sizeof(response));
+            for (volatile char &byte : body) byte = 0;
             httpd_resp_set_type(req,"application/json");httpd_resp_set_hdr(req,"Cache-Control","no-store");
             if(!accepted)httpd_resp_set_status(req,"409 Conflict");
             return httpd_resp_sendstr(req,response[0]?response:"{\"success\":false,\"error\":\"设置暂不可用，请重试\"}");
@@ -408,19 +464,8 @@ void WifiConfigurationAp::StartWebServer()
             // 发送响应
             httpd_resp_send(req, "{\"success\":true}", HTTPD_RESP_USE_STRLEN);
 
-            // 延迟调用回调，确保HTTP响应完全发送
-            ESP_LOGI(TAG, "Exiting config mode...");
-            xTaskCreate([](void *ctx) {
-                // 等待200ms确保HTTP响应完全发送
-                vTaskDelay(pdMS_TO_TICKS(200));
-
-                auto* self = static_cast<WifiConfigurationAp*>(ctx);
-                // 通知回调退出配网模式
-                if (self->on_exit_requested_) {
-                    self->on_exit_requested_();
-                }
-                vTaskDelete(NULL);
-            }, "exit_config_task", 4096, this_, 5, NULL);
+            // The network worker closes this session after the response.
+            this_->exit_requested_.store(true);
 
             return ESP_OK;
         },

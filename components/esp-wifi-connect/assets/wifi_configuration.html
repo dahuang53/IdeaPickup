@@ -850,15 +850,34 @@
         }
         await status();
       }
-      async function submitService(clearProvider = '') {
+      async function submitService(clearProvider = '', credentials = false) {
         if (!writable()) return;
         const wantLocal=clearProvider ? true : store.draftMode==='local', edit=serviceEditRevision;
+        const key=document.getElementById('qwen-key-input');
+        const token=document.getElementById('siyuan-token-input');
+        if (credentials && !key?.value && !token?.value) {
+          store.serviceFeedback={text:'请填写要保存的凭据',tone:'error'};
+          render();
+          return;
+        }
         store.serviceFeedback={text:'正在保存…',tone:'pending'};
-        const patch={local_only:wantLocal,qwen_generation:store.device.qwen_generation,siyuan_generation:store.device.siyuan_generation};
+        const patch={qwen_generation:store.device.qwen_generation,siyuan_generation:store.device.siyuan_generation};
+        if(!credentials)patch.local_only=wantLocal;
+        if(credentials && key?.value)patch.qwen_key=key.value;
+        if(credentials && token?.value)patch.siyuan_token=token.value;
         if(clearProvider)patch[clearProvider==='qwen'?'clear_qwen':'clear_siyuan']=true;
         if(await save('/service',patch,'serviceFeedback')) {
-          if(serviceEditRevision===edit)store.serviceEdited=false;
-          serviceSubmitted=true;
+          if(credentials || clearProvider) {
+            if(key)key.value='';
+            if(token)token.value='';
+          }
+          if (credentials) {
+            store.serviceFeedback={text:'凭据已保存',tone:'success'};
+            store.candA_serviceOpen=true;
+          } else {
+            if(serviceEditRevision===edit)store.serviceEdited=false;
+            serviceSubmitted=true;
+          }
         }
         await status();
       }
@@ -890,7 +909,7 @@
           if(old.tagName.toLowerCase()==='svg'){if(old.outerHTML!==fresh.outerHTML)parent.replaceChild(fresh.cloneNode(true),old);continue;}
           for(const a of [...old.attributes])if(!fresh.hasAttribute(a.name))old.removeAttribute(a.name);
           for(const a of [...fresh.attributes])if(old.getAttribute(a.name)!==a.value)old.setAttribute(a.name,a.value);
-          if(old.tagName==='INPUT') {if(old.value!==fresh.value)old.value=fresh.value;}
+          if(old.tagName==='INPUT') {if(!old.hasAttribute('data-credential') && old.value!==fresh.value)old.value=fresh.value;}
           else {reconcile(old,fresh);if(old.tagName==='SELECT' && old.value!==fresh.value)old.value=fresh.value;}
         }
         while(parent.childNodes.length>incoming.length)parent.lastChild.remove();
@@ -1073,7 +1092,7 @@
         if(d.task_id){const names={2:'等待处理',5:'等待处理',7:'正在转写',8:'正在投递思源',9:'已送达思源',10:'处理失败',11:'未识别到语音',12:'投递待核对',13:'已取消',14:'正在取消'};task=names[d.task_state] ? '最近处理：'+names[d.task_state] : '';}
         if(d.phase==='error')return {short:'配置不可读',note:d.message||'',tone:'error',icon:'✕',activeMode:'none',isReady:false};
         if(d.local_only)return {short:'仅本地使用',note:task,tone:'success',icon:'✓',activeMode:'local',isReady:d.configured};
-        return {short:d.configured?'凭据已保存':'待配置凭据',note:task || (d.configured?'尚未验证；录音完成后处理':'通过电脑USB配置千问和思源'),tone:d.configured?'neutral':'warn',icon:'○',activeMode:'service',isReady:d.configured};
+        return {short:d.configured?'凭据已保存':'待配置凭据',note:task || (d.configured?'尚未验证；录音完成后处理':'请填写千问和思源凭据'),tone:d.configured?'neutral':'warn',icon:'○',activeMode:'service',isReady:d.configured};
       }
 
       function renderApIcons(ap) {
@@ -1282,10 +1301,12 @@
         const d=store.device;
         return `
           <div class="f-group">
-            <div class="f-label-row"><span class="f-label">千问</span><span>${d.qwen_set?'已保存':'未配置'}</span></div>
-            <div class="f-label-row"><span class="f-label">思源</span><span>${d.siyuan_set?'已保存':'未配置'}</span></div>
-            <p class="f-help">连接电脑 USB，在项目目录运行配置助手。输入留空保留原值；密钥不通过此网页发送。</p>
-            <code style="overflow-wrap:anywhere;word-break:break-word">.venv/bin/python scripts/configure_cloud.py</code>
+            <div class="f-label-row"><label for="qwen-key-input" class="f-label">千问 API Key</label><span>${d.qwen_set?'已保存':'未配置'}</span></div>
+            <input id="qwen-key-input" class="portal-input" type="password" maxlength="256" autocomplete="off" spellcheck="false" data-credential ${disabled?'disabled':''}>
+            <div class="f-label-row"><label for="siyuan-token-input" class="f-label">思源 Token</label><span>${d.siyuan_set?'已保存':'未配置'}</span></div>
+            <input id="siyuan-token-input" class="portal-input" type="password" maxlength="256" autocomplete="off" spellcheck="false" data-credential ${disabled?'disabled':''}>
+            <p class="f-help">填写新凭据可替换原值，留空则保留。</p>
+            <button type="button" class="f-sub-btn" data-action="save-credentials" ${disabled?'disabled':''}>保存凭据</button>
             <div class="f-input-row" style="margin-top:10px">
               <button type="button" class="f-sub-btn" data-action="clear-qwen" ${disabled||!d.qwen_set?'disabled':''}>清除千问</button>
               <button type="button" class="f-sub-btn" data-action="clear-siyuan" ${disabled||!d.siyuan_set?'disabled':''}>清除思源</button>
@@ -1526,6 +1547,8 @@
           triggerScan();
         } else if (action === 'submit-wifi') {
           submitWifi();
+        } else if (action === 'save-credentials') {
+          submitService('', true);
         } else if (action === 'submit-service') {
           submitService();
         } else if (action === 'clear-qwen' || action === 'clear-siyuan') {

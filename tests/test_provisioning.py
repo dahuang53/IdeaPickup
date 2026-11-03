@@ -23,6 +23,8 @@ HARNESS = r'''
 #define ESP_ERR_NO_MEM 1
 #define ESP_ERR_INVALID_STATE 2
 #define ESP_ERR_TIMEOUT 3
+#define ESP_ERR_INVALID_SIZE 4
+#define ESP_ERR_NVS_NOT_FOUND 5
 #define ESP_ERR_WIFI_STATE 0x3006
 #define ESP_ERROR_CHECK(x) assert((x)==0)
 #define TAG "test"
@@ -55,7 +57,7 @@ struct wifi_config_t {struct {uint8_t ssid[32],password[64];int ssid_len,channel
  struct {uint8_t ssid[32],password[64];int scan_method,failure_retry_cnt;} sta;};
 constexpr int WIFI_EVENT=1,IP_EVENT=2,WIFI_EVENT_AP_START=3,WIFI_EVENT_AP_STOP=4,
  WIFI_EVENT_STA_DISCONNECTED=5,WIFI_EVENT_SCAN_DONE=6,IP_EVENT_STA_GOT_IP=7,
- WIFI_AUTH_OPEN=0,WIFI_MODE_APSTA=3,WIFI_IF_AP=1,WIFI_IF_STA=2,WIFI_ALL_CHANNEL_SCAN=0,WIFI_PS_NONE=0,ESP_MAC_WIFI_SOFTAP=1;
+ WIFI_AUTH_WPA2_PSK=3,WIFI_MODE_STA=1,WIFI_MODE_APSTA=3,WIFI_IF_AP=1,WIFI_IF_STA=2,WIFI_ALL_CHANNEL_SCAN=0,WIFI_PS_NONE=0,ESP_MAC_WIFI_SOFTAP=1;
 static esp_netif_t apnet,stanet;
 static unsigned wifi_starts,wifi_stops,scans,http_starts,http_stops,disconnects,saves;
 static std::atomic<unsigned> connects{0};
@@ -63,6 +65,18 @@ static bool stop_joined=false,connect_failure=false,save_failure=false,hold_conn
 static bool driver_connecting=false,driver_linked=false,late_disconnect=false,disconnect_pending=false,drop_disconnect=false;
 static int config_error=0;
 static wifi_config_t current;
+static int wifi_mode;
+static bool radio_on, password_write_failure;
+static std::string stored_password;
+static unsigned password_writes;
+using nvs_handle_t=int;
+constexpr int NVS_READONLY=0,NVS_READWRITE=1;
+int nvs_open(const char *ns,int mode,nvs_handle_t *h){assert(!strcmp(ns,"memo_ap"));*h=1;return mode==NVS_READONLY&&stored_password.empty()?ESP_ERR_NVS_NOT_FOUND:ESP_OK;}
+void nvs_close(nvs_handle_t){}
+int nvs_get_str(nvs_handle_t,const char *key,char *out,size_t *size){assert(!strcmp(key,"password")&&*size>=stored_password.size()+1);*size=stored_password.size()+1;memcpy(out,stored_password.c_str(),*size);return ESP_OK;}
+int nvs_set_str(nvs_handle_t,const char *key,const char *value){assert(!strcmp(key,"password"));if(password_write_failure)return ESP_ERR_NO_MEM;stored_password=value;++password_writes;return ESP_OK;}
+int nvs_commit(nvs_handle_t){return ESP_OK;}
+uint32_t esp_random(){assert(radio_on);static uint32_t value=1;return value=value*1664525u+1013904223u;}
 using Callback=void(*)(void*,esp_event_base_t,int32_t,void*);
 struct Handler {Callback fn=nullptr;void *ctx=nullptr;};static Handler wh,ih;
 EventGroupHandle_t xEventGroupCreate(){return new EventGroup;}
@@ -80,11 +94,11 @@ int esp_netif_get_ip_info(esp_netif_t *n,esp_netif_ip_info_t *ip){assert(n==&apn
 int esp_event_handler_instance_register(int base,int,Callback fn,void *ctx,void **instance){auto &h=base==WIFI_EVENT?wh:ih;assert(!h.fn);h={fn,ctx};*instance=&h;return 0;}
 int esp_event_handler_instance_unregister(int,int,void *instance){auto *h=(Handler*)instance;assert(stop_joined);*h={};return 0;}
 int esp_read_mac(uint8_t *mac,int){memset(mac,0,6);mac[4]=0xd6;mac[5]=0x9c;return 0;}
-int esp_wifi_set_mode(int m){assert(m==WIFI_MODE_APSTA);return 0;}
+int esp_wifi_set_mode(int m){assert(m==WIFI_MODE_APSTA||m==WIFI_MODE_STA);wifi_mode=m;return 0;}
 int esp_wifi_set_config(int mode,wifi_config_t *v){assert(mode==WIFI_IF_AP||mode==WIFI_IF_STA);if(mode==WIFI_IF_AP)current=*v;else if(config_error||driver_connecting)return config_error?config_error:ESP_ERR_WIFI_STATE;return 0;}
 int esp_wifi_set_ps(int m){assert(m==WIFI_PS_NONE);return 0;}
-int esp_wifi_start(){++wifi_starts;stop_joined=false;apnet.up=apnet.dhcp=true;wh.fn(wh.ctx,WIFI_EVENT,WIFI_EVENT_AP_START,nullptr);return 0;}
-int esp_wifi_stop(){assert(http_stops==http_starts);++wifi_stops;apnet.up=apnet.dhcp=false;stop_joined=true;wh.fn(wh.ctx,WIFI_EVENT,WIFI_EVENT_AP_STOP,nullptr);return 0;}
+int esp_wifi_start(){radio_on=true;if(wifi_mode==WIFI_MODE_STA)return 0;++wifi_starts;stop_joined=false;apnet.up=apnet.dhcp=true;wh.fn(wh.ctx,WIFI_EVENT,WIFI_EVENT_AP_START,nullptr);return 0;}
+int esp_wifi_stop(){radio_on=false;if(wifi_mode==WIFI_MODE_STA)return 0;assert(http_stops==http_starts);++wifi_stops;apnet.up=apnet.dhcp=false;stop_joined=true;wh.fn(wh.ctx,WIFI_EVENT,WIFI_EVENT_AP_STOP,nullptr);return 0;}
 int esp_wifi_disconnect(){++disconnects;bool linked=driver_linked;driver_connecting=driver_linked=false;
  if(drop_disconnect)return 0;
  if(late_disconnect&&linked)disconnect_pending=true;else wh.fn(wh.ctx,WIFI_EVENT,WIFI_EVENT_STA_DISCONNECTED,nullptr);return 0;}
@@ -114,10 +128,28 @@ int main(int argc,char **argv){
  assert(argc==2);std::string test=argv[1];WifiConfigurationAp ap;ap.SetSsidPrefix("MeowInbox");
  if(test=="cycles"){
   for(int i=0;i<32;++i){ap.Start();ap.Start();assert(apnet.up&&apnet.dhcp);
-   assert(current.ap.authmode==WIFI_AUTH_OPEN&&current.ap.password[0]==0&&current.ap.max_connection==4);
+   assert(current.ap.authmode==WIFI_AUTH_WPA2_PSK&&stored_password==(char*)current.ap.password&&current.ap.max_connection==4);
    assert(std::string((char*)current.ap.ssid)=="MeowInbox-D69C");assert(scans==0);
    ap.Stop();ap.Stop();assert(!apnet.up&&!apnet.dhcp&&!wh.fn&&!ih.fn);}
   assert(wifi_starts==32&&wifi_stops==32&&http_starts==32&&http_stops==32);
+  assert(password_writes==1);
+ }else if(test=="password"){
+  password_write_failure=true;
+  assert(!ap.Start()&&!radio_on&&http_starts==0);
+  password_write_failure=false;
+  assert(ap.Start());
+  const std::string first=ap.GetPassword();
+  assert(first.size()==8&&first.find_first_not_of("abcdefghjkmnpqrstuvwxyz23456789")==std::string::npos);
+  assert(first.find_first_of("23456789")!=std::string::npos&&first.find_first_of("abcdefghjkmnpqrstuvwxyz")!=std::string::npos);
+  password_write_failure=true;
+  assert(!ap.RotatePassword()&&http_starts==1&&stored_password==first);
+  password_write_failure=false;
+  assert(ap.RotatePassword()&&http_starts==2&&http_stops==1&&stored_password!=first);
+  assert(stored_password==ap.GetPassword()&&stored_password==(char*)current.ap.password);
+  ap.Stop();
+  WifiConfigurationAp rebooted;
+  rebooted.SetSsidPrefix("MeowInbox");
+  assert(rebooted.Start()&&stored_password==rebooted.GetPassword()&&password_writes==2);
  }else if(test=="scan"){
   ap.Start();auto records=ap.GetAccessPoints();assert(scans==1&&records.size()==1);
   assert(ap.RequestConnection("new","secret"));assert(ap.GetAccessPoints().size()==1&&scans==1);ap.Stop();
@@ -179,7 +211,8 @@ class ProvisioningTests(unittest.TestCase):
         source=(ROOT/'components/esp-wifi-connect/wifi_configuration_ap.cc').read_text()
         markers=['WifiConfigurationAp::WifiConfigurationAp()', 'WifiConfigurationAp::~WifiConfigurationAp()',
           'void WifiConfigurationAp::SetSsidPrefix(', 'std::string WifiConfigurationAp::GetSsid()',
-          'void WifiConfigurationAp::Start()', 'void WifiConfigurationAp::Stop()',
+          'bool WifiConfigurationAp::Start()', 'void WifiConfigurationAp::Stop()',
+          'bool WifiConfigurationAp::StoreFreshPassword()', 'bool WifiConfigurationAp::RotatePassword()',
           'std::vector<wifi_ap_record_t> WifiConfigurationAp::GetAccessPoints()',
           'void WifiConfigurationAp::WifiEventHandler(', 'void WifiConfigurationAp::IpEventHandler(',
           'bool WifiConfigurationAp::RequestConnection(', 'void WifiConfigurationAp::ProcessConnection(',
@@ -193,6 +226,7 @@ class ProvisioningTests(unittest.TestCase):
     def tearDownClass(cls):cls.tmp.cleanup()
     def run_case(self,name):subprocess.run([str(self.binary),name],check=True,timeout=10)
     def test_start_stop_32_cycles(self):self.run_case('cycles')
+    def test_password_persists_rotates_and_failed_write_keeps_current(self):self.run_case('password')
     def test_scan_not_during_connect(self):self.run_case('scan')
     def test_only_station_ip_means_connected(self):self.run_case('ip')
     def test_async_commit_keeps_ap_and_sta_and_reopens_saved(self):self.run_case('connect')

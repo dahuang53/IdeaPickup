@@ -12,7 +12,7 @@ bool memo_can_command(memo_state_t state, memo_cmd_t command)
     if (command == CMD_IDLE) return state == MEMO_SAVED;
     if (command == CMD_PAUSE) return state == MEMO_PLAYING;
     if (command == CMD_RESUME) return state == MEMO_PAUSED;
-    if (command == CMD_PROVISION) return state != MEMO_RECORDING && state != MEMO_SAVING &&
+    if (command == CMD_PROVISION || command == CMD_ROTATE_AP_PASSWORD) return state != MEMO_RECORDING && state != MEMO_SAVING &&
                                          state != MEMO_PLAYING && state != MEMO_PAUSED;
     if (command == CMD_STOP) return state == MEMO_RECORDING || state == MEMO_PLAYING ||
                                     state == MEMO_PAUSED;

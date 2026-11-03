@@ -67,6 +67,7 @@ public:
     ~HttpGuard() { if(http_mutex)xSemaphoreGiveRecursive(http_mutex); }
 };
 memo_network_status_t status_value{};
+char ap_password[9]{}; // Protected by status_mutex; only used by the device screen.
 memo_config_activity_gate_t activity_gate{};
 // Both owners exclude background SD I/O; only AUDIO permits audio re-entry.
 bool audio_busy() {
@@ -433,14 +434,19 @@ extern "C" esp_err_t network_sync_init(uint32_t existing_latest_id)
         case WifiEvent::Disconnected:
             status_update([](memo_network_status_t &s) { s.connected = false; });
             break;
-        case WifiEvent::ConfigModeEnter:
-            status_update([&wifi](memo_network_status_t &s) {
+        case WifiEvent::ConfigModeEnter: {
+            const auto ssid = wifi.GetApSsid();
+            const auto password = wifi.GetApPassword();
+            status_update([&](memo_network_status_t &s) {
                 s.provisioning = true;
-                snprintf(s.ap_ssid, sizeof(s.ap_ssid), "%s", wifi.GetApSsid().c_str());
+                s.ap_password_error = false;
+                snprintf(s.ap_ssid, sizeof(s.ap_ssid), "%s", ssid.c_str());
+                snprintf(ap_password, sizeof(ap_password), "%s", password.c_str());
             });
             break;
+        }
         case WifiEvent::ConfigModeExit:
-            status_update([](memo_network_status_t &s) { s.provisioning = false; s.ap_ssid[0] = '\0'; });
+            status_update([](memo_network_status_t &s) { s.provisioning = false; s.ap_ssid[0] = '\0'; memset(ap_password, 0, sizeof(ap_password)); });
             if (!SsidManager::GetInstance().GetSsidList().empty()) wifi.StartStation();
             break;
         default:
@@ -449,12 +455,6 @@ extern "C" esp_err_t network_sync_init(uint32_t existing_latest_id)
     });
     if (!SsidManager::GetInstance().GetSsidList().empty()) manager.StartStation();
     else manager.StartConfigAp();
-    if (manager.IsConfigMode()) {
-        status_update([&manager](memo_network_status_t &s) {
-            s.provisioning = true;
-            snprintf(s.ap_ssid, sizeof(s.ap_ssid), "%s", manager.GetApSsid().c_str());
-        });
-    }
     /* TLS, NVS and the HTTP client may run while flash cache is disabled, so
        keep this stack in internal RAM.  The compact LVGL DMA canvas leaves
        enough internal memory for Wi-Fi and TLS. */
@@ -636,6 +636,26 @@ extern "C" void network_sync_notify_record(uint32_t id){
  }
  sd_scan_requested.store(true);sd_media_work.store(true);
  if(sync_task_handle)xTaskNotifyGive(sync_task_handle);
+}
+
+extern "C" bool network_sync_rotate_ap_password(void) {
+    auto &manager = WifiManager::GetInstance();
+    const bool rotated = manager.RotateApPassword();
+    const auto password = rotated ? manager.GetApPassword() : std::string{};
+    status_update([&](memo_network_status_t &s) {
+        s.ap_password_error = !rotated;
+        if (rotated && s.provisioning)
+            snprintf(ap_password, sizeof(ap_password), "%s", password.c_str());
+    });
+    return rotated;
+}
+
+extern "C" void network_sync_get_ap_password(char out[9]) {
+    out[0] = '\0';
+    if (!status_mutex) return;
+    xSemaphoreTake(status_mutex, portMAX_DELAY);
+    memcpy(out, ap_password, sizeof(ap_password));
+    xSemaphoreGive(status_mutex);
 }
 
 extern "C" void network_sync_toggle_provisioning(void)

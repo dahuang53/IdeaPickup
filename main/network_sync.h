@@ -21,7 +21,7 @@ typedef struct {
     bool configured;
     bool cloud_enabled,cloud_credentials,cloud_config_error;
     bool connected;
-    bool provisioning;
+    bool provisioning,ap_password_error;
     bool syncing;
     uint32_t cursor_id;
     uint32_t last_uploaded_id;
@@ -87,6 +87,8 @@ bool network_sync_cancel_record(uint32_t id);
 
 /* Toggle the manual browser configuration hotspot. Safe only while recording/playback are idle. */
 void network_sync_toggle_provisioning(void);
+bool network_sync_rotate_ap_password(void);
+void network_sync_get_ap_password(char out[9]);
 /* Temporary read-only AP observer; numeric results only, no credentials. */
 
 /* Prevent SD upload reads from overlapping recording or playback startup. */

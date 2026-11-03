@@ -262,13 +262,10 @@ void WifiManager::StartConfigAp() {
     config_ap_->SetSsidPrefix(config_.ssid_prefix);
     config_ap_->SetLanguage(config_.language);
 
-    // Web handler calls this when user submits config
-    config_ap_->OnExitRequested([this]() {
-        ESP_LOGI(TAG, "Config exit requested from web");
-        StopConfigAp();
-    });
-
-    config_ap_->Start();
+    if (!config_ap_->Start()) {
+        ESP_LOGE(TAG, "Provisioning password unavailable");
+        return;
+    }
     config_mode_active_ = true;
 
     lock.unlock();
@@ -276,10 +273,22 @@ void WifiManager::StartConfigAp() {
     lock.lock();
 }
 
-void WifiManager::StopConfigAp() {
+bool WifiManager::RotateApPassword() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return config_mode_active_ && !config_ap_->ExitRequested() && config_ap_->RotatePassword();
+}
+
+std::string WifiManager::GetApPassword() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return config_mode_active_ ? config_ap_->GetPassword() : "";
+}
+
+void WifiManager::StopConfigAp() { StopConfigAp(false); }
+
+void WifiManager::StopConfigAp(bool only_requested) {
     std::unique_lock<std::mutex> lock(mutex_);
 
-    if (!config_mode_active_) {
+    if (!config_mode_active_ || (only_requested && !config_ap_->ExitRequested())) {
         return;
     }
 
@@ -293,6 +302,7 @@ void WifiManager::StopConfigAp() {
 }
 
 void WifiManager::ProcessConfigConnection() {
+    StopConfigAp(true);
     WifiConfigurationAp* ap = nullptr;
     { std::lock_guard<std::mutex> lock(mutex_);
       if (config_mode_active_) ap = config_ap_.get(); }

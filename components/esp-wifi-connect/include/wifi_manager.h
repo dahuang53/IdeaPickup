@@ -88,6 +88,8 @@ public:
 
     // ==================== Config AP Mode ====================
 
+    bool RotateApPassword();
+    std::string GetApPassword() const;
     void StartConfigAp();  // Non-blocking, auto-stops station if active
     void StopConfigAp();   // Non-blocking
 
@@ -118,6 +120,7 @@ private:
     WifiManagerConfig config_;
     std::unique_ptr<WifiStation> station_;
     std::unique_ptr<WifiConfigurationAp> config_ap_;
+    void StopConfigAp(bool only_requested);
 
     mutable std::mutex mutex_;
     esp_netif_t* ap_netif_ = nullptr;

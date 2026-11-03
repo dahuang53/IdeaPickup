@@ -43,7 +43,7 @@ static uint32_t displayed_voice_wake_count;
 static lv_obj_t *battery_button, *battery_label, *battery_outline;
 static lv_obj_t *battery_fill, *battery_terminal;
 #endif
-static lv_obj_t *provision_root, *provision_ap_label, *provision_detail_label, *provision_back;
+static lv_obj_t *provision_root, *provision_ap_label, *provision_detail_label, *provision_password_label, *provision_back;
 static lv_obj_t *cat_fallback[2];
 static uint32_t row_ids[MEMO_PAGE_SIZE];
 static lv_obj_t *record_root, *record_title, *record_meta, *record_status_label, *record_info, *record_back;
@@ -291,6 +291,12 @@ static void provision_back_clicked(lv_event_t *event)
 {
     (void)event;
     app_command(CMD_PROVISION, 0, "touch");
+}
+
+static void provision_rotate_clicked(lv_event_t *event)
+{
+    (void)event;
+    app_command(CMD_ROTATE_AP_PASSWORD, 0, "touch");
 }
 
 static void primary_clicked(lv_event_t *event)
@@ -1186,14 +1192,17 @@ static void refresh(lv_timer_t *timer)
         show_provision(true);
         snprintf(text, sizeof(text), "热点 %s", network.ap_ssid[0] ? network.ap_ssid : "正在启动");
         text_if_changed(provision_ap_label, text);
-        if(network.cloud_config_error)snprintf(text,sizeof(text),DETAIL_COPY("设置未确认，网页重试","设置未确认，请在网页重试喵"));
+        char password[9];
+        network_sync_get_ap_password(password);
+        snprintf(text, sizeof(text), "密码 %s", password);
+        text_if_changed(provision_password_label, text);
+        if(network.ap_password_error)snprintf(text,sizeof(text),"密码未更换");
+        else if(network.cloud_config_error)snprintf(text,sizeof(text),DETAIL_COPY("设置未确认，网页重试","设置未确认，请在网页重试喵"));
         else if(!network.cloud_enabled)snprintf(text,sizeof(text),DETAIL_COPY("仅本地，有卡录放可用","仅本地，有卡录音回放可用喵"));
-        else if(!network.cloud_credentials)snprintf(text,sizeof(text),"通过USB配置云服务");
+        else if(!network.cloud_credentials)snprintf(text,sizeof(text),"在网页配置云服务");
         else if(!network.connected)snprintf(text,sizeof(text),"等待连接 Wi-Fi");
         else snprintf(text,sizeof(text),"凭据已存，尚未验证");
         text_if_changed(provision_detail_label, text);
-        lv_obj_set_y(provision_back, lv_obj_get_y(provision_detail_label) +
-            (text[0] ? lv_font_get_line_height(&memo_font) + (MEMO_UI_COMPACT ? 12 : 24) : 0));
     } else if (provision_visible) {
         show_provision(false);
     }
@@ -1435,35 +1444,23 @@ void ui_init(void)
     lv_obj_set_style_bg_color(provision_root, lv_color_hex(BG), 0);
     lv_obj_set_style_bg_opa(provision_root, LV_OPA_COVER, 0);
     lv_obj_remove_flag(provision_root, LV_OBJ_FLAG_SCROLLABLE);
-    const int provision_line_height = lv_font_get_line_height(&memo_font);
-    const int provision_gap = 6;
-    const int provision_step = provision_line_height + provision_gap;
-#if MEMO_UI_COMPACT
-    const int provision_flow_y = 64;
-    const int provision_feedback_y = provision_flow_y + provision_step +
-                                     provision_line_height + 2 * provision_gap;
-    label(provision_root, 55, provision_flow_y - provision_line_height - 2 * provision_gap,
-          130, "联网设置", MINT);
-    provision_ap_label = label(provision_root, 20, provision_flow_y, 200, "热点正在启动", INK);
-    provision_detail_label = label(provision_root, 30, provision_feedback_y, 180, "", GOLD);
-    label(provision_root, 20, provision_flow_y + provision_step, 200, "打开 http://192.168.4.1", INK);
-    provision_back = button(provision_root, 58,
-        provision_feedback_y + provision_line_height + 2 * provision_gap,
-        124, 36, "退出配网", NULL);
-#else
-    const int provision_flow_y = 91;
-    const int provision_feedback_y = provision_flow_y + 2 * provision_step +
-                                     provision_line_height + 3 * provision_gap;
-    label(provision_root, 70, provision_flow_y - provision_line_height - 3 * provision_gap,
-          220, "联网设置", MINT);
-    label(provision_root, 55, provision_flow_y, 250, "手机连接下面的临时热点", MUTED);
-    provision_ap_label = label(provision_root, 38, provision_flow_y + provision_step, 284, "热点正在启动", INK);
-    provision_detail_label = label(provision_root, 38, provision_feedback_y, 284, "", GOLD);
-    label(provision_root, 38, provision_flow_y + 2 * provision_step, 284, "打开 http://192.168.4.1", INK);
-    provision_back = button(provision_root, 92,
-        provision_feedback_y + provision_line_height + 4 * provision_gap,
-        176, 44, "退出配网", NULL);
-#endif
+    const int step = lv_font_get_line_height(&memo_font) + (MEMO_UI_COMPACT ? 3 : 6);
+    const int top = MEMO_UI_COMPACT ? 32 : 77;
+    const int margin = MEMO_UI_COMPACT ? 22 : 38;
+    const int width = MEMO_UI_WIDTH - 2 * margin;
+    const int button_y = top + 5 * step + 10;
+    const int button_margin = MEMO_UI_COMPACT ? 35 : margin;
+    const int button_width = (MEMO_UI_WIDTH - 2 * button_margin - 8) / 2;
+    const int title_margin = MEMO_UI_COMPACT ? 55 : margin;
+    label(provision_root, title_margin, top, MEMO_UI_WIDTH - 2 * title_margin, "联网设置", MINT);
+    provision_ap_label = label(provision_root, margin, top + step, width, "热点正在启动", INK);
+    provision_password_label = label(provision_root, margin, top + 2 * step, width, "", INK);
+    label(provision_root, margin, top + 3 * step, width, "打开 http://192.168.4.1", INK);
+    provision_detail_label = label(provision_root, margin, top + 4 * step, width, "", GOLD);
+    lv_obj_t *rotate = button(provision_root, button_margin, button_y, button_width, 36, "更换密码", NULL);
+    lv_obj_add_event_cb(rotate, provision_rotate_clicked, LV_EVENT_CLICKED, NULL);
+    provision_back = button(provision_root, button_margin + button_width + 8, button_y,
+                            button_width, 36, "退出配网", NULL);
     lv_obj_add_event_cb(provision_back, provision_back_clicked, LV_EVENT_CLICKED, NULL);
     lv_obj_add_flag(provision_root, LV_OBJ_FLAG_HIDDEN);
     record_root=box(screen,0,0,MEMO_UI_WIDTH,MEMO_UI_HEIGHT,

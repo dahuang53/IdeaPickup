@@ -64,6 +64,7 @@ bool app_command(memo_cmd_t command, uint32_t arg, const char *source)
 
 void app_snapshot(memo_snapshot_t *out) { *out = model; }
 void network_sync_get_status(memo_network_status_t *out) { *out = network; }
+void network_sync_get_ap_password(char out[9]) { snprintf(out, 9, "%s", "ab23cd45"); }
 static memo_record_sync_t detail_job;
 static unsigned retry_calls,cancel_calls;
 static bool retry_accept=true;
@@ -252,23 +253,22 @@ static void check_provision_url(void)
     lv_obj_t *exit_text = find_visible_label(lv_screen_active(), "退出配网");
     assert(url && ap && exit_text);
     assert(!find_visible_label(lv_screen_active(), "无需密码"));
-    assert(!find_visible_label(lv_screen_active(), "密码"));
-    lv_area_t hint, ap_line, button;
+    lv_obj_t *password = find_visible_label(lv_screen_active(), "密码 ab23cd45");
+    lv_obj_t *rotate = find_visible_label(lv_screen_active(), "更换密码");
+    assert(password && rotate);
+    lv_area_t hint, ap_line, password_line, button, rotate_button;
     lv_obj_get_coords(url, &hint);
     lv_obj_get_coords(ap, &ap_line);
+    lv_obj_get_coords(password, &password_line);
     lv_obj_get_coords(lv_obj_get_parent(exit_text), &button);
-    int stride = hint.y1 - ap_line.y1;
+    lv_obj_get_coords(lv_obj_get_parent(rotate), &rotate_button);
+    int stride = password_line.y1 - ap_line.y1;
     int line_height = ap_line.y2 - ap_line.y1 + 1;
     assert(stride >= line_height && stride < 2 * line_height);
+    assert(hint.y1 - password_line.y1 == stride);
     assert(ap_line.x1 + ap_line.x2 == hint.x1 + hint.x2);
-#if !MEMO_UI_COMPACT
-    lv_obj_t *instruction = find_visible_label(lv_screen_active(), "手机连接下面的临时热点");
-    assert(instruction);
-    lv_area_t instruction_line;
-    lv_obj_get_coords(instruction, &instruction_line);
-    assert(stride == ap_line.y1 - instruction_line.y1);
-    assert(instruction_line.x1 + instruction_line.x2 == ap_line.x1 + ap_line.x2);
-#endif
+    assert(rotate_button.x2 < button.x1 && rotate_button.y1 == button.y1);
+    assert(button.y2 < MEMO_UI_HEIGHT);
     assert(lv_color_eq(lv_obj_get_style_text_color(url, LV_PART_MAIN),
                        lv_obj_get_style_text_color(ap, LV_PART_MAIN)));
     assert(hint.y2 < button.y1);
@@ -1001,8 +1001,8 @@ int main(void)
     assert(!contains_visible_label(lv_screen_active(), "连上热点自动打开"));
     assert(!contains_visible_label(lv_screen_active(), "连接热点后自动打开网页"));
     check_provision_url();
-    network.cloud_enabled=true;network.cloud_credentials=false;save_frame("provisioning-usb-config");
-    assert(contains_visible_label(lv_screen_active(),"通过USB配置云服务"));check_provision_url();
+    network.cloud_enabled=true;network.cloud_credentials=false;save_frame("provisioning-web-config");
+    assert(contains_visible_label(lv_screen_active(),"在网页配置云服务"));check_provision_url();
     network.cloud_credentials=true;network.connected=false;save_frame("provisioning-wait-wifi");
     assert(contains_visible_label(lv_screen_active(),"等待连接 Wi-Fi"));check_provision_url();
     network.connected=true;save_frame("provisioning-unverified");
@@ -1021,6 +1021,9 @@ int main(void)
     assert(contains_visible_label(lv_screen_active(), "凭据已存，尚未验证"));
 #endif
     check_provision_url();
+    lv_area_t rotate_area;
+    lv_obj_get_coords(lv_obj_get_parent(find_visible_label(lv_screen_active(), "更换密码")), &rotate_area);
+    click(indev, (rotate_area.x1 + rotate_area.x2) / 2, (rotate_area.y1 + rotate_area.y2) / 2, CMD_ROTATE_AP_PASSWORD, 0);
     lv_area_t exit_area;
     lv_obj_get_coords(lv_obj_get_parent(find_visible_label(lv_screen_active(), "退出配网")), &exit_area);
     click(indev, (exit_area.x1 + exit_area.x2) / 2, (exit_area.y1 + exit_area.y2) / 2, CMD_PROVISION, 0);
