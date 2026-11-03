@@ -16,13 +16,13 @@
 | [run_host_tests.sh](../tests/run_host_tests.sh) | 真实存储 / WAV 收尾、录放状态、语音门、供电、USB PCM 等 portable C 与 FakeSerial 测试，ASan / UBSan；无旧分区迁移测试 |
 | [test_relay.sh](../scripts/test_relay.sh) | 实际后端 / HTTP / 账本 / broker / 清理 / 权限 / 供应商本地 TLS 替身；保留原有可选一小时测试边界 |
 | [test_service_config.sh](../scripts/test_service_config.sh) | 直连配置、USB隐藏输入、NVS故障／容量准入、原Wi-Fi保存及AP请求防护；真实生产C/C++，ESP／RF／NVS为显式替身 |
-| [test_sync_pipeline.sh](../scripts/test_sync_pipeline.sh) | 直连有卡生产状态机与协议的52项合成回归：虚拟WAV分段／文本、持久尝试／检查点、取消／不确定、历史只读与账户变更；无卡使用实际直连实时状态机的独立合成回归。边界见[第三步记录](DEVICE_DIRECT_CLOUD_STEP3.md)，不伪装真实拔电 |
-| [test_cloud.sh](../scripts/test_cloud.sh) | 设备直连协议：生产C++配本地合成HTTPS／WebSocket，最大段流式发送、明确失败／投递不确定；另执行实际ESP适配的SDK／RTOS替身与ASan／UBSan。有卡已在第三步接入，基础协议本身不证明真机／真实供应商通过；边界见[第二步记录](DEVICE_DIRECT_CLOUD_STEP2.md) |
+| [test_sync_pipeline.sh](../scripts/test_sync_pipeline.sh) | 直连有卡生产状态机与协议的合成回归：虚拟WAV分段／文本、持久尝试／检查点、取消／不确定、历史只读与账户变更；无卡使用实际直连实时状态机的独立合成回归。边界见[直连契约](contracts/firmware-direct-cloud-v1.json)，不伪装真实拔电 |
+| [test_cloud.sh](../scripts/test_cloud.sh) | 设备直连协议：生产C++配本地合成HTTPS／WebSocket，最大段流式发送、明确失败／投递不确定；另执行实际ESP适配的SDK／RTOS替身与ASan／UBSan。有卡已在第三步接入，基础协议本身不证明真机／真实供应商通过；边界见[直连契约](contracts/firmware-direct-cloud-v1.json) |
 | [test_firmware_install.sh](../scripts/test_firmware_install.sh) | 打包 / 安装边界、SDK / 生产 stdio 与 SD DMA 无内存回归；不使用设备 |
 
 两板普通构建、打包和恢复命令只在[设备安装说明](DEVICE_INSTALL.md)定义。干净源码验证从无 build、sdkconfig、managed_components、venv 的检出开始；依赖缓存可重用，但必须注明 SDK / 工具 / 下载缓存来源及实际下载，不称作全量冷下载。`test_ui.sh` 使用构建得到的锁定 LVGL；设 `MEMO_UI_OUTPUT=private/ci-ui`，避免覆盖历史证据。USB 描述符对象检查命令由 [CI 固件 job](../.github/workflows/ci.yml) 定义，检查编译对象不能证明 CDC / UAC 已枚举。
 
-管理页及设备配网页的真实隔离浏览器入口仍由 [README](../README.md) 和[后端说明](../server-relay/README.md#本地开发与测试)路由；本次 CI 不增加浏览器依赖。桌面/手机 viewport 不是实际手机/AP 或触摸/实听。
+管理页及设备配网页的真实隔离浏览器入口见下文命令和[后端说明](../server-relay/README.md#本地开发与测试)；本次 CI 不增加浏览器依赖。桌面/手机 viewport 不是实际手机/AP 或触摸/实听。
 
 ## CI 与源码候选
 
@@ -54,7 +54,7 @@
 
 ## 源码与镜像材料
 
-有卡详情只读轻量状态、无HTTP／SHA／无变化写入；对应[第三步](DEVICE_DIRECT_CLOUD_STEP3.md)。无卡实际实时协议／生产任务回归见[第四步](DEVICE_DIRECT_CLOUD_STEP4.md)：有界PCM／文本、最终结果及一次投递、断开和背压退出、有限重试、不确定、取消、NVS故障／容量、混合1024索引／四详情与启动中断收尾。没有旧ACK恢复／历史轮询或无卡设备重试。
+有卡详情只读轻量状态、无HTTP／SHA／无变化写入；对应[直连契约](contracts/firmware-direct-cloud-v1.json)。无卡实际实时协议／生产任务回归见[直连契约](contracts/firmware-direct-cloud-v1.json)：有界PCM／文本、最终结果及一次投递、断开和背压退出、有限重试、不确定、取消、NVS故障／容量、混合1024索引／四详情与启动中断收尾。没有旧ACK恢复／历史轮询或无卡设备重试。
 
 `test_sync_metadata_lock.py` 验证真实直连元数据编解码与FatFs冲突替身；`test_network_worker.py` 执行共享调度循环，核对无卡进展、媒体排除与等待；`test_service_runtime.py` 保留配置／媒体门闩、NVS故障和Wi-Fi边界。主机计数不能替代真机内存、SD性能、触摸、实听或真实传输。
 
@@ -66,7 +66,7 @@ R12 手动配网页回归：`scripts/test_service_config.sh` 执行直连配置�
 
 `scripts/test_ui.sh` 验证360、240和vocat16三种生产布局；包括真实网络错误进入录音控制页时的缺字、宽度和状态区域边界，不能只检查配网页的短提示。配网页保留完整手动URL，热点和地址同色、相邻且行距一致，状态与操作分组。主机渲染不代替真实屏幕／触摸。
 
-`tests/test_service_portal_browser.cjs` 配合原生处理器fixture验证移动宽度／桌面页面：Wi-Fi保存、两项凭据是否已存、模式及真实任务结果分别显示，未调用供应商不显示已验证。覆盖明确清除、退出、无浏览器持久化秘密、320px指引文字实际边界；SDK／NVS为替身，不证明真实手机、USB或供应商成功。实际Safari与设备交互留到直连第六步。
+`tests/test_service_portal_browser.cjs` 配合原生处理器fixture验证移动宽度／桌面页面：Wi-Fi保存、两项凭据是否已存、模式及真实任务结果分别显示，未调用供应商不显示已验证。覆盖明确清除、退出、无浏览器持久化秘密、320px指引文字实际边界；SDK／NVS为替身，不证明真实手机、USB或供应商成功。实际 Safari 和设备交互结果见[第六步验收记录](DEVICE_DIRECT_CLOUD_DELIVERY.md)。
 
 `node tests/test_portal_async.cjs` 直接执行生产配网页脚本，使用可控时钟、请求和DOM替身验证保存期间的新编辑、重复提交、旧读取跨保存返回、Wi-Fi目标及持久化终态、扫描互斥、断连恢复和关闭后的迟到响应。此脚本没有浏览器或硬件依赖；由浏览器回归入口先行调用，不替代原生处理器浏览器和真机验收。
 
@@ -87,3 +87,5 @@ R12 SD探卡回归由`tests/run_host_tests.sh`调用`test_sd_probe.py`，五组�
 直连状态回归还覆盖固定无卡索引／详情淘汰、本地详情不发 HTTP、有卡同一意图的检查点继续、长录音详情仅读取文件头，以及请求期限；无卡启动只做本地中断收尾，不恢复云会话。`test_http_deadline.py` 用 socket pair 验证生产中断任务打断嵌套等待及暂时中断失败后的重试，TCP/TLS 与 RTOS 通知／时间调度为明确替身；不将它称为真机 TLS 故障测试。物理换卡、触摸、真实转写与投递证据须分别核验。
 
 运行开销回归：`test_cardless_runtime.py` 验证直连有界资源、终态不发请求／不写Flash、无历史轮询、启动只做本地中断收尾。`test_portal_async.cjs`验证页面隐藏、请求中切后台、返回前台、模式／实际任务快速更新和稳定降频。可见且连接／任务处理中每2秒查询，稳定后每10秒查询；隐藏时停止新增状态轮询；返回后刷新，若旧请求仍在途则结束后立即补一次。原保存事务及外观不变。合成写计数不是Flash擦除次数或电量实测，模拟重启不是物理断电验收。
+
+直连第六步的真实供应商、两板固件、资源上限、断网恢复、触摸与 Safari 证据见[集中验收记录](DEVICE_DIRECT_CLOUD_DELIVERY.md)。斑梨间歇看门狗根因待定位，按已确认口径单独跟踪。

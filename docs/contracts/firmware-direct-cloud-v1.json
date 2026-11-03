@@ -1,7 +1,7 @@
 {
   "contract": "ideapickup-device-direct-cloud",
   "schema": 1,
-  "scope": "Current implementation in direct-cloud steps 3-5; real devices/providers remain step 6, distribution step 7",
+  "scope": "Validated device-direct implementation; local candidate, with two-board and provider evidence indexed in docs/DEVICE_DIRECT_CLOUD_DELIVERY.md",
   "sources": {
     "configuration": "main/memo_cloud_config.cpp",
     "writer": "main/memo_cloud_settings.cpp",
@@ -9,8 +9,8 @@
     "helper": "scripts/configure_cloud.py",
     "public_portal": "main/memo_service_portal.cpp",
     "activity": "main/memo_activity.c",
-    "sd": "docs/DEVICE_DIRECT_CLOUD_STEP3.md",
-    "cardless": "docs/DEVICE_DIRECT_CLOUD_STEP4.md"
+    "sd": "main/memo_sd_sync.cpp",
+    "cardless": "main/memo_cardless.cpp"
   },
   "configuration": {
     "namespace": "memo_cloud1",

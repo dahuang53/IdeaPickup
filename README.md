@@ -2,35 +2,16 @@
 
 **随手录下想法，离线留在卡上；需要时转成文字，送进自己的思源收集箱。**
 
-IdeaPickup 是运行在 ESP32-S3 语音设备上的录音工具，配套可自行部署的 Docker 转写中继。可以只把它当离线录音机，也可以接上千问和思源，让录音自动变成笔记。
+IdeaPickup 是运行在 ESP32-S3 上的录音工具。插入 microSD 卡即可离线录放。启用转写后，设备直接连接千问和思源云端收集箱，无需部署中继。
 
-- **有卡离线录放**：不连 Wi-Fi、不部署服务，也能录音、浏览和回放。
-- **联网自动转写**：中继部署在自己的电脑或服务器上，千问负责转写，文字进入思源云端收集箱。
-- **无卡联网托底**：没插卡也能向中继分块上传录音，查看处理结果；无卡记录不能回放。
-- **触摸和本地语音操作**：触摸录音、停止和回放，或用“你好喵伴”唤醒后发出录音指令；16 MB 喵伴还可用作 USB 麦克风。
-- **浏览器配置**：手机连接设备热点后手动打开配网页，查看真实联网／配对状态；密钥只在后端管理页填写。
+- 有卡录音保存在 SD 卡，可浏览和回放。启用转写后，新录音自动建立一次任务，也可在详情手动提交未处理录音。
+- 无卡录音需要持续联网和可用凭据，通过千问实时识别。设备保留任务状态。音频无法回放，也无法跨断网或重启恢复。
+- 两板支持触摸和本地语音操作，16 MB 喵伴还支持 USB 麦克风。
 
-```mermaid
-flowchart LR
-    A[设备录音] --> B[有卡：保存与本机回放]
-    A -->|启用转写服务| C[自己的 Docker 中继]
-    C --> D[千问转写]
-    D --> E[思源云端收集箱]
-```
-
-**当前下载：[2026.10.27-rc1 预发布](https://github.com/dahuang53/IdeaPickup/releases/tag/2026.10.27-rc1)**，含两板固件、源码和配套双架构镜像。这是有已知限制的预发布；完整低电矩阵未验证，斑梨有一项未解决的看门狗告警，详见[支持与限制](docs/SUPPORT.md#known-limits)。
-
-## 选择你的使用方式
-
-| 想做什么 | 需要准备 | 按这个顺序操作 |
-|---|---|---|
-| 只录音和回放 | 支持的设备、microSD 卡、可传数据的 USB 线 | [下载固件](docs/PUBLIC_RELEASE.md) → [安装](docs/DEVICE_INSTALL.md) → 保持“仅本地使用” → [录放](docs/SUPPORT.md#daily-use) |
-| 在家里用电脑转写 | 上述设备、运行 Docker 的电脑、同一路由器的 2.4 GHz Wi-Fi、千问和思源云端凭据 | [本地 Docker 部署](docs/DEPLOYMENT.md#local-docker) → [后台配置](docs/DEPLOYMENT.md#admin-setup) → [刷机和配对](docs/DEVICE_INSTALL.md#pairing) |
-| 使用自己的服务器转写 | 支持的设备、Docker 服务器、域名与可信 HTTPS、千问和思源云端凭据 | [服务器部署](docs/DEPLOYMENT.md#server-https) → [后台配置](docs/DEPLOYMENT.md#admin-setup) → [刷机和配对](docs/DEVICE_INSTALL.md#pairing) |
-
-本地电脑部署直接填写**电脑的内网 IP**，默认端口 8765，不需要域名。服务器部署填写 **HTTPS 服务地址**。管理后台是该服务地址加上 `/admin/`：地址由部署者先确定，**无需先登录后台才能知道它**。示例和找 IP 的方法见[地址对照表](docs/DEPLOYMENT.md#addresses)。
-
-联网转写需要千问 API 的可用额度，以及可使用思源云端收集箱的账号；获取方式见[凭据准备](docs/DEPLOYMENT.md#provider-setup)。本地部署指中继在本地，千问和思源仍需联网；目前没有离线转写或本地思源内核接口。
+1. 按[设备安装说明](docs/DEVICE_INSTALL.md)选择正确板型并刷写固件。[直连版](docs/DEVICE_DIRECT_CLOUD_DELIVERY.md)是本地验收候选，公开的 [2026.10.27-rc1](docs/PUBLIC_RELEASE.md) 仍是旧中继版。
+2. 只需录放时，插卡并保持「仅本地使用」。需要转写时，先[准备千问与思源凭据](docs/DEPLOYMENT.md#direct-credentials)。
+3. [连接 Wi-Fi 并通过 USB 保存凭据](docs/DEVICE_INSTALL.md#direct-setup)，然后在配网页启用转写服务。
+4. 录一条适合送往云服务的短语音，查看设备详情的处理状态，并在思源云端收集箱核对文字。
 
 ## 支持的硬件
 
@@ -45,16 +26,10 @@ flowchart LR
 
 | 要找的内容 | 入口 |
 |---|---|
-| 下载哪个附件、核对 SHA256、选哪个镜像 | [版本与下载](docs/PUBLIC_RELEASE.md) |
-| Docker 启动、后台 URL、初始化、密钥、配对码 | [部署与后台配置](docs/DEPLOYMENT.md) |
-| 首次刷机、下载模式、手机配网、设备配对 | [设备安装与配置](docs/DEVICE_INSTALL.md) |
-| 录放、无卡模式、USB 麦克风、记录状态 | [日常使用](docs/SUPPORT.md#daily-use) |
-| 打不开页面、配对失败、没有转写结果、存储问题 | [故障排查](docs/SUPPORT.md#troubleshooting) |
-| 已验证范围和已知风险 | [支持与限制](docs/SUPPORT.md#known-limits) |
-| 后端和固件普通更新 | [后端更新](docs/DEPLOYMENT.md#updates)、[固件更新](docs/DEVICE_INSTALL.md#updates) |
-| 报告问题 | [提交前准备](docs/SUPPORT.md#reporting)、[安全问题](SECURITY.md) |
-
-有卡音频保存在自己的 SD 卡。启用转写服务时，新录音自动处理一次；未处理的旧有卡录音可在详情手动提交，处理中可以取消。请先确认录音适合交给自己的中继和千问。中继不提供音频库或云端回放：成功或拒绝后清理暂存音频，失败／中断的闲置暂存最长 24 小时；投递完成清理暂存正文。详见[数据与重试](docs/SUPPORT.md#data-and-status)。
+| 区分本地候选和旧公开附件 | [版本与下载](docs/PUBLIC_RELEASE.md) |
+| 刷机、配网和凭据 | [设备安装与配置](docs/DEVICE_INSTALL.md) |
+| 录放、状态和故障排查 | [使用帮助](docs/SUPPORT.md) |
+| 旧中继部署和维护 | [历史部署入口](docs/DEPLOYMENT.md#legacy-relay) |
 
 ## 开发与许可
 

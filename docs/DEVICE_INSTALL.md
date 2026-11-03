@@ -1,19 +1,19 @@
-# 设备安装、更新与配对
+# 设备安装、更新与联网
 
 [返回首页](../README.md) · [固件下载](PUBLIC_RELEASE.md) · [部署后台](DEPLOYMENT.md) · [使用与排错](SUPPORT.md)
 
-本页默认安装当前发布的固件，**无需自行编译**。先核对硬件，再准备安装工具；刷写不会替你部署后端。只需离线录放可跳过后端和配对。
+本页的安装示例使用[直连本地候选](DEVICE_DIRECT_CLOUD_DELIVERY.md)。请使用与固件对应的源码和安装脚本。现有公开旧中继附件、校验和及历史版本另见[版本与下载](PUBLIC_RELEASE.md)。
 
 ## 1. 确认硬件与准备材料
 
 | 实物 | 下载的固件包 | 安装脚本 |
 |---|---|---|
-| ESP-VoCat V1.2 喵伴，16 MB QIO | `ideapickup-2026.10.27-rc1-vocat16.tar.gz` | `scripts/flash_vocat16.sh` |
-| ESP32-S3-Touch-LCD-1.28-BOX 斑梨，16 MB DIO | `ideapickup-2026.10.27-rc1-spotpear.tar.gz` | `scripts/flash_spotpear.sh` |
+| ESP-VoCat V1.2 喵伴，16 MB QIO | `ideapickup-direct-vocat16.tar.gz` | `scripts/flash_vocat16.sh` |
+| ESP32-S3-Touch-LCD-1.28-BOX 斑梨，16 MB DIO | `ideapickup-direct-spotpear.tar.gz` | `scripts/flash_spotpear.sh` |
 
 32 MB 喵伴和其他型号不能使用这些固件。同为 ESP32-S3、能读到 MAC、Flash 容量相同，都不能证明屏幕、音频和引脚兼容。
 
-准备可传数据的 USB 线、macOS／Linux 电脑，以及按[下载说明](PUBLIC_RELEASE.md#校验并取得项目目录)取得的项目源码与对应固件包。先核对 SHA256。已有 SD 卡里的文件应先自行备份；不需要为了安装格式化卡。停止设备录音、播放、USB 麦克风和同步，已有配置的设备先保存“仅本地使用”，避免更新后自动上传未处理录音。
+准备可传数据的 USB 线、macOS／Linux 电脑，以及按[本地候选说明](DEVICE_DIRECT_CLOUD_DELIVERY.md)取得的项目源码与对应固件包。先核对 SHA256。已有 SD 卡里的文件应先自行备份；不需要为了安装格式化卡。停止设备录音、播放、USB 麦克风和同步，已有配置的设备先保存“仅本地使用”，避免更新后自动上传未处理录音。
 
 安装前确认实际可用的下载入口。可对照 [Espressif 喵伴说明](https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32s3/esp-vocat/user_guide_v1.2.html)和[斑梨 BOX 官方说明](https://spotpear.com/index.php/wiki/ESP32-S3-N16R8-AI-DeepSeek-XiaoZhi-XiaGe-Qwen-DouBao-1.28-inch-Round-LCD-BOX-TouchScreen.html)核对实物和按键；外壳无法按到 BOOT／RST 时，不把图上的按键当作可用恢复方式。
 
@@ -34,11 +34,11 @@ uv --version
 
 ## 3. 解压固件包并识别端口
 
-把校验过的固件压缩包放入项目的 `private/downloads/`。以下以喵伴为例，斑梨将两个 `vocat16` 替换为 `spotpear`；解压目录应是新目录：
+如果尚未按候选说明解压板包，把校验过的固件压缩包放入项目的 `private/downloads/`。以下以喵伴为例，斑梨使用 `spotpear` 文件名和目录。解压目录应是新目录。
 
 ```sh
 mkdir -p private/downloads/vocat16
-tar -xzf private/downloads/ideapickup-2026.10.27-rc1-vocat16.tar.gz -C private/downloads/vocat16
+tar -xzf private/downloads/ideapickup-direct-vocat16.tar.gz -C private/downloads/vocat16
 .venv/bin/python -m serial.tools.list_ports -v
 ```
 
@@ -114,8 +114,23 @@ MEMO_PORT='/dev/cu.usbmodem实际应用编号'
 
 核对板型和版本，再做一次短录音／回放（有卡时）。`FLASH_VERIFIED` 只证明写入和读回一致；`RESET_REQUESTED_BOOT_NOT_CONFIRMED` 不代表已启动。黑屏或串口不响应时看[安装故障](SUPPORT.md#install-troubleshooting)，不要把未知结果当作成功。
 
+<a id="direct-setup"></a>
+## 6. 直连固件配网与 USB 凭据
+
+1. 停止录放和 USB 麦克风。长按猫脸进入配网，用手机连接设备热点，手动打开 `http://192.168.4.1`，保存 2.4 GHz Wi-Fi。
+2. 保持设备配置热点开启，用数据线连接可信电脑。关闭占用串口的工具，从项目根目录的交互终端执行以下命令。已安装本页锁定的主机工具即可。
+
+   ```sh
+   .venv/bin/python -m serial.tools.list_ports -v
+   .venv/bin/python scripts/configure_cloud.py
+   ```
+
+   多设备时用 `--port` 指定步骤 3 核实的**应用串口**。按隐藏提示输入[千问 Key 和思源 Token](DEPLOYMENT.md#direct-credentials)。留空保留原值，`--clear-qwen` 或 `--clear-siyuan` 清除对应凭据。更换账号后，设备会要求确认是否将旧未完成任务交给当前账号。保存未确认时先检查网页，避免重复输入。
+3. 刷新配网页，确认 Wi-Fi 已连接及两项凭据已保存。选择「转写服务」并保存，退出配置热点。保存凭据只确认存储，业务结果以录音详情和思源收件为准。
+4. 录一条可交给云服务的短语音，在设备详情确认处理状态并到思源云端收集箱核对。暂不启用转写时，有卡可保持「仅本地使用」。
+
 <a id="pairing"></a>
-## 6. 手机配网与设备配对
+## 旧公开固件的手机配网与设备配对
 
 只用离线有卡录放：保持“仅本地使用”，直接看[日常使用](SUPPORT.md#daily-use)。要转写，先完成[后端部署和配置](DEPLOYMENT.md)，从后台准备好**服务地址和新配对码**。初始化码、管理员密码、千问 Key 和思源 Token 都不填在设备上。
 
@@ -139,7 +154,7 @@ MEMO_PORT='/dev/cu.usbmodem实际应用编号'
 # 斑梨改用 flash_spotpear.sh 与自己的 spotpear manifest；不要两条都执行
 ```
 
-已包含本次同步修复的固件可由维护工具通过 USB 串口发送 `sync_mode local`，调用与网页相同的保存入口暂停同步，无需手动开网页；`SYNC_MODE result=0` 后还须用 `status` 确认任务空闲、服务停用。已有地址与配对保留。忙态不强制覆盖正在传输的唯一音频，先按现有 `provision` 暂停入口停止同步再核对；不把“发了命令”当作已停止。验证结束可用 `sync_mode service` 恢复原服务，先确认允许处理尚未完成任务。旧固件未支持该命令时不要假定生效。`memory` 仅输出 RAM 数值，不读录音正文或凭据。
+已包含本次同步修复的固件可由维护工具通过 USB 串口发送 `sync_mode local`，调用与网页相同的保存入口暂停同步，无需手动开网页；`SYNC_MODE result=0` 后还须用 `status` 确认任务空闲、服务停用。直连凭据及已有录音、任务记录保留。忙态不强制覆盖正在传输的唯一音频，先按现有 `provision` 暂停入口停止同步再核对；不把“发了命令”当作已停止。验证结束可用 `sync_mode service` 恢复原服务，先确认允许处理尚未完成任务。旧固件未支持该命令时不要假定生效。`memory` 仅输出 RAM 数值，不读录音正文或凭据。
 
 脚本先核对 bootloader／分区表／模型依赖并备份本次拟写扇区，只写 app，保留配置、编号、任务和 SD 录音。依赖不同会停止，不能为了通过而改用 `first-install`；先看新版本的兼容说明。更新后确认启动、原有录音和状态，准备好联网后再自行恢复转写服务。
 
@@ -151,6 +166,14 @@ MEMO_PORT='/dev/cu.usbmodem实际应用编号'
 返回应用沿用板型专用 ROM helper：斑梨锁定 esptool `hard_reset()`，喵伴使用经验证的 watchdog 路径，不写 eFuse。应用失效或 CDC 不可用时，只能使用实际核实过的 ROM 恢复入口；应用软件命令不能自救。原始 Flash、串口身份和日志只留在 private，不上传公开 Issue。产物定义见[固件契约](contracts/firmware-release-v1.json)。
 
 </details>
+
+## 回退到旧中继固件
+
+回退需要维护者准备匹配的旧应用和数据副本。先停止录放和转写，保全回退前的 SD 数据、默认 NVS、`memo_meta` 和当前应用。升级前备份与回退前备份分别保留。
+
+恢复前，从升级前及回退前的编号高水位、以及已保全新增有卡和无卡记录的低 31 位编号，取最大已分配值。维护者在离线回退副本中用现有 `memo_record_ids` 的 16 字节格式保存该值并解码回读。任何一项无法可靠取得或回读时停止回退。
+
+在副本中把旧中继配置 `memo_cfg1` 设为仅本地，再恢复匹配应用和数据并启动核验。直连的仅本地设置写在 `memo_cloud1`，旧版启动前须单独核对旧配置。分区、依赖、备份或编号条件不满足时请保留现状。旧中继固件不能继续直连任务，新录音和新任务状态须另行保全。
 
 ## 自行构建与维护者测试
 

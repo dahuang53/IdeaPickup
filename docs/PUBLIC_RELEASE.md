@@ -1,5 +1,7 @@
 # 版本与下载
 
+本文记录现有公开的旧中继附件。当前直连固件为本地候选，配置入口见[直连固件安装与联网](DEVICE_INSTALL.md#direct-setup)。
+
 [返回首页](../README.md) · [部署后端](DEPLOYMENT.md) · [刷机](DEVICE_INSTALL.md) · [支持与限制](SUPPORT.md#known-limits)
 
 ## 当前预发布：2026.10.27-rc1

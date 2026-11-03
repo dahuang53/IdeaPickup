@@ -1,6 +1,6 @@
 # 设备配置、任务与保留数据
 
-当前直连实现以[配置与接口契约](contracts/firmware-direct-cloud-v1.json)和[第一步决定](DEVICE_DIRECT_CLOUD_STEP1.md)为准。实现／本机验证分别见[有卡](DEVICE_DIRECT_CLOUD_STEP3.md)、[无卡](DEVICE_DIRECT_CLOUD_STEP4.md)、[配置](DEVICE_DIRECT_CLOUD_STEP5.md)；真实设备及供应商验收留第六步，当前说明不等于新版本已公开交付。
+当前直连实现以[配置与接口契约](contracts/firmware-direct-cloud-v1.json)为准。设备直连已经过两板验收，当前交付范围见[本地候选说明](DEVICE_DIRECT_CLOUD_DELIVERY.md)。
 
 配置只写默认NVS的独立 `memo_cloud1/config`：604字节、版本／CRC、两项凭据代次、模式。密钥经USB专用隐藏输入；开放HTTP只接受模式和明确清除，不回显密钥。不变不写；写入、commit后关闭handle并精确回读，失败重新读取实际值。缺失为本地未配置，坏／未来格式拒绝覆盖，不借旧token补齐。
 
@@ -11,3 +11,5 @@
 原 `memo_cfg1`、`records1`、`sync_r1`、原录音和备份继续保留。旧配置不日常加载，旧记录只读；旧未决来源显示待核对，不向旧服务请求，也不创建新的直连提交。[旧配置契约](contracts/firmware-config-v1.json)与[旧任务契约](contracts/firmware-tasks-v1.json)仅解释历史中继格式，已被当前契约替代，不是新应用的运行入口。
 
 不更改分区、不自动擦除／格式化，不回退编号高水位。回退必须保全新数据，并使用第一步决定中匹配应用／数据副本及最大已分配编号的流程。NVS未加密的物理提取风险仍存在；本轮不烧安全熔丝，也不声称USB具备抗本机恶意软件能力。
+
+有卡的转写检查点与临时正文随卡保留，已确认文本可从检查点继续。成功和确定取消后清理临时正文，失败时仅保留同一任务的一份有界临时正文。思源收件结果不确定时停止自动重发。无卡历史只保留有限状态，音频与正文缓存随任务结束释放。更换凭据用[USB 配置](DEVICE_INSTALL.md#direct-setup)，回退前备份 SD 与原 Flash 材料。
