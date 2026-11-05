@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "tree_sha256": "bd7d98a52ed6c18b5035df545bc47abe7491759d170e0e789bda4458b1f2a464",
+  "tree_sha256": "d5639e50833cc380c53874c6ea1ac5da4c5d9af2dab3d313e61aa45f1c587a43",
   "files": [
     {
       "path": ".dockerignore",
@@ -1636,8 +1636,8 @@
     },
     {
       "path": "tests/test_cloud_ws_sdk.py",
-      "sha256": "df55b3a98ab6ab578114b004e37e45576c5782283addebd3cb9ef794ca2e3394",
-      "size": 13358,
+      "sha256": "0cdec0b5624e56cdbcab1b8f0470f6f7e35325debdbb0469749c6b77abeac90a",
+      "size": 13377,
       "executable": false
     },
     {

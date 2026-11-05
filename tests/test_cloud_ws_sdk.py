@@ -45,6 +45,7 @@ SUPPORT=r'''
 #include <cstdarg>
 #include <cinttypes>
 #include <cstdio>
+#include <cstring>
 #include <string>
 #include <vector>
 static int log_level=3;
