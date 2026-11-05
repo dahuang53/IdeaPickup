@@ -148,7 +148,8 @@ int main(int argc,char**argv){
   printf("{\"stdio_fds\":[%d,%d,%d],\"wire_bytes\":%zu,\"first_line_bytes\":%zu,\"adjacent_128_pairs\":%u,\"exact_single_copy\":%s,\"unrelated_fd_preserved\":%s}\n",
    original[0],original[1],original[2],wire_size,line_size,pairs,exact?"true":"false",unrelated?"true":"false");
  }
- for(unsigned i=0;i<16;++i)free(s_vfs[i]);return 0;
+ for(unsigned i=0;i<16;++i)free(s_vfs[i]);
+ return 0;
 }
 '''
 

@@ -241,7 +241,8 @@ int main(int argc,char **argv){
  }
  else if(scenario=="noop"){
   assert(network_sync_configure_cloud(&p)==MEMO_CLOUD_OK);auto before=durable[1];unsigned n=writes;memo_cloud_patch_t empty{};empty.qwen_key="";empty.siyuan_token="";
-  for(int i=0;i<100;i++)assert(network_sync_configure_cloud(&empty)==MEMO_CLOUD_OK);assert(writes==n&&durable[1]==before);
+  for(int i=0;i<100;i++)assert(network_sync_configure_cloud(&empty)==MEMO_CLOUD_OK);
+  assert(writes==n&&durable[1]==before);
  }
  else if(scenario=="boundaries"){
   std::string key(256,'x');p.qwen_key=key.c_str();p.siyuan_token=key.c_str();assert(network_sync_configure_cloud(&p)==MEMO_CLOUD_OK);auto before=durable[1];key+='x';assert(network_sync_configure_cloud(&p)==MEMO_CLOUD_INVALID&&durable[1]==before);

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "tree_sha256": "4c54de7b731409330f8a6e940817d56dcabe334e4eb8d833eebd8725971f9b0f",
+  "tree_sha256": "681f7c771ae8533da97ef0eac220964bbb96f409304ecc9b707de19f8490547a",
   "files": [
     {
       "path": ".dockerignore",
@@ -1720,8 +1720,8 @@
     },
     {
       "path": "tests/test_provisioning.py",
-      "sha256": "c83555718c61d47a68feaeeea96965ce293281872ba6190599300abb7c72d8fd",
-      "size": 22291,
+      "sha256": "fe6289bfae982c11beec40ab0fafd1a6bfcea54ebbc13926b58dd8fd52f5fcaf",
+      "size": 22293,
       "executable": false
     },
     {
@@ -1768,8 +1768,8 @@
     },
     {
       "path": "tests/test_service_runtime.py",
-      "sha256": "c7d01afc03782a3021555137493190fd9383cf21a262eb748d5959a6782d4e1e",
-      "size": 23696,
+      "sha256": "a83a67680cc0d9778cbc5067bc05a4c5f15ba127c4f74d9b0aaad738418257bd",
+      "size": 23699,
       "executable": false
     },
     {
@@ -1816,8 +1816,8 @@
     },
     {
       "path": "tests/test_usb_stdio_vfs.py",
-      "sha256": "defeadd07a98bb2e6efc1a5038f9e37e6c24d359e6dd9c451db2578b07a24525",
-      "size": 12415,
+      "sha256": "21ef34409b02b79d308d1dab0d731bd4854ecbd1e7c2b4f469f7185fbfde9c93",
+      "size": 12417,
       "executable": false
     },
     {

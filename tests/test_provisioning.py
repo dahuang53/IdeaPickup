@@ -101,7 +101,8 @@ int esp_wifi_start(){radio_on=true;if(wifi_mode==WIFI_MODE_STA)return 0;++wifi_s
 int esp_wifi_stop(){radio_on=false;if(wifi_mode==WIFI_MODE_STA)return 0;assert(http_stops==http_starts);++wifi_stops;apnet.up=apnet.dhcp=false;stop_joined=true;wh.fn(wh.ctx,WIFI_EVENT,WIFI_EVENT_AP_STOP,nullptr);return 0;}
 int esp_wifi_disconnect(){++disconnects;bool linked=driver_linked;driver_connecting=driver_linked=false;
  if(drop_disconnect)return 0;
- if(late_disconnect&&linked)disconnect_pending=true;else wh.fn(wh.ctx,WIFI_EVENT,WIFI_EVENT_STA_DISCONNECTED,nullptr);return 0;}
+ if(late_disconnect&&linked)disconnect_pending=true;else wh.fn(wh.ctx,WIFI_EVENT,WIFI_EVENT_STA_DISCONNECTED,nullptr);
+ return 0;}
 int esp_wifi_connect(){++connects;driver_connecting=true;
  // An old-link notification can arrive after the new connect has started.
  if(disconnect_pending){disconnect_pending=false;wh.fn(wh.ctx,WIFI_EVENT,WIFI_EVENT_STA_DISCONNECTED,nullptr);return 0;}
