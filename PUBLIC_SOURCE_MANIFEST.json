@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "tree_sha256": "1bb5ea91ea44c14e434660876dcf704de65c47add9c2fac0d2ce1e32ffda3c67",
+  "tree_sha256": "4c54de7b731409330f8a6e940817d56dcabe334e4eb8d833eebd8725971f9b0f",
   "files": [
     {
       "path": ".dockerignore",
@@ -1780,8 +1780,8 @@
     },
     {
       "path": "tests/test_store.c",
-      "sha256": "94c9596c00bd655c71e6da9e251c6b9a00208278ac3f78c109d3aee678bfd086",
-      "size": 23159,
+      "sha256": "48520416ad2e5ce3643c1f304d56dab1b0ad21daad0dc7abc9dcc3f4981e8a15",
+      "size": 23179,
       "executable": false
     },
     {

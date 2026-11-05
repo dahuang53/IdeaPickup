@@ -26,14 +26,18 @@
 static int index_page(const memo_store_t *store,uint32_t before,memo_record_t *out,
                       size_t capacity,size_t *count,size_t *total)
 {
-    if(count)*count=0;if(total)*total=0;
-    memo_record_t *items=NULL;size_t n=0;
+    if(count)*count=0;
+    if(total)*total=0;
+    memo_record_t *items=NULL;
+    size_t n=0;
     if(memo_store_index(store,&items,&n))return -1;
     if(total)*total=n;
     size_t used=0;
     for(size_t i=0;i<n&&used<capacity;i++)
         if(!before||items[i].id<before)out[used++]=items[i];
-    free(items);if(count)*count=used;return 0;
+    free(items);
+    if(count)*count=used;
+    return 0;
 }
 
 static int checks;
