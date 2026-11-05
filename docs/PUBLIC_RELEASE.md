@@ -1,10 +1,50 @@
 # 版本与下载
 
-本文记录现有公开的旧中继附件。当前直连固件为本地候选，配置入口见[直连固件安装与联网](DEVICE_INSTALL.md#direct-setup)。
+[返回首页](../README.md) · [刷机与配网](DEVICE_INSTALL.md) · [凭据准备](DEPLOYMENT.md#direct-credentials) · [支持与限制](SUPPORT.md#known-limits)
 
-[返回首页](../README.md) · [部署后端](DEPLOYMENT.md) · [刷机](DEVICE_INSTALL.md) · [支持与限制](SUPPORT.md#known-limits)
+## 当前预发布：2026.11.05-rc1
 
-## 当前预发布：2026.10.27-rc1
+[下载 2026.11.05-rc1](https://github.com/dahuang53/IdeaPickup/releases/tag/2026.11.05-rc1)。这是设备直连版：在手机配网页保存千问 AI 平台 Key 和思源 Token 后，设备直接转写并投递，不需要部署 Docker 中继、填写服务器地址或配对码。
+
+本版本包含持久密码热点、屏幕主动换密、网页凭据写入／替换／清除、一次处理意图及本地状态查看，以及[固件清理](FIRMWARE_CLEANUP.md)。两板构建与主机回归通过；喵伴最新验收候选已完成实际安装和真实录音→转写→思源投递。斑梨最新清理版本轮只有构建及主机回归，未重刷真机。完整范围见[直连交付记录](DEVICE_DIRECT_CLOUD_DELIVERY.md)，限制见[支持状态](SUPPORT.md#known-limits)。
+
+### 下载哪个文件
+
+| 文件 | 用途 |
+|---|---|
+| [ideapickup-2026.11.05-rc1-vocat16.tar.gz](https://github.com/dahuang53/IdeaPickup/releases/download/2026.11.05-rc1/ideapickup-2026.11.05-rc1-vocat16.tar.gz) | 仅 16 MB QIO 喵伴：固件、manifest 和许可 |
+| [ideapickup-2026.11.05-rc1-spotpear.tar.gz](https://github.com/dahuang53/IdeaPickup/releases/download/2026.11.05-rc1/ideapickup-2026.11.05-rc1-spotpear.tar.gz) | 仅 16 MB DIO 斑梨：固件、manifest 和许可；本轮未重新真机验收 |
+| [ideapickup-2026.11.05-rc1-source.tar.gz](https://github.com/dahuang53/IdeaPickup/releases/download/2026.11.05-rc1/ideapickup-2026.11.05-rc1-source.tar.gz) | 本版本源码、安装脚本、锁定依赖和使用文档 |
+| [SHA256SUMS](https://github.com/dahuang53/IdeaPickup/releases/download/2026.11.05-rc1/SHA256SUMS) | 本次全部附件的 SHA256 校验值 |
+
+固件包不含安装脚本，请同时下载源码包；不要用 GitHub 自动生成的 Source code ZIP 代替固件附件。32 MB 喵伴及其他型号不能使用这两套固件。
+
+### 校验并取得项目目录
+
+在同一目录下载源码包、对应板型固件包和 `SHA256SUMS`。计算已下载文件的摘要，与校验文件中**同名行的完整 64 位值**比较；不一致则重新下载，不刷写：
+
+```sh
+# macOS；Linux 可用 sha256sum
+shasum -a 256 ideapickup-2026.11.05-rc1-source.tar.gz
+shasum -a 256 ideapickup-2026.11.05-rc1-vocat16.tar.gz
+# 斑梨用户将 vocat16 换为 spotpear
+mkdir IdeaPickup
+tar -xzf ideapickup-2026.11.05-rc1-source.tar.gz -C IdeaPickup
+cd IdeaPickup
+```
+
+源码归档直接以项目文件为根；目标目录应尚不存在。也可从同一标签取得源码与安装脚本：
+
+```sh
+git clone --branch 2026.11.05-rc1 --depth 1 https://github.com/dahuang53/IdeaPickup.git IdeaPickup
+cd IdeaPickup
+```
+
+随后按[设备安装说明](DEVICE_INSTALL.md)准备工具、解压板包并确认下载模式。已有 IdeaPickup 且依赖匹配时使用 `app-only`；原厂固件或不匹配布局使用安装说明定义的受保护入口，不绕过校验。旧中继配对信息不会自动变成供应商凭据，直连转写需要按[网页配置](DEVICE_INSTALL.md#direct-setup)保存两项 Key；本地录音和可兼容的历史状态保留。
+
+本次不发布新的中继镜像。旧中继用户仍可使用下列历史版及其固定镜像，独立维护入口见[旧中继部署](DEPLOYMENT.md#legacy-relay)。
+
+## 历史旧中继版：2026.10.27-rc1
 
 [下载 2026.10.27-rc1](https://github.com/dahuang53/IdeaPickup/releases/tag/2026.10.27-rc1)。此版本包含手机热点切换修复、录音任务手动提交与取消、本地状态读取、服务器计算音频 SHA，以及无卡与配网页轮询精简。它仍是预发布：[两板低电矩阵未验证、斑梨看门狗告警未解决](SUPPORT.md#known-limits)。新斑梨固件仅完成构建；喵伴新固件已安装并完成启动、状态和保全检查，没有重做真人录音或物理断电测试。
 

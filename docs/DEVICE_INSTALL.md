@@ -2,18 +2,18 @@
 
 [返回首页](../README.md) · [固件下载](PUBLIC_RELEASE.md) · [部署后台](DEPLOYMENT.md) · [使用与排错](SUPPORT.md)
 
-本页的安装示例使用[直连本地候选](DEVICE_DIRECT_CLOUD_DELIVERY.md)。请使用与固件对应的源码和安装脚本。现有公开旧中继附件、校验和及历史版本另见[版本与下载](PUBLIC_RELEASE.md)。
+本页的安装示例使用 [2026.11.05-rc1 直连预发布](DEVICE_DIRECT_CLOUD_DELIVERY.md)。请使用与固件对应的源码和安装脚本。现有公开旧中继附件、校验和及历史版本另见[版本与下载](PUBLIC_RELEASE.md)。
 
 ## 1. 确认硬件与准备材料
 
 | 实物 | 下载的固件包 | 安装脚本 |
 |---|---|---|
-| ESP-VoCat V1.2 喵伴，16 MB QIO | `ideapickup-direct-vocat16.tar.gz` | `scripts/flash_vocat16.sh` |
-| ESP32-S3-Touch-LCD-1.28-BOX 斑梨，16 MB DIO | `ideapickup-direct-spotpear.tar.gz` | `scripts/flash_spotpear.sh` |
+| ESP-VoCat V1.2 喵伴，16 MB QIO | `ideapickup-2026.11.05-rc1-vocat16.tar.gz` | `scripts/flash_vocat16.sh` |
+| ESP32-S3-Touch-LCD-1.28-BOX 斑梨，16 MB DIO | `ideapickup-2026.11.05-rc1-spotpear.tar.gz` | `scripts/flash_spotpear.sh` |
 
 32 MB 喵伴和其他型号不能使用这些固件。同为 ESP32-S3、能读到 MAC、Flash 容量相同，都不能证明屏幕、音频和引脚兼容。
 
-准备可传数据的 USB 线、macOS／Linux 电脑，以及按[本地候选说明](DEVICE_DIRECT_CLOUD_DELIVERY.md)取得的项目源码与对应固件包。先核对 SHA256。已有 SD 卡里的文件应先自行备份；不需要为了安装格式化卡。停止设备录音、播放、USB 麦克风和同步，已有配置的设备先保存“仅本地使用”，避免更新后自动上传未处理录音。
+准备可传数据的 USB 线、macOS／Linux 电脑，以及按[直连版本说明](DEVICE_DIRECT_CLOUD_DELIVERY.md)取得的项目源码与对应固件包。先核对 SHA256。已有 SD 卡里的文件应先自行备份；不需要为了安装格式化卡。停止设备录音、播放、USB 麦克风和同步，已有配置的设备先保存“仅本地使用”，避免更新后自动上传未处理录音。
 
 安装前确认实际可用的下载入口。可对照 [Espressif 喵伴说明](https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32s3/esp-vocat/user_guide_v1.2.html)和[斑梨 BOX 官方说明](https://spotpear.com/index.php/wiki/ESP32-S3-N16R8-AI-DeepSeek-XiaoZhi-XiaGe-Qwen-DouBao-1.28-inch-Round-LCD-BOX-TouchScreen.html)核对实物和按键；外壳无法按到 BOOT／RST 时，不把图上的按键当作可用恢复方式。
 
@@ -34,11 +34,11 @@ uv --version
 
 ## 3. 解压固件包并识别端口
 
-如果尚未按候选说明解压板包，把校验过的固件压缩包放入项目的 `private/downloads/`。以下以喵伴为例，斑梨使用 `spotpear` 文件名和目录。解压目录应是新目录。
+如果尚未按版本说明解压板包，把校验过的固件压缩包放入项目的 `private/downloads/`。以下以喵伴为例，斑梨使用 `spotpear` 文件名和目录。解压目录应是新目录。
 
 ```sh
 mkdir -p private/downloads/vocat16
-tar -xzf private/downloads/ideapickup-direct-vocat16.tar.gz -C private/downloads/vocat16
+tar -xzf private/downloads/ideapickup-2026.11.05-rc1-vocat16.tar.gz -C private/downloads/vocat16
 .venv/bin/python -m serial.tools.list_ports -v
 ```
 
@@ -122,7 +122,7 @@ MEMO_PORT='/dev/cu.usbmodem实际应用编号'
 3. 确认 Wi-Fi 已连接、两项凭据均已保存。点击「启用转写服务」后退出配网。保存凭据只确认存储，业务结果以录音详情和思源收件为准。更换账号后，设备会要求确认是否将旧未完成任务交给当前账号。
 4. 录一条可交给云服务的短语音，在设备详情确认处理状态并到思源云端收集箱核对。暂不启用转写时，有卡可保持「仅本地使用」。
 
-热点密码首次配网时随机生成，重新配网、重启或保留配置升级时沿用。要更换，在设备配网屏幕点「更换密码」，等热点重开后使用屏幕新密码连接。新密码也在清除设备配置后重新生成。
+热点密码为 8 位小写字母和数字，避开易混淆字符。首次配网时随机生成，重新配网、重启或保留配置升级时沿用。要更换，在设备配网屏幕点「更换密码」，等热点重开后使用屏幕新密码连接。新密码也在清除设备配置后重新生成。
 
 USB 仍可用于维护。开启配网后，用数据线接可信电脑，在项目根目录运行 `.venv/bin/python scripts/configure_cloud.py`。多设备时用 `--port` 指定应用串口；清除选项为 `--clear-qwen` 和 `--clear-siyuan`。
 
@@ -143,6 +143,9 @@ USB 仍可用于维护。开启配网后，用数据线接可信电脑，在项�
 切到其他 App 复制地址后，可以返回原浏览器页面；已提交操作继续执行，未提交输入不算已保存。设备热点不提供手机上网，最好提前准备好地址和码；码过期回后台生成新的即可。页面打不开、持续等待或配对失败时看[故障排查](SUPPORT.md#troubleshooting)。
 
 <a id="updates"></a>
+
+从旧中继固件升级直连版前，先备份 SD 卡和原 Flash。旧录音及结果继续保留；旧服务未决记录不会自动重新转写，以免重复投递，按[旧任务说明](SUPPORT.md#direct-tasks)核对。直连模式需在设备配网页单独保存千问 AI 平台 Key 和思源 Token；旧中继配对令牌不能替代它们，也不会从服务器自动下发。
+
 ## 普通固件更新
 
 先暂停同步，停止录放，下载并校验同板型新包，解压到新的目录，再按上面的下载模式步骤进入 ROM。使用新包路径、将模式改为 `app-only`：

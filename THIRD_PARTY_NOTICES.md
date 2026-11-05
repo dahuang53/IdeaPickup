@@ -15,7 +15,7 @@
 
 构建时获取的依赖不随源码归档拷贝：ESP-IDF固定提交及组件/Python版本见根工具锁、组件锁与 `server-relay/requirements.lock.txt`。保留下载包原许可证；固件／模型分发应核对实际包内条款，而不是把所有依赖统称Apache。
 
-ESP-SR 2.3.1使用[ESPRESSIF MIT License](https://components.espressif.com/components/espressif/esp-sr/versions/2.3.1/license)，授权限定用于Espressif产品。当前板型均为ESP32-S3；源码/Docker候选不附带模型或固件，后续附件须独立核对模型、预编译库及资产条件。
+ESP-SR 2.3.1使用[ESPRESSIF MIT License](https://components.espressif.com/components/espressif/esp-sr/versions/2.3.1/license)，授权限定用于Espressif产品。当前板型均为ESP32-S3；源码/Docker归档不附带模型。直连固件包附带按锁定构建生成的模型，保留模型及预编译库的原许可、版权和产品适用范围。当前直连固件已移除无调用的软件编解码组件esp_audio_codec；硬件音频驱动esp_codec_dev仍保留。
 
 Docker基于锁定的Python/Debian镜像，安装固定libopus及Python包；系统和传递依赖的许可证各自适用。Python 3.11.16原文及pip vendored distlib启动器条款分别保留在 `licenses/Python-3.11-LICENSE.txt`、`licenses/distlib-LICENSE.txt`；setuptools启动器保留安装包MIT原文。镜像保留 `/usr/share/doc/*/copyright`、Python安装包的license/NOTICE及系统库存，供接收者查阅。
 

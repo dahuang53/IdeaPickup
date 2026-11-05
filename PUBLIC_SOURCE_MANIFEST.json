@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "tree_sha256": "de0212a97180cc6ba7a08c391475b6e39726c9ecfd779aa57197d64562b4bb0c",
+  "tree_sha256": "1bb5ea91ea44c14e434660876dcf704de65c47add9c2fac0d2ce1e32ffda3c67",
   "files": [
     {
       "path": ".dockerignore",
@@ -28,8 +28,8 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "296088203d165710e122a91aa5c0d0c42cf791bec929ca3623b8715d94cf48c5",
-      "size": 1510,
+      "sha256": "702395023cf1a02146d4e0e74a8018242ea0c06a724b43889afbdbb54dbc9179",
+      "size": 3124,
       "executable": false
     },
     {
@@ -40,8 +40,8 @@
     },
     {
       "path": "CONTRIBUTING.md",
-      "sha256": "0b5d2c276b877ec1bb6ee456410adb6b9aeb1e7c0d764a5f17e199e6ef713784",
-      "size": 4966,
+      "sha256": "0c0e2a02c6d539d7bcd18f392e36fcfacd99f7ca74f44ab5ebeaf9e9999522fd",
+      "size": 5269,
       "executable": false
     },
     {
@@ -52,8 +52,8 @@
     },
     {
       "path": "README.md",
-      "sha256": "cc6dd9b5a65e7a16613da5fa4e4f4b3ab10ec734d10416f62589488badd23f83",
-      "size": 5484,
+      "sha256": "30b775133f297e616c26b50adadbb1258ac91ee4101d23af909789a3d360e086",
+      "size": 3321,
       "executable": false
     },
     {
@@ -64,8 +64,8 @@
     },
     {
       "path": "THIRD_PARTY_NOTICES.md",
-      "sha256": "651bda1dee0544f898af8d8c0614032515e73650ffdb559a0de6730ed3982d11",
-      "size": 5195,
+      "sha256": "546f7fd5b4a5af354b0795050ce8af7f941529c7c032ea09d2a29b0e562684d6",
+      "size": 5367,
       "executable": false
     },
     {
@@ -112,14 +112,14 @@
     },
     {
       "path": "components/esp-wifi-connect/VOICE_MEMO_PATCHES.md",
-      "sha256": "0fb497b96d9f4dd87ba7b3daa2ce6fdd764be3b8198b37d4406ed7b4aeeb47fe",
-      "size": 4884,
+      "sha256": "70b2787c2b8ae4534555031a31e01d9bca9367bd73f37aad944a869c0f28500d",
+      "size": 5617,
       "executable": false
     },
     {
       "path": "components/esp-wifi-connect/assets/wifi_configuration.html",
-      "sha256": "22c70486a9cec76e6e4ebf7df616b36d60f8d44c41a3b1e0e479cce351ba4837",
-      "size": 63132,
+      "sha256": "f45bf842b081068bddaedfa05ff6e90e145d39c44de9a6fc72ffc32b210c4fc9",
+      "size": 60224,
       "executable": false
     },
     {
@@ -130,8 +130,8 @@
     },
     {
       "path": "components/esp-wifi-connect/include/memo_service_portal.h",
-      "sha256": "ac9117f92a252b037beb0918cccdedcf33dc00757b4d2feb0c5ed2d86b935904",
-      "size": 1947,
+      "sha256": "22ff9147196ff551306da42075912a4250eb352d998ce64ae6e0a5de0c26e120",
+      "size": 1944,
       "executable": false
     },
     {
@@ -142,14 +142,14 @@
     },
     {
       "path": "components/esp-wifi-connect/include/wifi_configuration_ap.h",
-      "sha256": "0ac0f839d579ad0194d5599333f19dc762023c77f6e648dadbec66cdd89c24a5",
-      "size": 2472,
+      "sha256": "65b07bc2daab4462b2e0f8f694cc7289b6c60e17a7388c6f657e95dadde280ef",
+      "size": 2562,
       "executable": false
     },
     {
       "path": "components/esp-wifi-connect/include/wifi_manager.h",
-      "sha256": "15b983241cdeafe089fc6428288fc048fccf21f205ec5e06dad5bab5072afa31",
-      "size": 4265,
+      "sha256": "14a1e12424fc87544818472fe5d4624efc361189b2c1abd4c067fbceb1975d0c",
+      "size": 4316,
       "executable": false
     },
     {
@@ -166,14 +166,14 @@
     },
     {
       "path": "components/esp-wifi-connect/wifi_configuration_ap.cc",
-      "sha256": "7b012512fca6690d5bcdbc3afd375ca8f54b07560c917e9996bd0f7c859730d3",
-      "size": 29587,
+      "sha256": "3f64614c71a6fda1a482c9bb05a4701424a9949375c380a3358d0edcda88d934",
+      "size": 31442,
       "executable": false
     },
     {
       "path": "components/esp-wifi-connect/wifi_manager.cc",
-      "sha256": "d85694a2a02a591ebf10f63d4a35ad0d4f84dc8e0eee9927eab6b7eddb4f39ee",
-      "size": 9507,
+      "sha256": "2917d3548bb4ab660e943cfa4d78b8023b0e0d1e3373af9f1c9790c834a309de",
+      "size": 9862,
       "executable": false
     },
     {
@@ -244,8 +244,8 @@
     },
     {
       "path": "dependencies.lock",
-      "sha256": "e39b944d7215424e126c1255c217875d7efbb1b7d6aabb10e84b362713de2c9f",
-      "size": 5528,
+      "sha256": "53fb7092c0d71a2c7dd5e286c5ddd345a21983a1aa7c37a0f8f4eddfcace940d",
+      "size": 5558,
       "executable": false
     },
     {
@@ -310,38 +310,50 @@
     },
     {
       "path": "docs/DEPLOYMENT.md",
-      "sha256": "d320d70589d0c1932ad25bbdad842af8a526f296ea105be2d549f54f708c6327",
-      "size": 16966,
+      "sha256": "36b0bc4d45a5e73e9719d660d7abd4e4a27f49672cfe788625fe77e5031e0458",
+      "size": 17682,
+      "executable": false
+    },
+    {
+      "path": "docs/DEVICE_DIRECT_CLOUD_DELIVERY.md",
+      "sha256": "d00ea44582c3b224750377ed7d6d8c96a2959bc0013c7d36f3a4fc3fdb27817d",
+      "size": 3409,
       "executable": false
     },
     {
       "path": "docs/DEVICE_INSTALL.md",
-      "sha256": "0a812d91b700a0c7b8a89613f96b8cf3e60677086731715e2d557b722d40f958",
-      "size": 12795,
+      "sha256": "0dacf4678765aeb52f311a6a46c57f3f7f78c7e56d262389f3dbfe89f7d8a90a",
+      "size": 15759,
+      "executable": false
+    },
+    {
+      "path": "docs/FIRMWARE_CLEANUP.md",
+      "sha256": "e56bd9a99724290c254d09224a2f3c7b7d8d9a8a94df76ef4d533b424f5f4567",
+      "size": 2392,
       "executable": false
     },
     {
       "path": "docs/FIRMWARE_STORAGE.md",
-      "sha256": "95d8b16e55a33744b040d3b710d7bca31bfe256b41b386a26e2c198061dfc536",
-      "size": 5635,
+      "sha256": "12c6c79e78c8d3be633b36c0f5f8bdf5762b90dbd7149063c356db8c6cd35cf0",
+      "size": 2715,
       "executable": false
     },
     {
       "path": "docs/PUBLIC_RELEASE.md",
-      "sha256": "221d0de9fc571d3f6a9470503ce4635435d0ac0a89370de39ab1b2c2859e211b",
-      "size": 7933,
+      "sha256": "0872a65422117b71e7613b442d766732c684f9cae065af491f3801f905632124",
+      "size": 11248,
       "executable": false
     },
     {
       "path": "docs/SUPPORT.md",
-      "sha256": "fafacc4d2f08408fe2f26fb48e50e749a64027f41a1cd925c910b47b35d4d793",
-      "size": 26624,
+      "sha256": "0e4bf115fa56c35d1798c26fc46d0ef7a28fc3d61a3350f8bbec669c6e6ce5c4",
+      "size": 24742,
       "executable": false
     },
     {
       "path": "docs/TESTING.md",
-      "sha256": "d7e3199fed387c914aa024ab429d6c8bec848640af000c073aaa1f6a96b56894",
-      "size": 14327,
+      "sha256": "9418fb0ab8837ee74e46591ffc8c2ff56ef879536eb433c9be5d8ac63f61ea25",
+      "size": 14735,
       "executable": false
     },
     {
@@ -352,14 +364,20 @@
     },
     {
       "path": "docs/contracts/device-api-v2.json",
-      "sha256": "0ee0add9828931501180fe3cb6ef87f0b1ed0e91a8cbdd0d1bf1ce564181d00e",
-      "size": 13691,
+      "sha256": "07dfebad57a05cca7465ad47bbb8219b33988faf31ebac6739e32d22ba908098",
+      "size": 13856,
       "executable": false
     },
     {
       "path": "docs/contracts/firmware-config-v1.json",
-      "sha256": "509a077ee71a954c7938d665de5dfa23888816527f40520ef12507f41150d041",
-      "size": 10789,
+      "sha256": "559b30134740d1653c55495755d67bd147d3153ea6b65fe5d0a82bd9f5eecb8b",
+      "size": 10917,
+      "executable": false
+    },
+    {
+      "path": "docs/contracts/firmware-direct-cloud-v1.json",
+      "sha256": "add820760540ce84c028684bb98efec9356d3c5abf0e9fc7f7c03f51877b3d65",
+      "size": 4386,
       "executable": false
     },
     {
@@ -370,8 +388,8 @@
     },
     {
       "path": "docs/contracts/firmware-tasks-v1.json",
-      "sha256": "c7b1a50e0dc642e8db868eade397441d1aa9e7981985384fad55d3fc2ae1be3a",
-      "size": 10927,
+      "sha256": "06eadd106093172b9f7d59f07ebf519bfc0960ff31c4971710e57c93c295bda8",
+      "size": 11055,
       "executable": false
     },
     {
@@ -412,8 +430,8 @@
     },
     {
       "path": "main/CMakeLists.txt",
-      "sha256": "e2189520426f139bd361e68290fe09fa9d0e26d05d3e754098d360c0b6b7307c",
-      "size": 2071,
+      "sha256": "f91895f32a42b5f03de29072f0c37e1063fa983f9bac8179112b22d26338c958",
+      "size": 2136,
       "executable": false
     },
     {
@@ -424,14 +442,14 @@
     },
     {
       "path": "main/app.c",
-      "sha256": "05b45d3896df36a8bb7890e420d6d6be07b6af433125a72b6888d34090997d9c",
-      "size": 62569,
+      "sha256": "f13bbd72ebc1ea2e622fcd4b780b203a88a7521323ce3f5c689911e17fb978ef",
+      "size": 64310,
       "executable": false
     },
     {
       "path": "main/app.h",
-      "sha256": "f16148198a4ab7fc57765be38d3c0e259fedc97b900b899616633bf4d86067d8",
-      "size": 2307,
+      "sha256": "01d71f1002585e00459182e7a43181d5d4ddfae0df9f8138fbf1026f3f95f94e",
+      "size": 2331,
       "executable": false
     },
     {
@@ -538,68 +556,134 @@
     },
     {
       "path": "main/idf_component.yml",
-      "sha256": "1f29fc5438d562eead6f2332e02396350871ca89dc23a9ce7c0acbfac31dde3a",
-      "size": 393,
+      "sha256": "5c7bfa5939865bf84887206072f37c32584c7a7689b12dc1d27432c1efb42e94",
+      "size": 508,
+      "executable": false
+    },
+    {
+      "path": "main/memo_activity.c",
+      "sha256": "e1124f370cd7ea64519818ffdc3c99d4c4879bf34e509c480a17824d54ced4df",
+      "size": 1028,
+      "executable": false
+    },
+    {
+      "path": "main/memo_activity.h",
+      "sha256": "28544c7188a44090715b51d461f281190a97a52efb19efb0438ba22784b1ab3b",
+      "size": 562,
       "executable": false
     },
     {
       "path": "main/memo_cardless.cpp",
-      "sha256": "3ca571d909129eb2d5b44506291221daa06fdc58338b159e996a6c0366d18516",
-      "size": 65474,
+      "sha256": "dc445f1c2dd25ba034904207477bf54f01fcdf6fe15acea752aa194830ae9790",
+      "size": 21751,
       "executable": false
     },
     {
       "path": "main/memo_cardless.h",
-      "sha256": "3e9440afdd0aa80450a22b3e1018e13551c93f4b65d38705b20b50083bfac0a3",
-      "size": 5316,
-      "executable": false
-    },
-    {
-      "path": "main/memo_cardless_buffer.c",
-      "sha256": "a881aa70082e7ca17115c9c24b7843bb063e2fbb03140766c5fc1f326e5a95ea",
-      "size": 2999,
-      "executable": false
-    },
-    {
-      "path": "main/memo_cardless_buffer.h",
-      "sha256": "25d8ab4e795f8d791bb4949bdc57503dfcfd622a97deb398d1b24a2d3e81e5c5",
-      "size": 946,
+      "sha256": "34081e712ed7cf17a7815572d27202c7237e85cd65b8d4d94238bd88b4aac026",
+      "size": 2041,
       "executable": false
     },
     {
       "path": "main/memo_cardless_record.c",
-      "sha256": "86f1f7338552ab063b0eed36b00882eba98fcab3811bf39b5ca562c07f972b8a",
-      "size": 2350,
+      "sha256": "1b14601098781355af9bb9edf6f6fce5dfb48c790328bc3328c8d671cfe2e400",
+      "size": 2811,
       "executable": false
     },
     {
       "path": "main/memo_cardless_record.h",
-      "sha256": "de6e694a5af1d68fd53b37ea132a9f8a44b079f1d112bb31ab0c0a93d262dd22",
-      "size": 420,
+      "sha256": "7dfe952f35dfbcf1872b3d39f6e075ad6739cbdd29a1ae93832d21ec5d35ab49",
+      "size": 606,
       "executable": false
     },
     {
-      "path": "main/memo_cardless_state.c",
-      "sha256": "b4187afe6b6484629d607e01fb9bfb9753d220b0a178dc7a3acbb66be7d4d52e",
-      "size": 872,
+      "path": "main/memo_cloud.cpp",
+      "sha256": "2d37acf1272fd305bd3fe4fdcb237790af06733dc7ad1a2fda83489274c279f8",
+      "size": 27371,
       "executable": false
     },
     {
-      "path": "main/memo_cardless_state.h",
-      "sha256": "ed83844f56d5e1239973abec06ee70576a4224ca4f6233c2a9dc6424d6b803f1",
-      "size": 1006,
+      "path": "main/memo_cloud.h",
+      "sha256": "c4c83340d9f1057d0e289336c14e6a0612d2f3c388d7b98f0db7ab701c0f2280",
+      "size": 2992,
+      "executable": false
+    },
+    {
+      "path": "main/memo_cloud_config.cpp",
+      "sha256": "01bcf51c4bf37e92dc5895b71c16c327db893633c8dd0fa5b9eacb9e49ba8508",
+      "size": 3155,
+      "executable": false
+    },
+    {
+      "path": "main/memo_cloud_config.h",
+      "sha256": "f8d570a3ba319fe9e8ba0f648ba1ec45f249c34c3bea5d59d1235b51e0eb130f",
+      "size": 1523,
+      "executable": false
+    },
+    {
+      "path": "main/memo_cloud_esp.cpp",
+      "sha256": "c0882fbdfd43f1e647a31124f089feec6005a686b3e5d9edc9f8480a3c89808d",
+      "size": 11690,
+      "executable": false
+    },
+    {
+      "path": "main/memo_cloud_esp.h",
+      "sha256": "a1bcc4493b5b4a02af3d9054afface00d71fed0089d1908d02eef04bfa503044",
+      "size": 1500,
+      "executable": false
+    },
+    {
+      "path": "main/memo_cloud_input.cpp",
+      "sha256": "46ce8b6ea51f4cc1231b2976dcd32042ef29c1c467ceb10b8458b6463bbfc2ec",
+      "size": 1964,
+      "executable": false
+    },
+    {
+      "path": "main/memo_cloud_input.h",
+      "sha256": "4eaa371163d788be2df9f7f598d515b94a0c54c8873955b91572f51e6b9d2939",
+      "size": 594,
+      "executable": false
+    },
+    {
+      "path": "main/memo_cloud_json.c",
+      "sha256": "ea5ea82f4eb14e1c56e083bd653cad2554c672e911895c54c81abbcef7a4d9ca",
+      "size": 178,
+      "executable": false
+    },
+    {
+      "path": "main/memo_cloud_json_names.h",
+      "sha256": "1cca3eb554b563061897c303fbd8034a6d1c25b10cfe91c902ba9fd67903670a",
+      "size": 5200,
+      "executable": false
+    },
+    {
+      "path": "main/memo_cloud_secret_json.h",
+      "sha256": "b6899565b846fc717cd9ce56210177d6b4a692c07e7a89db3f89c66559049540",
+      "size": 390,
+      "executable": false
+    },
+    {
+      "path": "main/memo_cloud_settings.cpp",
+      "sha256": "266040e12bcf38a03e384c9a35b767a36e1791a998501c9925ed9586828a46b4",
+      "size": 4182,
+      "executable": false
+    },
+    {
+      "path": "main/memo_direct_cache.cpp",
+      "sha256": "34522c7bd1960d5bc8130a0914efcbe758edd5e6455ae595f1a9f12bf4d75527",
+      "size": 6248,
       "executable": false
     },
     {
       "path": "main/memo_font.c",
-      "sha256": "018a68a7cf6f891e235af758c4f4b9ac6c7ccbb103709370de11d2d6eb82b138",
-      "size": 342541,
+      "sha256": "8d76c9b47d181d1c9dd03669597559a220610597c2249a996fc85b17d77a0cf5",
+      "size": 327682,
       "executable": false
     },
     {
       "path": "main/memo_font20.c",
-      "sha256": "b284985dc30f8a21435912816e12047733418687a3d79448f7a64f5cc218014c",
-      "size": 401592,
+      "sha256": "507b22c3c8c6eca3ab99fdae1c161e069d2a8f750088181fd938dab8bff42cb3",
+      "size": 380655,
       "executable": false
     },
     {
@@ -628,14 +712,14 @@
     },
     {
       "path": "main/memo_http_transport.cpp",
-      "sha256": "cd9ef700b4c029568e49f57632a3e38f8c76028a9d76f72d48f08a23d84c8020",
-      "size": 7548,
+      "sha256": "cefb34f580f0a7067f0a1246407ec59398d53b5a8bce8ee7ba91e2c0d24194b7",
+      "size": 9860,
       "executable": false
     },
     {
       "path": "main/memo_http_transport.h",
-      "sha256": "860de37756a5ef43da711fcfa524109bb37985a207de52dc6ae41f96d1a93b2c",
-      "size": 1229,
+      "sha256": "efc66ac27ebb2922ef640a9ecfcf3ed45d4576bd6d7ea6ddd690544050755d79",
+      "size": 1808,
       "executable": false
     },
     {
@@ -648,30 +732,6 @@
       "path": "main/memo_icons.h",
       "sha256": "08803ab826dfdfebfbdae46858189e708934a0f13d8df88d97847ab3fb0e33fe",
       "size": 161,
-      "executable": false
-    },
-    {
-      "path": "main/memo_network_config.c",
-      "sha256": "813da911dd8177024d01716cebd9c3dd707b252bc0cca016b9a69b06f999a4d6",
-      "size": 27470,
-      "executable": false
-    },
-    {
-      "path": "main/memo_network_config.h",
-      "sha256": "b5ea5722852d3d6505006b2039f8eedf1baa499504229c653fecc4c02bd0900e",
-      "size": 3833,
-      "executable": false
-    },
-    {
-      "path": "main/memo_network_config_nvs.c",
-      "sha256": "824cf6b4a831327d877e8784d9b9ac9ae7e36bb5eddf22f014147497797876ab",
-      "size": 2160,
-      "executable": false
-    },
-    {
-      "path": "main/memo_network_config_nvs.h",
-      "sha256": "b97610ee2e27f4ff1e8a793707c5ad06277b5bb42030dd994fd93740e77fa0c3",
-      "size": 491,
       "executable": false
     },
     {
@@ -694,56 +754,56 @@
     },
     {
       "path": "main/memo_sd_sync.cpp",
-      "sha256": "a5972212183323bb36da74c9f976cddaf88535a49e0d1943b72082a1e7f1372a",
-      "size": 13051,
+      "sha256": "8d06d3a2b9de4b5f31794d7d3aacfc3258f754c8a9ed4aa64fb1e8fd9f110d58",
+      "size": 21053,
       "executable": false
     },
     {
       "path": "main/memo_sd_sync.h",
-      "sha256": "3a600fec247e3ee58ad945d4c4c44eb8f39a2595e2df21dc5c53fc6bc9520ad6",
-      "size": 1187,
-      "executable": false
-    },
-    {
-      "path": "main/memo_service_pairing.cpp",
-      "sha256": "8325621c3c53a71d406567ce94771f99f433e4b6ed2b40e9d9978a20111e31df",
-      "size": 5499,
-      "executable": false
-    },
-    {
-      "path": "main/memo_service_pairing.h",
-      "sha256": "9e5f58ff286922404d996af51055ff8f39e8b90ee49ba56f1a2b4f2178689d10",
-      "size": 1014,
+      "sha256": "6bdf7a4945bcc52ecfd66f762b5c376fcf3207b5c4549221414c718bfeb1d096",
+      "size": 2442,
       "executable": false
     },
     {
       "path": "main/memo_service_portal.cpp",
-      "sha256": "403bbe053323e308663b74e2bf9d0703669afd6d17f662be73ef7734e7cda123",
-      "size": 3735,
+      "sha256": "5a537567fef7a86c189a87ca4559eeffe1dc82f744048e3f95a25d0b7aaa31c9",
+      "size": 4421,
       "executable": false
     },
     {
       "path": "main/memo_store.c",
-      "sha256": "c276d98f46a9d432b26a6d21b3eca2d3125af1ac1893f8ecd71495def0e392d6",
-      "size": 26502,
+      "sha256": "4604c8a4fda6b8d3d368f897810e634a5ee4d913ca5395fea59a34f71bf15333",
+      "size": 24509,
       "executable": false
     },
     {
       "path": "main/memo_store.h",
-      "sha256": "6946d351567a62d9122fb809fc5e62181238a904de136933b96bc4c9eb43b3bb",
-      "size": 4764,
+      "sha256": "f88933c99a7cd58905040240d5dd9c9e817e9c1980c2b1a6b600003905251487",
+      "size": 4298,
       "executable": false
     },
     {
       "path": "main/memo_sync_cache.c",
-      "sha256": "dc6e2781bf8eeb72564a4c79c28cd9b4c24f5b9eb7b1da28371ae3f02e2af303",
-      "size": 6938,
+      "sha256": "e662cb0a77181db697d0ceced3c08a99c75795f5dcd741a4b158dfbfbc3cd03e",
+      "size": 4025,
       "executable": false
     },
     {
       "path": "main/memo_sync_cache.h",
-      "sha256": "cbcdaff1ccfccf9cc7b6a28f46043e033c0d945bd7ffbc84509e33c198ee47cb",
-      "size": 1598,
+      "sha256": "c290767d413fe7ba7ad7d07e542142f416ece305a3138906bc7037e9ae8a0a9b",
+      "size": 884,
+      "executable": false
+    },
+    {
+      "path": "main/memo_transcript.c",
+      "sha256": "3873d61340da0753f314af3217b9dc3034bf6020bd1f41042ba3ff421d2cc109",
+      "size": 3216,
+      "executable": false
+    },
+    {
+      "path": "main/memo_transcript.h",
+      "sha256": "8ba1aa3e8ab4da5b9191459f40012f924eb2dc6952fa7b9537d5fe3fe25ea0be",
+      "size": 491,
       "executable": false
     },
     {
@@ -760,8 +820,8 @@
     },
     {
       "path": "main/memo_usb_mic.c",
-      "sha256": "7fa750a2e7fe3f354adaacf2cfadca88174f85d0a94ea03f5638650b72ae6dc0",
-      "size": 14008,
+      "sha256": "9642835e44c1dd633c6fefe7f6c1062467678e905df2bfff8c084a428b9a95e6",
+      "size": 14077,
       "executable": false
     },
     {
@@ -796,26 +856,26 @@
     },
     {
       "path": "main/network_sync.cpp",
-      "sha256": "6ca67990c2632dda5dc0907aeac9c7966b1f7ad7f61cc37ef3772858c1dad1ae",
-      "size": 52800,
+      "sha256": "79b83ffc1aade8d4d7ef6a985221f50ca568d909c0b6ed5ddaee8d1ccace2d2e",
+      "size": 37687,
       "executable": false
     },
     {
       "path": "main/network_sync.h",
-      "sha256": "97605ace7d67c549b071681c2bf8c9b0db0a2b98696a5f4821bd393e2589f397",
-      "size": 4178,
+      "sha256": "d2025c854ddd7e34510a2a44017bd3609e8cb6acac761eb8b70d9a9f28949783",
+      "size": 4088,
       "executable": false
     },
     {
       "path": "main/network_sync_state.c",
-      "sha256": "99f651f346667d78ea6157a54690a7cc69fb7890131d4235b8c8e9f3bae5eb9f",
-      "size": 3434,
+      "sha256": "0e77c10918069b82a0ceb6fe5a43eeb6aee58a3fa4748cdc9d5b6170d7572da1",
+      "size": 2192,
       "executable": false
     },
     {
       "path": "main/network_sync_state.h",
-      "sha256": "a2c4e2e67ae28f21ff92cd5274f524284a42587c6ba73ef15d30e65700738a2f",
-      "size": 2100,
+      "sha256": "4735d2f705b79f562a91e4172af967efa080bf5163c96e75c0c778869acb6846",
+      "size": 1291,
       "executable": false
     },
     {
@@ -856,14 +916,14 @@
     },
     {
       "path": "main/state.c",
-      "sha256": "3967fa0b409917f42e0aeff00285d889ab4bbbbd9b148cdd802b28d84fcfa58b",
-      "size": 1308,
+      "sha256": "da0931014a661516dfb8d09a59329bfc0d591e264d783118248996766ddcaf8d",
+      "size": 1345,
       "executable": false
     },
     {
       "path": "main/ui.c",
-      "sha256": "e5770f118b7a6183b779c206060fa19b7acb85d3a76f05619981905eef28927e",
-      "size": 74835,
+      "sha256": "9775aed59cb000c09b67670cd3cdaf16330c50ce097e3f58641595a33fcfba00",
+      "size": 75303,
       "executable": false
     },
     {
@@ -975,6 +1035,12 @@
       "executable": true
     },
     {
+      "path": "scripts/configure_cloud.py",
+      "sha256": "93047d780e66702a17beaa7376fd95f4ec51a8adc1966e12db62a4dfe6704bb9",
+      "size": 3860,
+      "executable": false
+    },
+    {
       "path": "scripts/container-tools.lock.json",
       "sha256": "301760cdd7e59d6167b31a2af9653d1b5b081880f42808089b439be16fa86868",
       "size": 861,
@@ -988,8 +1054,8 @@
     },
     {
       "path": "scripts/device.py",
-      "sha256": "80d69a1574fe206abeac26bbb23ef883d4a150e60e03d78aa2cdae01b55406a7",
-      "size": 8756,
+      "sha256": "94a89d25ff8041973dbec0d1f212e472214c06687207556aefe3cffe3feab2c1",
+      "size": 9532,
       "executable": true
     },
     {
@@ -1018,8 +1084,8 @@
     },
     {
       "path": "scripts/export_public_source.py",
-      "sha256": "478104cfbe07b3d33c723597bd6e2aa893c6fc32b003b358b274eb1b255ce131",
-      "size": 21366,
+      "sha256": "65cb1428dd11393cecb652322671cedcc6def4a90afaacbffcff7cc926690b5e",
+      "size": 22157,
       "executable": false
     },
     {
@@ -1102,8 +1168,14 @@
     },
     {
       "path": "scripts/test_all.sh",
-      "sha256": "dc6d7c19fc02c3a0bdf680df66bdb39fd3b8ee5f46408cd7ad82d3bbcc74e800",
-      "size": 736,
+      "sha256": "811347f0b8bebaa0918b555a3ffad5e0c5da6a6dfa9a33e6184c966c08a294ec",
+      "size": 760,
+      "executable": true
+    },
+    {
+      "path": "scripts/test_cloud.sh",
+      "sha256": "4b8f2a01d95414a36ae6fa0a7cd8ea5dd4bdfbdb64efc19c4c9715edbcf7593f",
+      "size": 298,
       "executable": true
     },
     {
@@ -1132,38 +1204,38 @@
     },
     {
       "path": "scripts/test_service_config.sh",
-      "sha256": "6e5cdfb804a7e0b52dcf18c0768e49827369dcd13ed6e8a3034ba28fe93f47b0",
-      "size": 1080,
+      "sha256": "c909740764086a619e8a56f6c2b31e7bc644894f652824a693bc9f59363e3534",
+      "size": 771,
       "executable": true
     },
     {
       "path": "scripts/test_sync_pipeline.sh",
-      "sha256": "a4f3bbc29f8df7da661ddd8172467962b29b8961fe74fec2238bc0c335f479bb",
-      "size": 1050,
+      "sha256": "58e9a4870df9258f9c3b2c5f9c3b8555e03f1c5c46891fcfd28dce60f9b8ed77",
+      "size": 1027,
       "executable": true
     },
     {
       "path": "scripts/test_ui.sh",
-      "sha256": "9717f32d4d6873ec5e9e2b3163a9a7a2027e006b49f366d9e4116ee7d856fa1a",
-      "size": 3508,
+      "sha256": "6dc8383f26f93b4770c29d9731f9289c70cff29e560f3f89f248e68405f284b5",
+      "size": 3642,
       "executable": true
     },
     {
       "path": "sdkconfig.defaults",
-      "sha256": "efcc072dbf8e8cfe1660346869ac07f84fa6ce595d39880619428ab1d8a819c0",
-      "size": 2066,
+      "sha256": "f7076622317352eb2b6744fef6dffd03772b2db8df4a21795fe3311bdfa05640",
+      "size": 2306,
       "executable": false
     },
     {
       "path": "sdkconfig.spotpear.defaults",
-      "sha256": "cffc9f0ae8f250608b30bcdb88730371b57e32845557a1340fe1ee1fd012ee90",
-      "size": 1967,
+      "sha256": "7be92dffcd86b2603a2e8176031c2360d6bb07b1570af2de8f8bc7de0826691f",
+      "size": 2207,
       "executable": false
     },
     {
       "path": "sdkconfig.vocat16.defaults",
-      "sha256": "6d00fdce7c1717e9c099d529e606aff54c0bed173e1333fce7e10f1c5f30c95e",
-      "size": 2147,
+      "sha256": "8134fa2ca6d5379ee92b4800d969d18cce626fd13f5ed36252bb4cc8fb782824",
+      "size": 2387,
       "executable": false
     },
     {
@@ -1419,6 +1491,18 @@
       "executable": false
     },
     {
+      "path": "tests/cardless_direct_native.cpp",
+      "sha256": "efe096b0a7e146ea77a26679a4289b72d3449f2d3deb6fe4ef00633caec9be40",
+      "size": 18566,
+      "executable": false
+    },
+    {
+      "path": "tests/cardless_platform_fixture.h",
+      "sha256": "ac7808829000c4d4a46081d6c0f4a3b89b62247ded4f20fb6e5897b66ba82e92",
+      "size": 287,
+      "executable": false
+    },
+    {
       "path": "tests/check_cat_animation.py",
       "sha256": "010d4cfda2c1ac7548539d28aa48d868335b264f3234b1e61b432d17198d2b14",
       "size": 1625,
@@ -1437,6 +1521,18 @@
       "executable": true
     },
     {
+      "path": "tests/cloud_native.cpp",
+      "sha256": "a6933f530424141ffb6b876aafed4c06c58bbec984141b91ffd5d38ec10c0ba4",
+      "size": 7825,
+      "executable": false
+    },
+    {
+      "path": "tests/cloud_settings_fixture.py",
+      "sha256": "83628010d3b912c9b3d70ce10ab3b86e237ab726900da4453dc9a575a29a25e9",
+      "size": 1000,
+      "executable": false
+    },
+    {
       "path": "tests/container_fixture.py",
       "sha256": "4108028abd27252290a92955c805772253ed874d3233cd3c1f6d0ac9f58e8667",
       "size": 20398,
@@ -1449,6 +1545,30 @@
       "executable": false
     },
     {
+      "path": "tests/legacy_cardless_fixture.c",
+      "sha256": "4b3d116075bd3b3100c10ac2d4887b2b7dfd690bb01ea852ad254487ff272346",
+      "size": 1526,
+      "executable": false
+    },
+    {
+      "path": "tests/legacy_cardless_fixture.h",
+      "sha256": "dd2460aac8305439c8b872c20b1e6a8ec3e3c955cedc8d4b7061a396c8a5a32c",
+      "size": 518,
+      "executable": false
+    },
+    {
+      "path": "tests/legacy_sync_fixture.c",
+      "sha256": "d3ec5394449749a2f84b15303fe0f5a10bcb591c1302e55b356c45099fa243b6",
+      "size": 1641,
+      "executable": false
+    },
+    {
+      "path": "tests/legacy_sync_fixture.h",
+      "sha256": "e1137a4b788745586b816ae80cb42147b8783f576568af847acc6e9af150a7d1",
+      "size": 654,
+      "executable": false
+    },
+    {
       "path": "tests/relay_admin_fixture.py",
       "sha256": "cc96bf2515eb131280680b5022aa09a87688dda42a210e02371314d958b76719",
       "size": 4899,
@@ -1456,9 +1576,15 @@
     },
     {
       "path": "tests/run_host_tests.sh",
-      "sha256": "dd9bea5356903cb2295ea1f1933460bad9d51278c98ae2bd9affc6f3d8d00f19",
-      "size": 4559,
+      "sha256": "b7dfbce313cbd66d4e95d2f4a885d3ed5fca442386ea6aa3b99d27ae22d5ebd2",
+      "size": 4054,
       "executable": true
+    },
+    {
+      "path": "tests/sd_direct_native.cpp",
+      "sha256": "6a711854ea844752b0ef7d6bda91a8eb2c50f0c2bb0427abe83b64932eba0bed",
+      "size": 24322,
+      "executable": false
     },
     {
       "path": "tests/service-url-cases.json",
@@ -1468,8 +1594,8 @@
     },
     {
       "path": "tests/service_portal_fixture.py",
-      "sha256": "c3e3f9c3e0071ebe982f1a1741f7c4c15519a9f0ea83ab4ae966f6ffedc1a31f",
-      "size": 11311,
+      "sha256": "7a7f570b70189cbe8a2b06496fde43297cb6af3e9177f72a5886ef20f9ec6245",
+      "size": 11370,
       "executable": false
     },
     {
@@ -1485,21 +1611,33 @@
       "executable": false
     },
     {
-      "path": "tests/test_cardless_buffer.c",
-      "sha256": "1e1bb43d95f68dc516975a17e33e67e9d581b407b007807f68ba49d5a39c0521",
-      "size": 5198,
-      "executable": false
-    },
-    {
       "path": "tests/test_cardless_runtime.py",
-      "sha256": "782038d4c66fdc2b39c4bf26a6203db0f6e25d01616be2ec0ef12d0d8f9fbc79",
-      "size": 40552,
+      "sha256": "ff843b9792be96060fe0095d3f3f6904ae280ead64c0a80912ceafc321ec0380",
+      "size": 4536,
       "executable": false
     },
     {
-      "path": "tests/test_cardless_state.c",
-      "sha256": "61e217f65b00ceb92449fdc0a5dc4dfa35dc4b7b391be27ecd0d0984169e5636",
-      "size": 3259,
+      "path": "tests/test_cloud_esp.py",
+      "sha256": "44fac5b21793567f8730068d5bbdc1959b80a5e3f6972da1b16cd948be16aaaf",
+      "size": 17538,
+      "executable": false
+    },
+    {
+      "path": "tests/test_cloud_input_helper.py",
+      "sha256": "91b405c2339253d80db48f2a62edee757f54ee31107a29b1ceed74fb519a689e",
+      "size": 5620,
+      "executable": false
+    },
+    {
+      "path": "tests/test_cloud_protocol.py",
+      "sha256": "c6a2e5bf171af1986a3aed7e6d339dcceef3d1a90e87d1f3f9f7623b6503a879",
+      "size": 28045,
+      "executable": false
+    },
+    {
+      "path": "tests/test_cloud_ws_sdk.py",
+      "sha256": "df55b3a98ab6ab578114b004e37e45576c5782283addebd3cb9ef794ca2e3394",
+      "size": 13358,
       "executable": false
     },
     {
@@ -1510,20 +1648,14 @@
     },
     {
       "path": "tests/test_device.py",
-      "sha256": "1944a6f65a281c317765e5e2fb3f787efc0957d59176ebb42c2f74d88366a415",
-      "size": 6690,
+      "sha256": "9e9f5904e4a7a430a66150100a470848195a672587fc01ff8471b05e765328be",
+      "size": 7382,
       "executable": false
     },
     {
       "path": "tests/test_firmware_install.py",
       "sha256": "b5921617ce8cd2b6af9f5ad9d9c2e16d881a5ec81729b40c7cbe1073825b5cf4",
       "size": 16031,
-      "executable": false
-    },
-    {
-      "path": "tests/test_firmware_pairing.py",
-      "sha256": "f49bb4b496afb6b25d602639d38e193fc86ff20c679a4001ca04dd1809cd067b",
-      "size": 24271,
       "executable": false
     },
     {
@@ -1534,8 +1666,8 @@
     },
     {
       "path": "tests/test_http_deadline.py",
-      "sha256": "e65c2936253b9b8e09e2b79f3fa5b71f1588874bfbe1d0ed560a4c91978c720b",
-      "size": 9706,
+      "sha256": "5890bad5db4e7cbafc38726744ae57e511a184ce6ea690558d07514ce5e77904",
+      "size": 12703,
       "executable": false
     },
     {
@@ -1551,39 +1683,27 @@
       "executable": false
     },
     {
-      "path": "tests/test_network_config.c",
-      "sha256": "dfe9cba27ab8b6cd8181c04ff0064a03e6138538e5e5615da6c21359948a61de",
-      "size": 8485,
-      "executable": false
-    },
-    {
       "path": "tests/test_network_sync_state.c",
-      "sha256": "79712ae23fd412a13e62f6e1b8b11532f9ef67d18bd480e4a0701f37817c2698",
-      "size": 4116,
+      "sha256": "6c8453fdffa5ff6317d3e5d2f0d2fd6e13051d39b2497cf4932b7ce5d94bb5a8",
+      "size": 3094,
       "executable": false
     },
     {
       "path": "tests/test_network_worker.py",
-      "sha256": "4b4c92da8ebd3f548e9b51fbd150a3f5e9cb03539c4bdc25716802c0b1ec2b9d",
-      "size": 5106,
-      "executable": false
-    },
-    {
-      "path": "tests/test_pairing_request.py",
-      "sha256": "ebecec309567058862c37c619341a012dd07f6030d22fc508c47761e3dfd43eb",
-      "size": 3947,
+      "sha256": "d16736aff30e78a51d2f8d5b366da7856f857ecfef40307b643d270d17df109a",
+      "size": 5759,
       "executable": false
     },
     {
       "path": "tests/test_portal_async.cjs",
-      "sha256": "483542b64106eacd74f4af3d7028306647b6bc625e99e0d55d362c476949dc3e",
-      "size": 11513,
+      "sha256": "5a30b35eb102e5b6bf2b9383db94858dc35ef87a2954a1174b90086c638434a9",
+      "size": 11323,
       "executable": false
     },
     {
       "path": "tests/test_portal_socket.py",
-      "sha256": "f817cdf689567d173fc7e180fbbd933893146a3323580c16857867bfa0c5b953",
-      "size": 4349,
+      "sha256": "4244f237ed277cab5f7e9b5e62b54616c3b618456a9bc7cf5238b8fba571a125",
+      "size": 5112,
       "executable": false
     },
     {
@@ -1600,8 +1720,8 @@
     },
     {
       "path": "tests/test_provisioning.py",
-      "sha256": "dd571216e288f72b298c9dac9ddee89dff3e40558a001e7c994e0d0bb498da28",
-      "size": 19906,
+      "sha256": "c83555718c61d47a68feaeeea96965ce293281872ba6190599300abb7c72d8fd",
+      "size": 22291,
       "executable": false
     },
     {
@@ -1612,8 +1732,8 @@
     },
     {
       "path": "tests/test_record_ids.c",
-      "sha256": "f78a0113c927c43f2833397b5031a140072bbc6b96b5befbfe804451dd93675c",
-      "size": 2878,
+      "sha256": "b99f9ea27bab52b8059136c8b543db1f22d2c070b9939f196f6a554786e206e8",
+      "size": 3560,
       "executable": false
     },
     {
@@ -1630,26 +1750,26 @@
     },
     {
       "path": "tests/test_sd_probe.py",
-      "sha256": "df86dcfc62cf18ce51ed9cab72542e007b167553cadc52f27d56ac70d1e5408a",
-      "size": 22416,
+      "sha256": "5468a967749c056f28f3294955c1e0cf2ecd9aaac4635bc4a5d88613b9988d46",
+      "size": 21467,
       "executable": false
     },
     {
       "path": "tests/test_service_portal.py",
-      "sha256": "8d04c8bf18d0539d1af804b911eeef76e5d076ae56a83c8ffb502179524affce",
-      "size": 6615,
+      "sha256": "2db51e2987fd1021ad4d1af79618cb4ccd74bf4599e70fd28198b46092ca669f",
+      "size": 5821,
       "executable": false
     },
     {
       "path": "tests/test_service_portal_browser.cjs",
-      "sha256": "b1caebe108afa7abb38899a305c45517841def5f29fa99ea3db537c2cea75f40",
-      "size": 6711,
+      "sha256": "7bf247f0452d9ba6182ac6418f5dab75e3d139e2bcaeee5928d604a07da0f6b3",
+      "size": 5755,
       "executable": false
     },
     {
       "path": "tests/test_service_runtime.py",
-      "sha256": "32dfdcba049c924c1d6e7e238b3698581a83c97bb16f2e14ebe61d76f7c53d82",
-      "size": 28786,
+      "sha256": "c7d01afc03782a3021555137493190fd9383cf21a262eb748d5959a6782d4e1e",
+      "size": 23696,
       "executable": false
     },
     {
@@ -1660,26 +1780,26 @@
     },
     {
       "path": "tests/test_store.c",
-      "sha256": "09133ef4cb06878fb2be562edebb4bceb8b50575cc36b1c4991a9cfcecec5cb1",
-      "size": 22480,
+      "sha256": "94c9596c00bd655c71e6da9e251c6b9a00208278ac3f78c109d3aee678bfd086",
+      "size": 23159,
       "executable": false
     },
     {
       "path": "tests/test_sync_cache.c",
-      "sha256": "145835c8e10767d9fe92ef553c89fcaef6791902493a1dbff6faaa07a11766c8",
-      "size": 1844,
+      "sha256": "871dc4388c005af85b69278b6920e973827b085ecc64d527b8291fb110b9b7a7",
+      "size": 3308,
       "executable": false
     },
     {
       "path": "tests/test_sync_metadata_lock.py",
-      "sha256": "bf757c77b506c490545cf6e0969abd626bcb1997c72b430284466423e51513be",
-      "size": 4143,
+      "sha256": "7468d2a6ca9588c254a815d41f6234db3b57a45d64ddef24e248b7f3b58f664e",
+      "size": 4387,
       "executable": false
     },
     {
       "path": "tests/test_sync_pipeline.py",
-      "sha256": "2fc924f283f14daf9648bf1dcb643a33efdf2f05bc91a3e328b8bc3fb4f8ae88",
-      "size": 36377,
+      "sha256": "5e266e5205db776ad74f8ca8169d6bf047e61a63c99f508d5a538037b06a7938",
+      "size": 5174,
       "executable": false
     },
     {
@@ -1720,8 +1840,8 @@
     },
     {
       "path": "tests/ui_preview.c",
-      "sha256": "a6f38a85dda4f0050075e8563466586403cb6de7651b63f198f57e9f54fb1607",
-      "size": 52107,
+      "sha256": "754d42b6d8c745107a755b3263fdd66333474e197959254c8c4677429ddf4de9",
+      "size": 53930,
       "executable": false
     },
     {

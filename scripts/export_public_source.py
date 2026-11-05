@@ -94,7 +94,7 @@ REVIEWED_TOKEN_FIXTURES = {
 
 ROOT_FILES = {'.gitignore','.dockerignore','CMakeLists.txt','README.md','LICENSE','THIRD_PARTY_NOTICES.md','CONTRIBUTING.md','SECURITY.md','CHANGELOG.md','dependencies.lock','tools.lock.json','requirements-host.lock.txt','requirements-idf.lock.txt','partitions.csv','partitions.vocat16.csv','sdkconfig.defaults','sdkconfig.spotpear.defaults','sdkconfig.vocat16.defaults'}
 SOURCE_ROOTS = ('main','components/esp-wifi-connect','components/usb_device_uac','assets/fonts','licenses','server-relay','scripts','tests','deploy','.github/workflows')
-PUBLIC_DOCS = {'docs/DEVICE_DIRECT_CLOUD_DELIVERY.md','docs/DEPLOYMENT.md','docs/PUBLIC_RELEASE.md','docs/DEVICE_INSTALL.md','docs/FIRMWARE_STORAGE.md','docs/TESTING.md','docs/SUPPORT.md','docs/design/admin-approved/index.html'}
+PUBLIC_DOCS = {'docs/FIRMWARE_CLEANUP.md','docs/DEVICE_DIRECT_CLOUD_DELIVERY.md','docs/DEPLOYMENT.md','docs/PUBLIC_RELEASE.md','docs/DEVICE_INSTALL.md','docs/FIRMWARE_STORAGE.md','docs/TESTING.md','docs/SUPPORT.md','docs/design/admin-approved/index.html'}
 EXCLUDED = {'__pycache__','.venv','.venv-relay','node_modules','.DS_Store'}
 EXCLUDED_FILES = {
  'scripts/acoustic_command_matrix.py','scripts/acoustic_usb_test.py','scripts/acoustic_voice_test.py','scripts/acoustic_wake_recall.py','scripts/check_device_pages.py','scripts/cloud_relay_sync.py','scripts/export_recordings.py','scripts/hardware_batch.py','scripts/inspect_cat_colors.py','scripts/qwen_transcribe.py','scripts/replay_voice_recording.py','scripts/reset_capture.py','scripts/siyuan_sync.py','scripts/verify_cardless_capture.py','scripts/verify_cardless_faults.py','scripts/verify_playback_pause.py','scripts/setup_sync.sh','scripts/watch_sync.command','scripts/watch_cloud_sync.command',
