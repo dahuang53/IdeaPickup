@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "tree_sha256": "6ecf52ebd5f5d1ca1f23acaab69806a3ce10e93dbe21cb472dd073325abd38e5",
+  "tree_sha256": "bd7d98a52ed6c18b5035df545bc47abe7491759d170e0e789bda4458b1f2a464",
   "files": [
     {
       "path": ".dockerignore",
@@ -1792,8 +1792,8 @@
     },
     {
       "path": "tests/test_sync_metadata_lock.py",
-      "sha256": "7468d2a6ca9588c254a815d41f6234db3b57a45d64ddef24e248b7f3b58f664e",
-      "size": 4387,
+      "sha256": "a605eeaef873ec061178a20093788d7776d687fa03ebc3134dceaf62d6b886bf",
+      "size": 4565,
       "executable": false
     },
     {

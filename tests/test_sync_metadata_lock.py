@@ -58,7 +58,14 @@ int fatfs_close(FILE *f){
 int sharing_conflicts(void){return conflicts;}
 ''')
             common=['cc','-std=c11','-D_DEFAULT_SOURCE','-DMEMO_HOST_TEST','-fPIC','-g','-O1','-Wall','-Wextra','-Werror','-I',str(p),'-I',str(ROOT/'main')]
-            subprocess.run(['c++',*common[2:],'-std=c++17','-DESP_PLATFORM','-Dfopen=fatfs_open','-Dfclose=fatfs_close','-c',str(ROOT/'main/memo_direct_cache.cpp'),'-o',str(p/'codec.o')],check=True)
+            (p/'codec.cpp').write_text('''#include <cstdio>
+extern "C" FILE *fatfs_open(const char *,const char *);
+extern "C" int fatfs_close(FILE *);
+#define fopen fatfs_open
+#define fclose fatfs_close
+#include "memo_direct_cache.cpp"
+''')
+            subprocess.run(['c++',*common[2:],'-std=c++17','-DESP_PLATFORM','-c',str(p/'codec.cpp'),'-o',str(p/'codec.o')],check=True)
             subprocess.run([*common,'-c',str(p/'sharing.c'),'-o',str(p/'sharing.o')],check=True)
             (p/'wrapper.cpp').write_text('#include "memo_sd_sync.h"\nextern "C" bool direct_write(const char*p,int state){memo_sd::Entry e;e.id=1;e.submission=e.qwen_generation=e.siyuan_generation=1;e.file_bytes=100;e.intent=true;e.state=static_cast<memo_job_state_t>(state);return memo_sd::write(p,e); }\nextern "C" int direct_read(const char*p){memo_sd::Entry e;return memo_sd::read(p,1,&e)==MEMO_CACHE_OK?int(e.state):-1;}\n')
             subprocess.run(['c++',*common[2:],'-std=c++17','-c',str(p/'wrapper.cpp'),'-o',str(p/'wrapper.o')],check=True)
