@@ -245,7 +245,9 @@ int main(int argc,char **argv){
   assert(writes==n&&durable[1]==before);
  }
  else if(scenario=="boundaries"){
-  std::string key(256,'x');p.qwen_key=key.c_str();p.siyuan_token=key.c_str();assert(network_sync_configure_cloud(&p)==MEMO_CLOUD_OK);auto before=durable[1];key+='x';assert(network_sync_configure_cloud(&p)==MEMO_CLOUD_INVALID&&durable[1]==before);
+  std::string key(256,'x');p.qwen_key=key.c_str();p.siyuan_token=key.c_str();assert(network_sync_configure_cloud(&p)==MEMO_CLOUD_OK);auto before=durable[1];
+  key+='x';p.qwen_key=key.c_str();p.siyuan_token=key.c_str();
+  assert(network_sync_configure_cloud(&p)==MEMO_CLOUD_INVALID&&durable[1]==before);
   p=credentials();p.qwen_key="x\nsecret";assert(network_sync_configure_cloud(&p)==MEMO_CLOUD_INVALID);
   memo_cloud_config_t value{};assert(memo_cloud_config_read(&value));value.qwen_generation=UINT32_MAX;uint8_t bytes[604];assert(memo_cloud_config_encode(&value,bytes));durable[1]["config"]={bytes,bytes+604};p=credentials();assert(network_sync_configure_cloud(&p)==MEMO_CLOUD_INVALID);
  }

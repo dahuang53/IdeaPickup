@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "tree_sha256": "681f7c771ae8533da97ef0eac220964bbb96f409304ecc9b707de19f8490547a",
+  "tree_sha256": "6ecf52ebd5f5d1ca1f23acaab69806a3ce10e93dbe21cb472dd073325abd38e5",
   "files": [
     {
       "path": ".dockerignore",
@@ -1768,8 +1768,8 @@
     },
     {
       "path": "tests/test_service_runtime.py",
-      "sha256": "a83a67680cc0d9778cbc5067bc05a4c5f15ba127c4f74d9b0aaad738418257bd",
-      "size": 23699,
+      "sha256": "d3359554cf30f83fc972efd022b55ff6a5410f04a7f03538c8af23e0703d281c",
+      "size": 23755,
       "executable": false
     },
     {
