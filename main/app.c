@@ -1020,9 +1020,9 @@ static void print_status(void) {
     printf("STATUS state=%d sd=%d count=%zu page=%zu id=%"PRIu32" ms=%"PRIu32" level=%u error=%s\n",
         s.state,s.sd_ready,s.count,s.page,s.active_id,s.elapsed_ms,s.level,s.error);
     memo_network_status_t network;network_sync_get_status(&network);
-    printf("NETWORK initialized=%d configured=%d connected=%d provisioning=%d syncing=%d device=%s cursor=%"PRIu32" last=%"PRIu32" active=%"PRIu32" queued=%"PRIu32" manual=%d error=%s\n",
+    printf("NETWORK initialized=%d configured=%d connected=%d provisioning=%d syncing=%d device=%s last=%"PRIu32" active=%"PRIu32" queued=%"PRIu32" manual=%d error=%s\n",
         network.initialized,network.configured,network.connected,network.provisioning,network.syncing,
-        network.device_id,network.cursor_id,network.last_uploaded_id,network.active_sync_id,
+        network.device_id,network.last_uploaded_id,network.active_sync_id,
         network.queued_sync_id,network.queued_sync_manual,network.error);
     memo_power_status_t power;power_policy_get_status(&power);
     printf("POWER supported=%d initialized=%d external=%d busy=%d stage=%d idle_s=%"PRIu32
@@ -1032,8 +1032,8 @@ static void print_status(void) {
         power.critical_pending,power.battery_guard_raw);
     for(size_t i=0;i<s.item_count;i++)printf("ITEM id=%"PRIu32" ms=%"PRIu32"\n",s.items[i].id,s.items[i].duration_ms);
     memo_record_sync_t detail;network_sync_record_status(&detail);
-    if(detail.id)printf("RECORD_SYNC id=%"PRIu32" state=%d percent=%u pending=%d cardless=%d retry=%d interrupted=%d error=%s\n",
-        detail.id,detail.state,detail.upload_percent,detail.request_pending,
+    if(detail.id)printf("RECORD_SYNC id=%"PRIu32" state=%d pending=%d cardless=%d retry=%d interrupted=%d error=%s\n",
+        detail.id,detail.state,detail.request_pending,
         detail.cardless,detail.can_retry,detail.interrupted,detail.error);
     fflush(stdout);
 }

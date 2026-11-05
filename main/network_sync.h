@@ -23,7 +23,6 @@ typedef struct {
     bool connected;
     bool provisioning,ap_password_error;
     bool syncing;
-    uint32_t cursor_id;
     uint32_t last_uploaded_id;
     uint32_t active_sync_id;
     memo_job_state_t active_sync_state;
@@ -69,7 +68,6 @@ void network_sync_observe_latest(uint32_t record_id);
 typedef struct {
     uint32_t id;
     memo_job_state_t state;
-    unsigned upload_percent;
     bool request_pending;
     bool cardless;
     bool can_retry;
@@ -89,7 +87,6 @@ bool network_sync_cancel_record(uint32_t id);
 void network_sync_toggle_provisioning(void);
 bool network_sync_rotate_ap_password(void);
 void network_sync_get_ap_password(char out[9]);
-/* Temporary read-only AP observer; numeric results only, no credentials. */
 
 /* Prevent SD upload reads from overlapping recording or playback startup. */
 bool network_sync_prepare_audio(uint32_t timeout_ms);

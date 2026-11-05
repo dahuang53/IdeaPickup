@@ -23,7 +23,6 @@ public:
     WifiConfigurationAp(const WifiConfigurationAp&) = delete;
     WifiConfigurationAp& operator=(const WifiConfigurationAp&) = delete;
     void SetSsidPrefix(const std::string& prefix);
-    void SetLanguage(const std::string& language);
     bool Start();
     bool RotatePassword();
     const char* GetPassword() const { return password_; }
@@ -47,7 +46,7 @@ private:
     std::atomic<bool> connected_{false};
     httpd_handle_t server_ = nullptr;
     EventGroupHandle_t event_group_;
-    std::string ssid_prefix_, language_;
+    std::string ssid_prefix_;
     esp_event_handler_instance_t instance_any_id_ = nullptr, instance_got_ip_ = nullptr;
     esp_netif_t* ap_netif_ = nullptr;
     esp_netif_t* sta_netif_ = nullptr;

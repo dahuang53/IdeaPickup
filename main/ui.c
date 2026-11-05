@@ -40,8 +40,10 @@ static lv_obj_t *usb_exit, *usb_back, *usb_cat_mic, *usb_cat_stem, *usb_cat_foot
 static bool usb_visible;
 static uint32_t displayed_voice_wake_count;
 #if MEMO_UI_BATTERY
-static lv_obj_t *battery_button, *battery_label, *battery_outline;
-static lv_obj_t *battery_fill, *battery_terminal;
+static lv_obj_t *battery_button, *battery_label;
+#if MEMO_UI_COMPACT
+static lv_obj_t *battery_outline, *battery_fill, *battery_terminal;
+#endif
 #endif
 static lv_obj_t *provision_root, *provision_ap_label, *provision_detail_label, *provision_password_label, *provision_back;
 static lv_obj_t *cat_fallback[2];
@@ -90,7 +92,9 @@ static const uint32_t MINT = 0xB5E2CC;
 static const uint32_t CORAL = 0xF08472;
 static const uint32_t GOLD = 0xFFD187;
 static const uint32_t CLOUD = 0x97D1F5;
+#if !MEMO_UI_COMPACT
 static const char *wake_display_name = "你好喵伴";
+#endif
 
 #if MEMO_UI_COMPACT
 #define DETAIL_COPY(compact, expanded) (compact)
@@ -505,7 +509,6 @@ static void refresh_record(const memo_snapshot_t *snapshot,const memo_network_st
     for(size_t i=0;i<snapshot->item_count;i++) {
         if(snapshot->items[i].id==selected_record.id) {selected_record=snapshot->items[i];break;}
     }
-    if(!selected_record.cardless)lv_obj_remove_flag(record_retry,LV_OBJ_FLAG_HIDDEN);
     char text[128];
     snprintf(text,sizeof(text),selected_record.cardless?"无卡 #%" PRIu32:"录音 #%" PRIu32,
              display_record_id(selected_record.id));text_if_changed(record_title,text);
@@ -551,24 +554,21 @@ static void refresh_record(const memo_snapshot_t *snapshot,const memo_network_st
     text_if_changed(record_meta,text);
     memo_record_sync_t job;network_sync_record_status(&job);
     if(selected_record.cardless) {refresh_cardless_record(snapshot,network,&job);return;}
-    const char *state=DETAIL_COPY("状态待查询","状态待查询喵"), *action="刷新状态";
-    uint32_t status_color=GOLD;
+    const char *state=DETAIL_COPY("状态待查询","状态待查询喵");
     switch(job.state) {
-    case MEMO_JOB_LOCAL:state=DETAIL_COPY("仅本地保存","已在本机，尚未同步喵");action="开始同步";break;
+    case MEMO_JOB_LOCAL:state=DETAIL_COPY("仅本地保存","已在本机，尚未同步喵");break;
     case MEMO_JOB_QUEUED:
         state=job.can_retry && !job.can_cancel && !job.request_pending ?
-            DETAIL_COPY("仅本地保存","已在本机，尚未同步喵") : DETAIL_COPY("等待上传","等待上传喵");
-        action="立即重试";break;
-    case MEMO_JOB_CHECKING:state=DETAIL_COPY("正在核对录音","正在核对录音喵");action=DETAIL_COPY("刷新状态","查询中");break;
+            DETAIL_COPY("仅本地保存","已在本机，尚未同步喵") : DETAIL_COPY("等待上传","等待上传喵");break;
+    case MEMO_JOB_CHECKING:state=DETAIL_COPY("正在核对录音","正在核对录音喵");break;
     case MEMO_JOB_UPLOADING:
-        snprintf(text,sizeof(text),DETAIL_COPY("正在上传 %u%%","正在上传 %u%%喵"),job.upload_percent);
-        state=text;action="上传中";break;
+        state=DETAIL_COPY("正在传送音频","正在传送音频喵");break;
     case MEMO_JOB_WAITING:state=DETAIL_COPY("等待处理","等待处理喵");break;
     case MEMO_JOB_RECEIVED:state=DETAIL_COPY("服务器已接收","服务器已收到喵");break;
     case MEMO_JOB_TRANSCRIBING:state=DETAIL_COPY("正在转写","正在转写喵");break;
     case MEMO_JOB_DELIVERING:state=DETAIL_COPY("正在投递思源","正在投递思源喵");break;
-    case MEMO_JOB_SENT:state=DETAIL_COPY("已同步思源","已同步思源喵");action="已同步";status_color=MINT;break;
-    case MEMO_JOB_FAILED:state=DETAIL_COPY("处理失败","同步失败，录音仍在本机喵");action=job.can_retry?DETAIL_COPY("重试","重试同步"):"刷新状态";status_color=CORAL;break;
+    case MEMO_JOB_SENT:state=DETAIL_COPY("已同步思源","已同步思源喵");break;
+    case MEMO_JOB_FAILED:state=DETAIL_COPY("处理失败","同步失败，录音仍在本机喵");break;
     case MEMO_JOB_REJECTED:state=DETAIL_COPY("内容未通过检查","内容未通过检查喵");break;
     case MEMO_JOB_CANCELLED:state=DETAIL_COPY("已取消处理","已取消处理喵");break;
     case MEMO_JOB_CANCELLING:state=DETAIL_COPY("正在取消处理","正在取消处理喵");break;
@@ -578,12 +578,10 @@ static void refresh_record(const memo_snapshot_t *snapshot,const memo_network_st
     bool waiting_upload=job.state==MEMO_JOB_LOCAL || job.state==MEMO_JOB_QUEUED || job.state==MEMO_JOB_UNKNOWN;
     if(waiting_upload && !job.service_ready) {
         state=DETAIL_COPY("仅本地，未配置同步","未配置同步，录音在本机喵");
-        action=DETAIL_COPY("刷新状态","联网后同步");
     } else if(waiting_upload && !network->connected) {
         state=DETAIL_COPY("网络离线，等待连接","网络离线，录音在本机喵");
-        action=DETAIL_COPY("刷新状态","等待联网");
     } else if(job.request_pending && (job.state==MEMO_JOB_QUEUED || job.state==MEMO_JOB_UNKNOWN)) {
-        state=DETAIL_COPY("已排队，等待处理","已排队，等待处理喵");action="排队中";
+        state=DETAIL_COPY("已排队，等待处理","已排队，等待处理喵");
     }
     if(snapshot->state==MEMO_PAUSED && snapshot->error[0])state=snapshot->error;
     if(job.error[0]&&job.state!=MEMO_JOB_SENT)state=job.error;
@@ -591,12 +589,13 @@ static void refresh_record(const memo_snapshot_t *snapshot,const memo_network_st
     text_if_changed(record_status_label,state);
     text_if_changed(record_play_label,snapshot->state==MEMO_PLAYING?"暂停播放":
                     snapshot->state==MEMO_PAUSED?"继续播放":"播放录音");
-    text_if_changed(record_retry_label,action);
     bool idle=snapshot->state==MEMO_IDLE || snapshot->state==MEMO_SAVED;
     enabled(record_play,snapshot->sd_ready && (idle || active));
     bool actionable=(job.can_cancel || job.can_retry) && job.state!=MEMO_JOB_SENT && job.state!=MEMO_JOB_UNCERTAIN;
-    if(actionable)lv_obj_remove_flag(record_retry,LV_OBJ_FLAG_HIDDEN);
-    else lv_obj_add_flag(record_retry,LV_OBJ_FLAG_HIDDEN);
+    if(actionable==lv_obj_has_flag(record_retry,LV_OBJ_FLAG_HIDDEN)) {
+        if(actionable)lv_obj_remove_flag(record_retry,LV_OBJ_FLAG_HIDDEN);
+        else lv_obj_add_flag(record_retry,LV_OBJ_FLAG_HIDDEN);
+    }
     text_if_changed(record_retry_label,job.needs_rebind?"选择处理":job.can_cancel?"取消处理":"提交处理");
     enabled(record_retry,actionable && idle && (job.can_cancel || (!job.request_pending && job.service_ready)));
 #if !MEMO_UI_COMPACT
@@ -608,6 +607,7 @@ static void refresh_record(const memo_snapshot_t *snapshot,const memo_network_st
     }
     if(icon_mode)lv_obj_add_flag(record_cat_icon,LV_OBJ_FLAG_HIDDEN);
     else lv_obj_remove_flag(record_cat_icon,LV_OBJ_FLAG_HIDDEN);
+    uint32_t status_color=job.state==MEMO_JOB_SENT?MINT:job.state==MEMO_JOB_FAILED?CORAL:GOLD;
     lv_obj_set_style_text_color(record_status_label,lv_color_hex(status_color),0);
     lv_obj_set_style_bg_color(record_status_dot,lv_color_hex(status_color),0);
     int text_width=lv_text_get_width(state,strlen(state),&memo_font20,0);
@@ -627,9 +627,9 @@ static void page_clicked(lv_event_t *event)
 }
 
 // Draw a solid triangle; the entire tall side button remains the touch target.
+#if MEMO_UI_COMPACT
 static void draw_page_arrow(lv_event_t *event)
 {
-#if MEMO_UI_COMPACT
     lv_obj_t *obj = lv_event_get_target_obj(event);
     lv_area_t area;
     lv_obj_get_coords(obj, &area);
@@ -637,19 +637,13 @@ static void draw_page_arrow(lv_event_t *event)
     int direction = (intptr_t)lv_event_get_user_data(event);
     lv_draw_triangle_dsc_t triangle;
     lv_draw_triangle_dsc_init(&triangle);
-#if MEMO_UI_COMPACT
     triangle.color = lv_color_hex(lv_obj_has_state(obj, LV_STATE_DISABLED) ? 0x516763 : INK);
-#else
-    triangle.color = lv_color_hex(INK);
-#endif
     triangle.p[0] = (lv_point_precise_t){x + direction * 10, y};
     triangle.p[1] = (lv_point_precise_t){x - direction * 8, y - 13};
     triangle.p[2] = (lv_point_precise_t){x - direction * 8, y + 13};
     lv_draw_triangle(lv_event_get_layer(event), &triangle);
-#else
-    (void)event;
-#endif
 }
+#endif
 
 static void set_cat_fallback(cat_anim_state_t state)
 {

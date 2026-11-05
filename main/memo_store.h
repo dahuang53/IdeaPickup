@@ -40,7 +40,6 @@ typedef struct {
  * The complete file is capped below 2 GiB for signed 32-bit FAT/newlib offsets.
  */
 int memo_store_init(memo_store_t *store, const char *root);
-int memo_store_begin(memo_store_t *store);
 /* Exclusive card-local fallback after visible names; not a device/global ID authority. */
 int memo_store_begin_after(memo_store_t *store, uint32_t floor);
 /* Device allocator reserves first; exact exclusive filename, no higher-ID substitution. */
@@ -55,13 +54,6 @@ int memo_store_finish(memo_store_t *store, memo_record_t *record);
  * its .part file excluded from the list for explicit diagnostics. */
 int memo_store_abort(memo_store_t *store);
 
-/* Descending ID order; before_id=0 starts at newest. Pass the last returned ID
- * as before_id for the next page. total counts every valid completed recording.
- * count and total may be NULL. capacity=0 is permitted for a count-only scan.
- */
-int memo_store_list(const memo_store_t *store, uint32_t before_id,
-                    memo_record_t *records, size_t capacity,
-                    size_t *count, size_t *total);
 /* Read and validate the directory once, returning every completed recording in
  * descending ID order.  The caller owns *records and frees it with free(). */
 int memo_store_index(const memo_store_t *store, memo_record_t **records, size_t *count);

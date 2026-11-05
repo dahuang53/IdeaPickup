@@ -260,7 +260,6 @@ void WifiManager::StartConfigAp() {
     ESP_LOGI(TAG, "Starting config AP");
 
     config_ap_->SetSsidPrefix(config_.ssid_prefix);
-    config_ap_->SetLanguage(config_.language);
 
     if (!config_ap_->Start()) {
         ESP_LOGE(TAG, "Provisioning password unavailable");

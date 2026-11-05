@@ -64,7 +64,7 @@ bool read_record(uint32_t id,bool old,memo_cardless_record_t &r){
  if(nvs_get_blob(old?legacy:metadata,key,bytes,&n)!=ESP_OK)return false;
  bool ok=old?memo_cardless_record_decode(bytes,n,&r):memo_cardless_direct_decode(bytes,n,&r);
  if(!ok||r.id!=id)return false;
- if(old){r.can_retry=false;copy(r.error,sizeof(r.error),r.state!=MEMO_JOB_SENT?"旧服务待核对":r.interrupted?"录音曾中断":"");}return true;
+ if(old){copy(r.error,sizeof(r.error),r.state!=MEMO_JOB_SENT?"旧服务待核对":r.interrupted?"录音曾中断":"");}return true;
 }
 bool write_record(const memo_cardless_record_t &r){
  uint8_t bytes[MEMO_CARDLESS_DIRECT_SIZE],actual[MEMO_CARDLESS_DIRECT_SIZE];if(!memo_cardless_direct_encode(&r,bytes))return false;
@@ -261,7 +261,6 @@ extern "C" void memo_cardless_network_step(){
  if(!retry||current.delivery_attempts>=3||result.retry_after>300||now()+wait+30000>stopped_at.load()+120000){finish_record(MEMO_JOB_FAILED,reason(result.code));return;}
  current.state=MEMO_JOB_WAITING;if(!save_current()){release();return;}delivery_due=now()+wait;
 }
-extern "C" bool memo_cardless_recording(){return capturing;}
 extern "C" bool memo_cardless_busy(){return initialized&&active.load();}
 extern "C" bool memo_cardless_should_stop(char *out,size_t cap){if(stopped){Lock lock(meta_mutex);copy(out,cap,error[0]?error:"录音已中断");return true;}return false;}
 extern "C" uint32_t memo_cardless_elapsed_ms(){return samples.load()/16;}

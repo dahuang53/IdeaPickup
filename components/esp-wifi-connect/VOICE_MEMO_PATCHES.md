@@ -3,12 +3,15 @@
 Upstream: `78/esp-wifi-connect` 3.3.1, commit recorded in `UPSTREAM_COMMIT`.
 
 - Never erase NVS automatically when initialization fails.
-- R12 rebuild uses an open temporary AP, matching the upstream default.
-  Project AP password generation and temporary observation hooks were removed;
-  existing NVS keys are neither changed nor erased.
+- The configuration AP uses an 8-character WPA2 password, generated once and
+  saved in memo_ap/password. Reopening the AP, rebooting and preserving NVS on
+  updates keep it unchanged. The physical change-password button persists a
+  different password before restarting the AP and replacing its web session.
 - Separate Wi-Fi connection/save from current-service configuration. The application
   callbacks expose only direct-cloud credential-presence flags, mode and actual task
-  results. Long-term credentials use the bounded USB helper, never the open AP.
+  results. The password-protected AP accepts write-only provider credentials;
+  responses expose presence flags and generations, never saved values. Replace
+  and clear are explicit actions. The bounded USB helper remains available.
   Legacy relay URL/token/pairing handlers have been removed; old NVS stays intact.
 - Limit JSON bodies and reject decoded NUL/unsafe structural depth before parsing;
   use the narrow DONOR request guard (fixed AP Host/Origin, fresh session CSRF).
@@ -59,7 +62,8 @@ The upstream MIT license is retained in `LICENSE`.
   AP Stop wakes and joins an in-flight connection before driver teardown. Saved
   Wi-Fi reconnects when settings reopen. Raw passwords/tokens are never status fields.
 - HTTP accepted sockets must target the AP interface address; the simultaneous
-  STA connection does not expose device configuration on the home LAN.
+  STA connection does not expose device configuration on the home LAN. Accepted
+  sockets are also bound to the AP netif.
 - Phone reconnection, manual browser, exit/re-entry, ordinary update and audio/USB
   integration require current real-device evidence. These changes do not assert the
   cause of the prior intermittent failure.
@@ -70,3 +74,10 @@ The upstream MIT license is retained in `LICENSE`.
   separates accepted settings from actual Wi-Fi/cloud-task results; saving credentials is not provider verification. The product
   title is IdeaPickup across both supported hardware variants. No auto-popup,
   new endpoint, persistent browser storage, or third-party asset is added.
+
+## Direct-cloud cleanup
+
+Unused language configuration was removed: this project embeds one Chinese
+page and does not select page assets by language. Historical relay state is
+read only by compatibility decoders; current credentials and mode use the
+independent direct-cloud configuration.

@@ -108,10 +108,10 @@ public:
     }
     ~ConfigCommitGuard(){if(acquired)memo_config_activity_release(&activity_gate,MEMO_ACTIVITY_COMMIT);}
 };
-void job_state(uint32_t id, memo_job_state_t state, unsigned percent=0) {
+void job_state(uint32_t id, memo_job_state_t state) {
     if(active_record.load()==id)active_state.store(state);
     xSemaphoreTake(status_mutex,portMAX_DELAY);
-    if(detail_value.id==id) {detail_value.state=state;detail_value.upload_percent=percent;++detail_revision;}
+    if(detail_value.id==id) {detail_value.state=state;++detail_revision;}
     xSemaphoreGive(status_mutex);
 
 }
@@ -274,8 +274,8 @@ void detail_task(void *) {
   if(inspect_id.load()){vTaskDelay(pdMS_TO_TICKS(250));xTaskNotifyGive(detail_task_handle);}
  }
 }
-bool pending_record(const memo_cloud_config_t &config,bool &manual,uint32_t &next){
- static uint32_t after=0;manual=false;next=0;
+bool pending_record(const memo_cloud_config_t &config,uint32_t &next){
+ static uint32_t after=0;next=0;
  if(!begin_sd_io(nullptr))return false;
  bool healthy=board_sd_check()==ESP_OK;
  if(healthy) {
@@ -288,13 +288,12 @@ bool pending_record(const memo_cloud_config_t &config,bool &manual,uint32_t &nex
  * pending. A busy or missing card never masquerades as an empty directory. */
 bool discover_sd_work(const memo_cloud_config_t &config) {
  if(!sd_scan_requested.exchange(false))return true;
- bool manual=false;uint32_t next=0;
- bool healthy=pending_record(config,manual,next);
+ uint32_t next=0;
+ bool healthy=pending_record(config,next);
  if(!healthy){sd_scan_requested.store(true);sd_media_work.store(true);}
  xSemaphoreTake(status_mutex,portMAX_DELAY);
  if(next && !sync_queue.active_id && !sync_queue.pending_id) {
-  if(manual)memo_sync_queue_offer_manual(&sync_queue,next,true);
-  else memo_sync_queue_offer_auto(&sync_queue,next);
+  memo_sync_queue_offer_auto(&sync_queue,next);
  }
  sd_media_work.store(!healthy || next || sync_queue.active_id || sync_queue.pending_id);
  xSemaphoreGive(status_mutex);return healthy;
@@ -398,7 +397,6 @@ extern "C" esp_err_t network_sync_init(uint32_t existing_latest_id)
     });
     WifiManagerConfig config;
     config.ssid_prefix = "MeowInbox";
-    config.language = "zh-CN";
     config.station_hostname = "meow-inbox";
     memo_service_portal_register(memo_portal_status,memo_portal_apply);
     config.config_commit_begin=[](){
@@ -418,7 +416,6 @@ extern "C" esp_err_t network_sync_init(uint32_t existing_latest_id)
     refresh_service_status();
     memo_cloud_public_t current{};memo_cloud_settings_public(&current);
     bool configured=current.result==MEMO_CLOUD_OK&&current.enabled&&current.configured;
-    uint32_t cursor=0;
     if(current.result!=MEMO_CLOUD_OK)set_error("云配置不可读");
     manager.SetEventCallback([](WifiEvent event, const std::string &data) {
         auto &wifi = WifiManager::GetInstance();
@@ -480,8 +477,8 @@ extern "C" esp_err_t network_sync_init(uint32_t existing_latest_id)
     status_update([](memo_network_status_t &s) { s.initialized = true; });
     memo_network_status_t ready_snapshot;
     network_sync_get_status(&ready_snapshot);
-    ESP_LOGI(TAG, "NETWORK_READY configured=%d device=%s baseline=%" PRIu32,
-             configured, ready_snapshot.device_id, cursor);
+    ESP_LOGI(TAG, "NETWORK_READY configured=%d device=%s",
+             configured, ready_snapshot.device_id);
     return ESP_OK;
 }
 
@@ -756,11 +753,9 @@ extern "C" bool network_sync_power_suspend(void)
         power_suspended.store(false);
         return false;
     }
-    memo_network_status_t snapshot;
-    network_sync_get_status(&snapshot);
     auto &manager = WifiManager::GetInstance();
     if (manager.IsInitialized()) manager.StopStation();
-    ESP_LOGI(TAG, "POWER_SUSPEND station=off cursor=%" PRIu32, snapshot.cursor_id);
+    ESP_LOGI(TAG, "POWER_SUSPEND station=off");
     return true;
 }
 

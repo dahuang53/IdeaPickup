@@ -162,20 +162,28 @@ void view(const char *root,uint32_t id,const memo_cloud_config_t &cfg,Result &r)
  if(status!=MEMO_CACHE_MISSING){storage_error(r);r.state=MEMO_JOB_FAILED;return;}
  r.can_retry=legacy_allowed(p,id,r.state,r.error);
 }
+namespace {
+bool create_validated(const char *root,uint32_t id,const memo_cloud_config_t &cfg,
+                      const Paths &p,const memo_record_t &record){
+ memo_job_state_t state;Error error;
+ if(!legacy_allowed(p,id,state,error))return false;
+ Entry e;e.id=id;e.file_bytes=uint64_t(record.data_bytes)+44;e.submission=1;e.qwen_generation=cfg.qwen_generation;e.siyuan_generation=cfg.siyuan_generation;
+ e.state=MEMO_JOB_QUEUED;e.intent=true;return write(root,e);
+}
+}
 bool create(const char *root,uint32_t id,const memo_cloud_config_t &cfg,bool automatic){
  if(!automatic)return true; // Local-only recordings create no cloud intent.
  if(!cfg.enabled||!memo_cloud_config_ready(&cfg))return false;
- Entry current;auto found=read(root,id,&current);if(found!=MEMO_CACHE_MISSING)return false;
- Paths p(root,id);memo_record_t record{};memo_job_state_t state;Error error;
- if(!p.valid||memo_store_validate(p.wav,&record)||record.id!=id||!legacy_allowed(p,id,state,error))return false;
- Entry e;e.id=id;e.file_bytes=uint64_t(record.data_bytes)+44;e.submission=1;e.qwen_generation=cfg.qwen_generation;e.siyuan_generation=cfg.siyuan_generation;
- e.state=MEMO_JOB_QUEUED;e.intent=true;return write(root,e);
+ Entry current;if(read(root,id,&current)!=MEMO_CACHE_MISSING)return false;
+ Paths p(root,id);memo_record_t record{};
+ if(!p.valid||memo_store_validate(p.wav,&record)||record.id!=id)return false;
+ return create_validated(root,id,cfg,p,record);
 }
 bool submit(const char *root,uint32_t id,const memo_cloud_config_t &cfg){
  if(!cfg.enabled||!memo_cloud_config_ready(&cfg))return false;
  Entry e;auto status=read(root,id,&e);Paths p(root,id);memo_record_t record{};
  if(!p.valid||memo_store_validate(p.wav,&record)||record.id!=id)return false;
- if(status==MEMO_CACHE_MISSING)return create(root,id,cfg,true);
+ if(status==MEMO_CACHE_MISSING)return create_validated(root,id,cfg,p,record);
  if(status!=MEMO_CACHE_OK||e.state==MEMO_JOB_SENT||e.state==MEMO_JOB_UNCERTAIN||e.state==MEMO_JOB_CANCELLING||
     (e.intent&&same_config(e,cfg))||e.submission==UINT32_MAX||e.file_bytes!=uint64_t(record.data_bytes)+44)return false;
  bool reset=e.state==MEMO_JOB_CANCELLED||e.error==Error::NoSpeech||e.qwen_generation!=cfg.qwen_generation;
@@ -315,7 +323,16 @@ uint32_t pending(const char *root,const memo_cloud_config_t &cfg,uint32_t *after
   errno=0;dirent *item=readdir(dir);if(!item){if(errno)healthy=false;break;}
   unsigned long value=0;unsigned slot=0;int end=0;
   if(sscanf(item->d_name,"direct_r1_%10lu.job.%u%n",&value,&slot,&end)!=2||item->d_name[end]||!value||value>INT32_MAX||slot>1)continue;
-  uint32_t id=value;Entry e;auto status=read(root,id,&e);
+  uint32_t id=value;
+  // Both directory entries name the same checkpoint. If .0 exists, it will
+  // drive the one read of both slots; .1 alone still recovers a single slot.
+  if(slot==1){
+   char primary[MEMO_PATH_MAX];int n=snprintf(primary,sizeof(primary),"%s/direct_r1_%010u.job.0",root,unsigned(id));
+   if(n<0||size_t(n)>=sizeof(primary)){healthy=false;continue;}
+   struct stat st{};if(!stat(primary,&st))continue;
+   if(errno!=ENOENT)healthy=false;
+  }
+  Entry e;auto status=read(root,id,&e);
   if(status!=MEMO_CACHE_OK){healthy=false;continue;}
   bool work=e.intent&&((cfg.enabled&&memo_cloud_config_ready(&cfg)&&same_config(e,cfg))||e.state==MEMO_JOB_CANCELLING||e.state==MEMO_JOB_DELIVERING);
   if(!work&&(e.state==MEMO_JOB_SENT||e.state==MEMO_JOB_CANCELLED)){

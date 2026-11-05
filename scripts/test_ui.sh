@@ -35,6 +35,8 @@ set(CONFIG_LV_BUILD_DEMOS OFF CACHE BOOL "" FORCE)
 set(CONFIG_LV_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(CONFIG_LV_USE_THORVG_INTERNAL OFF CACHE BOOL "" FORCE)
 add_subdirectory("${LVGL_SOURCE}" lvgl)
+set_source_files_properties("${PROJECT_ROOT}/main/ui.c" PROPERTIES
+    COMPILE_DEFINITIONS "lv_label_set_text=memo_ui_test_set_text")
 function(add_ui_preview target width)
     add_executable(${target} "${PROJECT_ROOT}/tests/ui_preview.c"
         "${PROJECT_ROOT}/main/ui.c" "${PROJECT_ROOT}/main/cat_anim.c"

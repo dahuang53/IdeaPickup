@@ -50,7 +50,6 @@ WifiConfigurationAp::~WifiConfigurationAp() {
     Stop();
     vEventGroupDelete(event_group_);
 }
-void WifiConfigurationAp::SetLanguage(const std::string& language) { language_ = language; }
 void WifiConfigurationAp::SetSsidPrefix(const std::string& prefix) { ssid_prefix_ = prefix; }
 std::string WifiConfigurationAp::GetSsid() {
     uint8_t mac[6];

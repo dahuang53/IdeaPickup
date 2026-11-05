@@ -2,7 +2,7 @@
 set -euo pipefail
 project_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$project_dir"
-.venv-relay/bin/python -c 'import sys; assert sys.version_info[:3] == (3, 11, 16), "relay Python version mismatch"'
+.venv/bin/python -c 'import sys; assert sys.version_info[:3] == (3, 12, 14), "host Python version mismatch"'
 mkdir -p private/host-tests
 chmod 700 private/host-tests
 suite_dir="$(mktemp -d private/host-tests/sync-pipeline.XXXXXX)"
@@ -11,11 +11,11 @@ trap 'rm -rf -- "$suite_dir"' EXIT
  -fsanitize=address,undefined -I main main/memo_record_ids.c main/memo_cardless_record.c tests/legacy_cardless_fixture.c \
  tests/test_record_ids.c -o "$suite_dir/ids"
 "$suite_dir/ids"
-.venv-relay/bin/python tests/test_sync_metadata_lock.py
-.venv-relay/bin/python tests/test_network_worker.py
-.venv-relay/bin/python tests/test_detail_startup.py
-.venv-relay/bin/python tests/test_verified_audio.py
-.venv-relay/bin/python tests/test_http_deadline.py
-.venv-relay/bin/python tests/test_sync_pipeline.py
-.venv-relay/bin/python tests/test_cardless_runtime.py
-.venv-relay/bin/python tests/test_record_ids_nvs.py
+.venv/bin/python tests/test_sync_metadata_lock.py
+.venv/bin/python tests/test_network_worker.py
+.venv/bin/python tests/test_detail_startup.py
+.venv/bin/python tests/test_verified_audio.py
+.venv/bin/python tests/test_http_deadline.py
+.venv/bin/python tests/test_sync_pipeline.py
+.venv/bin/python tests/test_cardless_runtime.py
+.venv/bin/python tests/test_record_ids_nvs.py

@@ -295,10 +295,6 @@ int memo_store_begin_reserved(memo_store_t *store,uint32_t id) {
     return begin_after(store,id-1,id);
 }
 
-int memo_store_begin(memo_store_t *store)
-{
-    return begin_after(store, 0, UINT32_MAX);
-}
 int memo_store_begin_after(memo_store_t *store, uint32_t floor)
 {
     return begin_after(store, floor, INT32_MAX);
@@ -607,60 +603,6 @@ int memo_store_validate(const char *path, memo_record_t *record)
     if (fclose(file) != 0 && !error) error = io_error();
     if (error) return fail(error);
     fill_record(record, id, bytes, path);
-    return 0;
-}
-
-int memo_store_list(const memo_store_t *store, uint32_t before_id,
-                    memo_record_t *records, size_t capacity,
-                    size_t *count, size_t *total)
-{
-    if (count) *count = 0;
-    if (total) *total = 0;
-    if (!store || !store->root[0] || (capacity && !records)) return fail(EINVAL);
-    DIR *dir = opendir(store->root);
-    if (!dir) return -1;
-    size_t used = 0, all = 0;
-    int error = 0;
-    for (;;) {
-        errno = 0;
-        struct dirent *entry = readdir(dir);
-        if (!entry) {
-            error = errno;
-            if (error) fprintf(stderr, "STORE_READDIR path=%s valid=%zu errno=%d\n",
-                               store->root, all, error);
-            break;
-        }
-        uint32_t id;
-        if (!parse_name(entry->d_name, false, &id)) continue;
-        char path[MEMO_PATH_MAX];
-        if (memo_store_path(store, id, path, sizeof(path)) != 0) {
-            error = errno;
-            break;
-        }
-        memo_record_t record;
-        if (memo_store_validate(path, &record) != 0) {
-            /* Malformed recordings are isolated by omission. Actual device or
-             * media errors must reach the caller rather than look like no memos. */
-            if (errno == EINVAL || errno == ENOENT || errno == EISDIR) continue;
-            error = errno;
-            fprintf(stderr, "STORE_VALIDATE path=%s errno=%d (%s)\n",
-                    path, error, strerror(error));
-            break;
-        }
-        ++all;
-        if (!capacity || (before_id && id >= before_id)) continue;
-        size_t position = 0;
-        while (position < used && records[position].id > id) ++position;
-        if (position >= capacity) continue;
-        if (used < capacity) ++used;
-        for (size_t i = used - 1; i > position; --i) records[i] = records[i - 1];
-        records[position] = record;
-    }
-    errno = 0;
-    if (closedir(dir) != 0 && !error) error = io_error();
-    if (error) return fail(error);
-    if (count) *count = used;
-    if (total) *total = all;
     return 0;
 }
 

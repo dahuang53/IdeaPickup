@@ -21,7 +21,7 @@ static std::mutex sharing;
 static std::map<FILE*,std::string> files;
 static std::string fail_open,drop_filter;
 static int drop_write=0,fail_sync=0,fail_unlink=0,write_calls=0,conflicts=0;
-static size_t wav_reads=0;static bool fail_wave_read=false;
+static size_t metadata_reads=0,wav_reads=0;static bool fail_wave_read=false;
 extern "C" FILE *sd_test_fopen(const char *path,const char *mode){
  std::lock_guard<std::mutex> lock(sharing);if(!fail_open.empty()&&std::string(path).find(fail_open)!=std::string::npos){errno=EACCES;return nullptr;}
  bool writer=mode[0]!='r'||strchr(mode,'+');
@@ -29,7 +29,7 @@ extern "C" FILE *sd_test_fopen(const char *path,const char *mode){
  FILE *f=fopen(path,mode);if(f)files[f]=path;return f;
 }
 extern "C" int sd_test_fclose(FILE *f){std::lock_guard<std::mutex> lock(sharing);files.erase(f);return fclose(f);}
-extern "C" size_t sd_test_fread(void *p,size_t size,size_t n,FILE *f){if(fail_wave_read&&files[f].find(".wav")!=std::string::npos){fail_wave_read=false;errno=EIO;return 0;}size_t got=fread(p,size,n,f);if(files[f].find(".wav")!=std::string::npos)wav_reads+=got*size;return got;}
+extern "C" size_t sd_test_fread(void *p,size_t size,size_t n,FILE *f){if(files[f].find(".job.")!=std::string::npos)metadata_reads++;if(fail_wave_read&&files[f].find(".wav")!=std::string::npos){fail_wave_read=false;errno=EIO;return 0;}size_t got=fread(p,size,n,f);if(files[f].find(".wav")!=std::string::npos)wav_reads+=got*size;return got;}
 extern "C" size_t sd_test_fwrite(const void *p,size_t size,size_t n,FILE *f){
  write_calls++;if(drop_write&&files[f].find(drop_filter)!=std::string::npos){drop_write--;errno=EIO;return 0;}return fwrite(p,size,n,f);
 }
@@ -135,7 +135,7 @@ static void scenario(const std::string &name,const std::string &root){
   auto replacement=old;replacement[44]^=1;raw_write(f.wav(),replacement);f.view();assert(f.result.state==MEMO_JOB_SENT);replacement.push_back(0);raw_write(f.wav(),replacement);f.view();assert(f.result.error==Error::Audio&&!f.result.can_retry);raw_write(f.wav(),old);
  }else if(name=="legacy"){
   for(int state=MEMO_JOB_LOCAL;state<=MEMO_JOB_CANCELLING;state++)for(bool bound:{false,true}){
-   f.id=uint32_t(2+state*2+bound);f.wave();memo_sync_entry_t e{};e.id=f.id;e.state=memo_job_state_t(state);e.bound=bound;e.automatic=true;
+   f.id=uint32_t(2+state*2+bound);f.wave();legacy_sync_fixture_t e{};e.id=f.id;e.state=memo_job_state_t(state);e.bound=bound;e.automatic=true;
    if(bound){e.audio.bytes=32044;e.audio.sha256[0]=1;e.target.instance.bytes[0]=1;e.target.url_hash[0]=1;strcpy(e.target.device_id,"synthetic");}
    char cache[256];snprintf(cache,sizeof(cache),"%s/sync_r1_%010u.job",root.c_str(),unsigned(f.id));assert(legacy_fixture_write(cache,&e));auto original=bytes(std::string(cache)+".0");
    f.view();bool allowed=!bound&&(state==MEMO_JOB_LOCAL||state==MEMO_JOB_QUEUED);assert(f.result.can_retry==allowed);assert(submit(root.c_str(),f.id,f.config)==allowed);assert(bytes(std::string(cache)+".0")==original);
@@ -197,7 +197,7 @@ static void scenario(const std::string &name,const std::string &root){
   assert(f.asr==1&&f.result.delay_ms==(reboot?300000U:90000U));f.now+=f.result.delay_ms;f.finish();assert(f.entry().state==MEMO_JOB_SENT&&f.asr==2);
  }else if(name=="id_floor"){
   f.start();assert(!unlink(f.wav().c_str()));memo_store_t store;assert(!memo_store_init(&store,f.root.c_str()));
-  uint32_t floor=0;assert(!memo_store_max_id(&store,&floor)&&floor==1);assert(!memo_store_begin(&store)&&store.id==2);memo_store_abort(&store);
+  uint32_t floor=0;assert(!memo_store_max_id(&store,&floor)&&floor==1);assert(!memo_store_begin_after(&store,0)&&store.id==2);memo_store_abort(&store);
  }else if(name=="headers_disconnect"){
   f.start();f.mode=name;f.tick();
   assert(f.result.pending&&f.entry().pause==Pause::Media&&f.asr==1&&!f.posted);
@@ -217,12 +217,19 @@ static void scenario(const std::string &name,const std::string &root){
  }else if(name=="scan"){
   uint32_t after=0;bool complete=true;assert(!pending((root+"/absent").c_str(),f.config,&after,&complete)&&!complete);
   assert(!pending(root.c_str(),f.config,&after,&complete)&&complete);f.start();assert(pending(root.c_str(),f.config,&after,&complete)==1&&complete);
+  // One decode per ID with both slots; a missing or torn .0 still uses .1.
+  auto e=f.entry();e.state=MEMO_JOB_WAITING;assert(write(root.c_str(),e));
+  size_t before=metadata_reads;assert(pending(root.c_str(),f.config,&after,&complete)==1&&complete&&metadata_reads-before==2);
+  assert(!rename(f.job(0).c_str(),(f.job(0)+".backup").c_str()));
+  before=metadata_reads;assert(pending(root.c_str(),f.config,&after,&complete)==1&&complete&&metadata_reads-before==1);
+  raw_write(f.job(0),{0});before=metadata_reads;
+  assert(pending(root.c_str(),f.config,&after,&complete)==1&&complete&&metadata_reads-before==2);
   fail_open=".job.";assert(!pending(root.c_str(),f.config,&after,&complete)&&!complete);fail_open.clear();f.config.enabled=false;assert(!pending(root.c_str(),f.config,&after,&complete)&&complete);
  }else if(name=="scan_partial"){
   f.start();raw_write(root+"/direct_r1_0000000999.job.0",{0});uint32_t after=0;bool complete=true;
   assert(pending(root.c_str(),f.config,&after,&complete)==1&&!complete);f.finish();assert(f.entry().state==MEMO_JOB_SENT);
  }else if(name=="legacy_future"){
-  memo_sync_entry_t e{};e.id=1;e.state=MEMO_JOB_LOCAL;std::string cache=root+"/sync_r1_0000000001.job";assert(legacy_fixture_write(cache.c_str(),&e));
+  legacy_sync_fixture_t e{};e.id=1;e.state=MEMO_JOB_LOCAL;std::string cache=root+"/sync_r1_0000000001.job";assert(legacy_fixture_write(cache.c_str(),&e));
   auto unknown=bytes(cache+".0");put32(unknown.data()+4,2);put32(unknown.data()+160,crc(unknown.data(),160));raw_write(cache+".1",unknown);
   f.view();assert(f.result.error==Error::Storage&&!f.result.can_retry&&!submit(root.c_str(),1,f.config)&&!f.opens);
  }else if(name=="cycles"){

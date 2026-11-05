@@ -22,6 +22,20 @@
     errno = 0; CHECK((expression) == -1); CHECK(errno == (expected)); \
 } while (0)
 
+/* Test page slicing of the actual production index. No second scanner/validator. */
+static int index_page(const memo_store_t *store,uint32_t before,memo_record_t *out,
+                      size_t capacity,size_t *count,size_t *total)
+{
+    if(count)*count=0;if(total)*total=0;
+    memo_record_t *items=NULL;size_t n=0;
+    if(memo_store_index(store,&items,&n))return -1;
+    if(total)*total=n;
+    size_t used=0;
+    for(size_t i=0;i<n&&used<capacity;i++)
+        if(!before||items[i].id<before)out[used++]=items[i];
+    free(items);if(count)*count=used;return 0;
+}
+
 static int checks;
 
 static void done(const char *name)
@@ -101,7 +115,7 @@ static memo_record_t record_samples(memo_store_t *store, uint32_t count)
 {
     int16_t block[1600];
     for (size_t i = 0; i < 1600; ++i) block[i] = (int16_t)((int)i * 17 - 13000);
-    CHECK(memo_store_begin(store) == 0);
+    CHECK(memo_store_begin_after(store,0) == 0);
     uint32_t remaining = count;
     while (remaining) {
         size_t batch = remaining < 1600U ? remaining : 1600U;
@@ -130,7 +144,7 @@ static void test_ten_and_restart(const char *parent)
     }
     memo_record_t records[10];
     size_t count = 99, total = 99;
-    CHECK(memo_store_list(&store, 0, records, 10, &count, &total) == 0);
+    CHECK(index_page(&store, 0, records, 10, &count, &total) == 0);
     CHECK(count == 10 && total == 10);
     memo_record_t *index = NULL;
     size_t indexed = 0;
@@ -145,13 +159,13 @@ static void test_ten_and_restart(const char *parent)
     CHECK(records[0].duration_ms == 120000);
     uint32_t before = 0, expected = 10;
     do {
-        CHECK(memo_store_list(&store, before, records, 3, &count, &total) == 0);
+        CHECK(index_page(&store, before, records, 3, &count, &total) == 0);
         CHECK(total == 10);
         for (size_t i = 0; i < count; ++i) CHECK(records[i].id == expected--);
         if (count) before = records[count - 1].id;
     } while (count);
     CHECK(expected == 0);
-    CHECK(memo_store_list(&store, 0, NULL, 0, &count, &total) == 0);
+    CHECK(index_page(&store, 0, NULL, 0, &count, &total) == 0);
     CHECK(count == 0 && total == 10);
     done("ten unique recordings, restart, descending paginated list, 120-second streaming WAV and exact headers");
 }
@@ -159,20 +173,20 @@ static void test_ten_and_restart(const char *parent)
 static void test_short_and_abort(const char *parent)
 {
     memo_store_t store = make_store(parent, "short");
-    CHECK(memo_store_begin(&store) == 0);
-    EXPECT_ERROR(memo_store_begin(&store), EBUSY);
+    CHECK(memo_store_begin_after(&store,0) == 0);
+    EXPECT_ERROR(memo_store_begin_after(&store,0), EBUSY);
     EXPECT_ERROR(memo_store_inject_write_failure(&store, 0), EBUSY);
     CHECK(memo_store_append(&store, NULL, 0) == 0);
     EXPECT_ERROR(memo_store_finish(&store, NULL), ENODATA);
     CHECK(access(store.partial_path, F_OK) == 0);
     CHECK(memo_store_abort(&store) == 0);
-    CHECK(memo_store_begin(&store) == 0);
+    CHECK(memo_store_begin_after(&store,0) == 0);
     CHECK(store.id == 2);
     int16_t sample = (int16_t)0x8123;
     CHECK(memo_store_append(&store, &sample, 1) == 0);
     CHECK(memo_store_abort(&store) == 0);
     EXPECT_ERROR(memo_store_validate(store.partial_path, NULL), EINVAL);
-    CHECK(memo_store_begin(&store) == 0);
+    CHECK(memo_store_begin_after(&store,0) == 0);
     CHECK(store.id == 3);
     CHECK(memo_store_append(&store, &sample, 1) == 0);
     memo_record_t record;
@@ -184,7 +198,7 @@ static void test_short_and_abort(const char *parent)
     CHECK(fgetc(file) == 0x23 && fgetc(file) == 0x81);
     CHECK(fclose(file) == 0);
     size_t count, total;
-    CHECK(memo_store_list(&store, 0, &record, 1, &count, &total) == 0);
+    CHECK(index_page(&store, 0, &record, 1, &count, &total) == 0);
     CHECK(count == 1 && total == 1 && record.id == 3);
     done("zero-sample rejection, one-sample WAV, endian encoding, busy guards and interrupted .part isolation");
 }
@@ -194,7 +208,7 @@ static void test_explicit_partial_recovery(const char *parent)
     memo_store_t store = make_store(parent, "recover_partial");
     int16_t samples[16000];
     for (size_t i = 0; i < 16000; ++i) samples[i] = (int16_t)(i * 13U);
-    CHECK(memo_store_begin(&store) == 0);
+    CHECK(memo_store_begin_after(&store,0) == 0);
     CHECK(memo_store_append(&store, samples, 16000) == 0);
     CHECK(memo_store_abort(&store) == 0);
     memo_record_t partial;
@@ -209,7 +223,7 @@ static void test_explicit_partial_recovery(const char *parent)
     verify_header(&recovered, 16000);
     EXPECT_ERROR(memo_store_recover_partial(&store, 1, NULL), ENOENT);
 
-    CHECK(memo_store_begin(&store) == 0);
+    CHECK(memo_store_begin_after(&store,0) == 0);
     CHECK(memo_store_append(&store, samples, 8) == 0);
     CHECK(memo_store_abort(&store) == 0);
     strcpy(partial_path, store.partial_path);
@@ -220,7 +234,7 @@ static void test_explicit_partial_recovery(const char *parent)
     CHECK(access(partial_path, F_OK) == 0);
     expect_bytes(complete, "reserved", 8);
 
-    CHECK(memo_store_begin(&store) == 0);
+    CHECK(memo_store_begin_after(&store,0) == 0);
     CHECK(memo_store_append(&store, samples, 8) == 0);
     CHECK(memo_store_abort(&store) == 0);
     FILE *file = fopen(store.partial_path, "r+b");
@@ -228,7 +242,7 @@ static void test_explicit_partial_recovery(const char *parent)
     EXPECT_ERROR(memo_store_inspect_partial(&store, 3, NULL), EINVAL);
     EXPECT_ERROR(memo_store_recover_partial(&store, 3, NULL), EINVAL);
 
-    CHECK(memo_store_begin(&store) == 0);
+    CHECK(memo_store_begin_after(&store,0) == 0);
     CHECK(memo_store_append(&store, samples, 8) == 0);
     EXPECT_ERROR(memo_store_recover_partial(&store, 4, NULL), EBUSY);
     CHECK(memo_store_abort(&store) == 0);
@@ -250,7 +264,7 @@ static void test_marked_boot_recovery_and_discard(const char *parent)
     int16_t samples[1600];
     for (size_t i = 0; i < 1600; ++i) samples[i] = (int16_t)(i * 7U);
 
-    CHECK(memo_store_begin(&store) == 0);
+    CHECK(memo_store_begin_after(&store,0) == 0);
     CHECK(memo_store_append(&store, samples, 1600) == 0);
     CHECK(memo_store_checkpoint(&store) == 0);
     char partial[MEMO_PATH_MAX];
@@ -282,7 +296,7 @@ static void test_marked_boot_recovery_and_discard(const char *parent)
     verify_header(&recovered, 1600);
     CHECK(access(active, F_OK) == -1 && errno == ENOENT);
 
-    CHECK(memo_store_begin(&store) == 0);
+    CHECK(memo_store_begin_after(&store,0) == 0);
     CHECK(memo_store_append(&store, samples, 8) == 0);
     strcpy(partial, store.partial_path);
     crash_close(&store);
@@ -301,7 +315,7 @@ static void test_marked_boot_recovery_and_discard(const char *parent)
     write_bytes(active, "not-an-id\n", 10);
     EXPECT_ERROR(memo_store_pending_id(&store, &pending), EINVAL);
     CHECK(access(active, F_OK) == -1 && errno == ENOENT);
-    CHECK(memo_store_begin(&store) == 0);
+    CHECK(memo_store_begin_after(&store,0) == 0);
     CHECK(memo_store_abort(&store) == 0);
     verify_header(&recovered, 1600);
     done("durable active marker, boot recovery, stale-marker cleanup and explicit partial discard");
@@ -320,7 +334,7 @@ static void test_injected_failure(const char *parent)
     int16_t samples[100] = {0};
     for (size_t i = 0; i < sizeof(thresholds) / sizeof(thresholds[0]); ++i) {
         CHECK(memo_store_inject_write_failure(&store, thresholds[i]) == 0);
-        CHECK(memo_store_begin(&store) == 0);
+        CHECK(memo_store_begin_after(&store,0) == 0);
         int result = memo_store_append(&store, samples, 100);
         if (thresholds[i] == 200) {
             CHECK(result == 0);
@@ -343,7 +357,7 @@ static void test_injected_failure(const char *parent)
         CHECK(recovered.id == (uint32_t)(3 + i * 2));
     }
     size_t total;
-    CHECK(memo_store_list(&store, 0, NULL, 0, NULL, &total) == 0);
+    CHECK(index_page(&store, 0, NULL, 0, NULL, &total) == 0);
     CHECK(total == 5);
     done("non-destructive next-recording write failures at zero, odd, partial and exact byte boundaries; recovery");
 }
@@ -352,7 +366,7 @@ static void test_finalize_errors(const char *parent)
 {
     memo_store_t store = make_store(parent, "finalize");
     const int16_t sample = 100;
-    CHECK(memo_store_begin(&store) == 0);
+    CHECK(memo_store_begin_after(&store,0) == 0);
     CHECK(memo_store_append(&store, &sample, 1) == 0);
     CHECK(fflush(store.file) == 0);
     /* Force real descriptor I/O failure, covering unsuccessful close/finalize. */
@@ -362,7 +376,7 @@ static void test_finalize_errors(const char *parent)
     char final_path[MEMO_PATH_MAX];
     CHECK(memo_store_path(&store, 1, final_path, sizeof(final_path)) == 0);
     CHECK(access(final_path, F_OK) == -1 && errno == ENOENT);
-    CHECK(memo_store_begin(&store) == 0);
+    CHECK(memo_store_begin_after(&store,0) == 0);
     CHECK(memo_store_append(&store, &sample, 1) == 0);
     CHECK(memo_store_path(&store, store.id, final_path, sizeof(final_path)) == 0);
     const char original[] = "preserve unexpected pre-existing destination";
@@ -372,7 +386,7 @@ static void test_finalize_errors(const char *parent)
     CHECK(access(store.partial_path, F_OK) == 0);
     /* A complete header in a .part does not make it appear in the inbox. */
     size_t total;
-    CHECK(memo_store_list(&store, 0, NULL, 0, NULL, &total) == 0);
+    CHECK(index_page(&store, 0, NULL, 0, NULL, &total) == 0);
     CHECK(total == 0);
     memo_record_t recovered = record_samples(&store, 10);
     CHECK(recovered.id == 3);
@@ -419,7 +433,7 @@ static void test_corruption_and_names(const char *parent)
     write_bytes(path, bytes, 48);
     memo_record_t records[10];
     size_t count, total;
-    CHECK(memo_store_list(&store, 0, records, 10, &count, &total) == 0);
+    CHECK(index_page(&store, 0, records, 10, &count, &total) == 0);
     CHECK(count == 1 && total == 1 && records[0].id == 1);
     memo_record_t next = record_samples(&store, 2);
     CHECK(next.id == 31);
@@ -430,17 +444,17 @@ static void test_id_and_size_boundaries(const char *parent)
 {
     memo_store_t store = make_store(parent, "boundaries");
     char path[MEMO_PATH_MAX];
-    CHECK(memo_store_path(&store, UINT32_MAX - 1, path, sizeof(path)) == 0);
+    CHECK(memo_store_path(&store, INT32_MAX - 1, path, sizeof(path)) == 0);
     write_bytes(path, "reserved", 8);
     memo_record_t record = record_samples(&store, 1);
-    CHECK(record.id == UINT32_MAX);
-    EXPECT_ERROR(memo_store_begin(&store), EOVERFLOW);
+    CHECK(record.id == INT32_MAX);
+    EXPECT_ERROR(memo_store_begin_after(&store,0), EOVERFLOW);
     char root[MEMO_PATH_MAX];
     strcpy(root, store.root);
     CHECK(memo_store_init(&store, root) == 0);
-    EXPECT_ERROR(memo_store_begin(&store), EOVERFLOW);
+    EXPECT_ERROR(memo_store_begin_after(&store,0), EOVERFLOW);
     store = make_store(parent, "size_limit");
-    CHECK(memo_store_begin(&store) == 0);
+    CHECK(memo_store_begin_after(&store,0) == 0);
     const int16_t sample = 0;
     /* Preflight must reject this without reading an enormous caller buffer. */
     EXPECT_ERROR(memo_store_append(&store, &sample, (size_t)UINT32_MAX / 2U), EFBIG);
@@ -507,9 +521,9 @@ static void test_init_and_removed_media(const char *parent)
     store = make_store(parent, "removed");
     CHECK(memo_store_init(&store, store.root) == 0);
     CHECK(rmdir(store.root) == 0);
-    EXPECT_ERROR(memo_store_begin(&store), ENOENT);
+    EXPECT_ERROR(memo_store_begin_after(&store,0), ENOENT);
     size_t total = 100, count = 100;
-    EXPECT_ERROR(memo_store_list(&store, 0, NULL, 0, &count, &total), ENOENT);
+    EXPECT_ERROR(index_page(&store, 0, NULL, 0, &count, &total), ENOENT);
     CHECK(total == 0 && count == 0);
     done("invalid root, missing mount parent and removed-media errors never silently recreate a mount");
 }

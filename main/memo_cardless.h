@@ -15,11 +15,9 @@ extern "C" {
 #define MEMO_CARDLESS_DISPLAY_ID(id) ((id)&UINT32_C(0x7fffffff))
 typedef struct {
  uint32_t id,duration_ms,encoded_bytes;
- uint64_t received_samples;
  memo_job_state_t state;
- bool can_retry,interrupted,may_have_remote_audio;
+ bool interrupted,may_have_remote_audio;
  char error[80];
- memo_sync_target_t target; /* Old records1 decoder only, never a live target. */
  bool direct;
  uint32_t qwen_generation,siyuan_generation,delivery_attempts;
 } memo_cardless_record_t;
@@ -36,7 +34,6 @@ esp_err_t memo_cardless_begin(uint32_t floor,uint32_t *id);
 /* Single producer 16kHz PCM16; nonblocking all-or-nothing enqueue. */
 bool memo_cardless_append(const int16_t *,size_t samples);
 void memo_cardless_finish(bool interrupted,const char *reason);
-bool memo_cardless_recording(void);
 bool memo_cardless_busy(void);
 bool memo_cardless_should_stop(char *,size_t);
 uint32_t memo_cardless_elapsed_ms(void);

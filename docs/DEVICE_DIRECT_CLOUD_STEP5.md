@@ -1,5 +1,6 @@
 # 设备直连第五步：配置与反馈
 
+> 后续更新：当前密码热点支持网页写入、替换和清除两项凭据；本文的开放热点／仅 USB 决策为当时的历史记录。现行使用方法见[设备安装说明](DEVICE_INSTALL.md)。
 > 本文记录该步骤通过审计时的北京百炼候选。第六步按用户决定切换为千问 AI 平台，当前接口及凭据配置见[第六步记录](DEVICE_DIRECT_CLOUD_STEP6.md)和[现行契约](contracts/firmware-direct-cloud-v1.json)。
 
 基线第四步 `fe1bba8`，对应[主计划第五步](DEVICE_DIRECT_CLOUD_PLAN.md#步骤五-调整配置页面与设备反馈)。遵循[配置渠道／NVS决定](DEVICE_DIRECT_CLOUD_STEP1.md#5-配置输入保存与升级回退)，字节／HTTP／USB唯一接口路由见[当前契约](contracts/firmware-direct-cloud-v1.json)。本步不操作设备、服务器或真实供应商，不推送或发布。

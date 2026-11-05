@@ -11,6 +11,13 @@
 #include <string.h>
 
 LV_FONT_DECLARE(memo_font);
+static lv_obj_t *observed_label;
+static unsigned observed_label_writes;
+void memo_ui_test_set_text(lv_obj_t *label, const char *text)
+{
+    if(label == observed_label) observed_label_writes++;
+    lv_label_set_text(label,text);
+}
 static memo_snapshot_t model;
 static uint32_t frame[MEMO_UI_WIDTH * MEMO_UI_HEIGHT];
 static memo_cmd_t last_command;
@@ -701,6 +708,11 @@ int main(void)
     }
     detail_job.state=MEMO_JOB_QUEUED;detail_job.can_retry=true;detail_job.can_cancel=false;tick(220);
     assert(contains_visible_label(lv_screen_active(),"提交处理"));
+    observed_label=find_visible_label(lv_screen_active(),"提交处理");
+    observed_label_writes=0;
+    tick(1200);
+    assert(observed_label_writes==0); // Stable details must not rewrite old/new action text.
+    observed_label=NULL;
     assert(contains_visible_label(lv_screen_active(),MEMO_UI_COMPACT?"仅本地保存":"已在本机，尚未同步喵"));
     unsigned legacy_retry=retry_calls;
     press(indev,retry_x,retry_y,true);press(indev,retry_x,retry_y,false);tick(220);
@@ -1038,7 +1050,7 @@ int main(void)
     puts("HOST_UI: text-free cat recording/window/saving/saved/playing/error states PASS");
     puts("HOST_UI: held-pointer start/stop/play/paging, busy/SD gating, stable objects PASS");
     puts("HOST_UI: storage retry sends REFRESH not START; busy retry and stale list disabled; recovery to START PASS");
-    puts("HOST_UI: three-second cat hold opens provisioning, open AP details fit, exit command PASS");
+    puts("HOST_UI: three-second cat hold opens provisioning, password AP details fit, exit command PASS");
     puts("HOST_UI: physical display/touch and listening remain NOT_RUN");
     lv_deinit();
     return 0;
